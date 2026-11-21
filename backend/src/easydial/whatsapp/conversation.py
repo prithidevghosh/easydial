@@ -123,6 +123,10 @@ Broken speech such as "हरके के मूव कीजिए" is ambiguo
 Never guess a removal from an unclear transcript, and never infer a completed payment from agreement.
 Use status for requests to check an order/payment or claims of payment completion in any language
 (e.g. payment ho gaya, paise de diye). This only checks merchant history; it never proves payment.
+Distinguish a request TO PROCEED with payment from a claim of completed payment using meaning
+and NEXT_STEP, not the presence of payment/confirm words. With items but no reviewed bill,
+use review so the customer sees complete charges and Choose payment. With an already reviewed
+bill, use checkout to show methods. Never infer authorization to submit an order or pay.
 RECENT_SELECTION preserves the last selected line and its numbered menu, even after active choices clear.
 "first wla nhi, ap second wla choose kro" after selecting option 1 means select option 2 from
 RECENT_CHOICES and set replaces_line_id to RECENT_SELECTION.line_id. Preserve its quantity unless changed.
@@ -384,6 +388,13 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
             "offer_id": line.offer.id,
         }
 
+    async def review_before_payment(self, state, progress, customer):
+        if not state["view"]["lines"]:
+            return state, [text_message("Your basket is empty. What would you like to order?")]
+        if progress:
+            progress.update("Checking your cart and fees…")
+        return await self.handle("review", state, progress=progress, customer=customer)
+
     async def handle(self, text, state, action_id=None, progress=None, customer=None, _intent=None):
         session = Session(
             view=SessionView.model_validate(state["view"]),
@@ -409,11 +420,7 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
             if action_id and action_id.split(":", 2)[-1] != session.view.id:
                 raise DomainError("That button belongs to another basket. Ask to check your current order.")
             if not customer or not payments or not payments.existing(customer, session.view.id):
-                return state, [
-                    text_message(
-                        "No order or payment has been started for this basket. Review your basket first."
-                    )
-                ]
+                return await self.review_before_payment(state, progress, customer)
             if progress:
                 progress.update("Checking your order with the store…")
             if normalized in {"paid", "payment done", "i paid", "payment completed"}:
@@ -555,11 +562,7 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
                     progress.update("Checking your order with the store…")
                 result = await payments.monitor.check(customer, session.view.id, self.workers)
                 return state, status_messages(result, session.view)
-            return state, [
-                text_message(
-                    "No order or payment has been started for this basket. Review your basket first."
-                )
-            ]
+            return await self.review_before_payment(state, progress, customer)
         if (
             customer
             and getattr(self, "payments", None)
@@ -988,7 +991,7 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
             session.view.payment_preparation = None
             review = session.view.review
             if not review:
-                raise DomainError("Please review your basket first.")
+                return await self.review_before_payment(state, progress, customer)
             expired = now() - review.created_at > timedelta(minutes=5)
             fresh = await self.workers.revalidate(session.view)
             fresh = await self.resolve_bill(session, fresh, progress)

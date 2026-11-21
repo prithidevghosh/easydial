@@ -449,3 +449,33 @@ async def test_automatic_check_is_delayed_durable_and_notifies_once(tmp_path, ou
         await runtime.check_due_order()
         assert runtime.inbox.db.execute("SELECT done FROM automatic_order_checks").fetchone()[0] == 1
     runtime.inbox.close()
+
+
+@pytest.mark.parametrize('utterance', ['check status', 'payment confirm kijiye please', 'checkout'])
+async def test_no_payment_attempt_advances_basket_to_bill_and_button(tmp_path, utterance):
+    from unittest.mock import AsyncMock
+
+    from tests.test_whatsapp import intent
+
+    runtime = make_runtime(tmp_path)
+    state, _ = await runtime.chat.handle('milk', runtime.chat.initial())
+    state, _ = await runtime.chat.handle('1', state)
+    runtime.chat.interpret = AsyncMock(return_value=intent('status'))
+    runtime.payments.monitor.check = AsyncMock(side_effect=AssertionError('No attempt to check'))
+    runtime.payments.create = AsyncMock(side_effect=AssertionError('Must not create payment'))
+    runtime.payments.place_cash = AsyncMock(side_effect=AssertionError('Must not order'))
+    state, replies = await runtime.chat.handle(utterance, state, customer='alice')
+    assert state['view']['review']
+    assert any('TOTAL PAYABLE' in x.get('text', {}).get('body', '') for x in replies)
+    titles = [b['reply']['title'] for x in replies for b in x.get('interactive', {}).get('action', {}).get('buttons', [])]
+    assert 'Choose payment' in titles
+    assert not runtime.payments.existing('alice', state['view']['id'])
+    runtime.inbox.close()
+
+
+async def test_no_attempt_and_empty_basket_asks_for_products(tmp_path):
+    runtime = make_runtime(tmp_path)
+    state, replies = await runtime.chat.handle('check status', runtime.chat.initial(), customer='alice')
+    assert replies[0]['text']['body'] == 'Your basket is empty. What would you like to order?'
+    assert not state['view']['review']
+    runtime.inbox.close()

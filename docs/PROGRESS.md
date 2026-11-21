@@ -483,3 +483,13 @@ Validation: full standard suite passed (31 opt-in DOM tests skipped); final focu
 Implemented the requested architectural change: raw validated catalogue candidates from both stores go through a structured OpenAI semantic ranker before user choices. Removed the old lexical matcher and its tests. Model output is restricted to existing IDs; original prices, packs, images, availability and exact-refresh checks remain code controlled. API/validation failure returns retry UX, never unfiltered recommendations. No customer credentials/address are sent to ranking. See SEMANTIC_PRODUCT_RANKING.md for the contract and limits.
 
 Validation: 230 standard tests passed (31 opt-in DOM tests skipped; selectors unchanged), lint/diff checks passed. Five live semantic cases passed and a live customer-scoped Blinkit cookie search returned relevant ranked cookie variants. No cart mutation/order/payment. Restarted server with semantic ranking enabled through the existing OpenAI configuration.
+
+## 2026-11-21 — Payment requests advance to review without a dead end
+
+Updated the agent's general instruction to distinguish requests to proceed with payment from claims of completed payment using meaning and current checkout state. No phrase-specific router was added. Added state-based recovery: status/check-payment with no attempt but a nonempty basket invokes the normal bill review and Choose payment button; checkout without a review does the same. An empty basket asks what to order. Existing attempts still go through merchant history, and ambiguous speech still follows the existing clarification gate.
+
+This recovery never creates a payment request, selects a method or places an order; review is followed by explicit customer action. It also handles imperfect agent interpretation: live evaluation still classified the reported Hinglish confirmation phrase as status, while other proceed-to-pay requests classified as review. Both now reach the correct reviewed-bill journey. Payment-completed claims still classify as status.
+
+Regression tests exercise status intent, direct status command and checkout with a basket but no attempt, asserting an itemized bill/Choose payment and no payment creation; empty baskets return a shopping prompt. Existing attempt/status tests remain in place.
+
+Validation: full suite passed before the final checkout fallback addition (233 passed, 31 opt-in DOM skipped); the final focused order-tracking suite passed all 44 tests including that addition. Lint/diff checks passed. Restarted the server with the updated flow.
