@@ -835,3 +835,57 @@ async def test_blinkit_removing_first_row_does_not_read_the_next_products_quanti
     assert worker.guard.expected==()
     await worker.clear('order')
     assert worker.browser.save.await_count==2
+
+
+@pytest.mark.parametrize('bill_changed,delayed_handler', [(False, False), (False, True), (True, True)])
+async def test_blinkit_payment_entry_rechecks_full_page_checkout_before_advancing(page, monkeypatch, bill_changed, delayed_handler):
+    from unittest.mock import AsyncMock
+
+    from easydial.controller import DomainError
+    from easydial.providers import payments
+    from easydial.providers.blinkit import BlinkitProvider, cart_signature
+    from tests.test_browser_contract import basket
+
+    view = basket()
+    worker = BlinkitProvider('', 'Test locality', 'Test home')
+    cart = {'items': [{'name': 'Test milk', 'pack': '500 ml', 'quantity': 2}],
+            'address': 'Test home', 'total': '₹93',
+            'bill': [{'label': 'Items total', 'value': '₹66'}, {'label': 'Delivery charge', 'value': '₹27'}]}
+    review = worker.verified_review(view, cart)
+    worker.guard.owner = view.id
+    worker.guard.accepted(cart_signature(cart))
+
+    def html(checkout):
+        total = 94 if checkout and bill_changed else 93
+        action = "window.location.href='/checkout'" if not checkout else "window.advance++;document.body.innerHTML='<div>Select Payment Method</div><iframe src=https://www.zomato.com/zpaykit/test></iframe>'"
+        delay = """
+          <script>const button=document.querySelector('#proceed');const handler=button.getAttribute('onclick');
+          button.removeAttribute('onclick');setTimeout(()=>button.setAttribute('onclick',handler),1800);</script>
+        """ if checkout and delayed_handler else ""
+        return f'''<script>window.advance=0;window.paid=false;</script><div class="cart-modal-rn">
+          <div class="DefaultProductCard__Container"><div class="ProductTitle">Test milk</div>
+          <div class="ProductVariant">500 ml</div><div class="AddToCart__UpdatedButtonContainer">2</div></div>
+          <div class="BillCard__BillItemContainer">Items total<br>₹66</div>
+          <div class="BillCard__BillItemContainer">Delivery charge<br>₹{total-66}</div>
+          <div class="CheckoutStrip__NetPriceText">₹{total}</div><div class="ListStrip__SubHeading">Test home</div>
+          <button id="proceed" onclick="{action}">Proceed To Pay</button></div>{delay}'''
+
+    await page.route('https://blinkit.test/**', lambda route: route.fulfill(
+        body=html(route.request.url.endswith('/checkout')), content_type='text/html; charset=utf-8'))
+    await page.route('https://www.zomato.com/zpaykit/test', lambda route: route.fulfill(
+        body='<button>UPI</button><button onclick="parent.paid=true">Place order</button>', content_type='text/html'))
+    async def navigate(*_):
+        await page.goto('https://blinkit.test/')
+
+    worker.navigate = AsyncMock(side_effect=navigate)
+    if bill_changed:
+        with pytest.raises(DomainError, match='bill changed'):
+            await payments.open_options(worker, view, review, page)
+        assert await page.evaluate('window.advance') == 0
+    else:
+        scope = await payments.open_options(worker, view, review, page)
+        assert await scope.get_by_text('UPI', exact=True).is_visible()
+        assert await page.evaluate('window.advance') == 1
+        assert await payments.open_options(worker, view, review, page) is scope
+        assert await page.evaluate('window.advance') == 1
+    assert not await page.evaluate('window.paid')

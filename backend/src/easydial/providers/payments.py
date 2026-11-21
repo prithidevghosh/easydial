@@ -16,6 +16,7 @@ from ..billing import fingerprint
 from ..controller import DomainError
 from ..models import Provider
 from .blinkit import cart_signature, normalized
+from .browser import click_and_settle
 from .money import paise
 
 STORE_CHECKOUT = {
@@ -149,7 +150,9 @@ async def continue_blinkit_address(worker, view, review, page):
     heading = page.get_by_text("Select Payment Method", exact=True)
     rows = page.locator("div[class*='AddressList__AddressItemWrapper-']")
     selected = False
-    for _ in range(40):
+    checkout_clicks = 0
+    last_checkout_click = 0.0
+    for _ in range(80):
         if await heading.is_visible():
             return
         body = (await page.locator("body").inner_text()).casefold()
@@ -166,6 +169,20 @@ async def continue_blinkit_address(worker, view, review, page):
             verify_checkout_cart(worker, view, review, cart)
             selected = True
             await page.get_by_text("Proceed To Pay", exact=True).click()
+        elif (
+            checkout_clicks < 3 and time.monotonic() - last_checkout_click >= 2.5
+            and urlsplit(page.url).path.rstrip("/") == "/checkout"
+        ):
+            # The first cart CTA can navigate to a full-page checkout cart, not
+            # directly to the payment widget. Its CTA can precede hydration, so
+            # re-observe the heading and recheck the bill before each bounded retry.
+            proceed = page.get_by_text("Proceed To Pay", exact=True)
+            if await proceed.count() == 1 and await proceed.is_visible():
+                cart = await worker.read_cart(page)
+                verify_checkout_cart(worker, view, review, cart)
+                checkout_clicks += 1
+                await click_and_settle(page, proceed)
+                last_checkout_click = time.monotonic()
         await asyncio.sleep(0.25)
     raise DomainError("Blinkit payment options did not load. Try again later.")
 
