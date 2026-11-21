@@ -2,7 +2,7 @@
 
 import json
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from urllib.parse import parse_qs, urlsplit
 from zoneinfo import ZoneInfo
 
@@ -86,6 +86,28 @@ def parse_instamart(row):
     }
 
 
+def blinkit_placed_at(stamp, *, current=None):
+    current = current or datetime.now(ZoneInfo("Asia/Kolkata"))
+    stamp = re.sub(r"\s+", " ", stamp).strip()
+    relative = re.fullmatch(r"(?:placed )?(today|yesterday),? (\d{1,2}:\d{2} [ap]m)", stamp, re.I)
+    if relative:
+        try:
+            clock = datetime.strptime(relative[2].upper(), "%I:%M %p")
+        except ValueError:
+            return None
+        day = current - timedelta(days=relative[1].lower() == "yesterday")
+        return day.replace(hour=clock.hour, minute=clock.minute, second=0, microsecond=0).timestamp()
+    for fmt in ("%d %b, %I:%M %p", "%d %b, %Y, %I:%M %p"):
+        try:
+            dt = datetime.strptime(stamp, fmt)
+            if dt.year == 1900:
+                dt = dt.replace(year=current.year)
+            return dt.replace(tzinfo=current.tzinfo).timestamp()
+        except ValueError:
+            pass
+    return None
+
+
 def parse_blinkit(card, text):
     lines = [x.strip() for x in text.splitlines() if x.strip()]
 
@@ -105,19 +127,9 @@ def parse_blinkit(card, text):
             items.append({"name": lines[i - 1], "pack": pack[1], "quantity": int(pack[2])})
     head = card["items"][0]["data"]
     stamp = head.get("subtitle", {}).get("text", "")
-    now = datetime.now(ZoneInfo("Asia/Kolkata"))
-    placed = None
-    # History displays day/month/time without year. Resolve only dates in the
-    # current year; the matcher rejects everything older than the attempt window.
-    for fmt in ("%d %b, %I:%M %p", "%d %b, %Y, %I:%M %p"):
-        try:
-            dt = datetime.strptime(stamp, fmt)
-            if dt.year == 1900:
-                dt = dt.replace(year=now.year)
-            placed = dt.replace(tzinfo=now.tzinfo).timestamp()
-            break
-        except ValueError:
-            pass
+    placed = blinkit_placed_at(stamp)
+    if placed is None:
+        placed = blinkit_placed_at(after("Order placed"))
     method_text = after("Payment").casefold()
     method = "cash" if "cash" in method_text else "online" if method_text == "paid online" else None
     title = head.get("title", {}).get("text", "")

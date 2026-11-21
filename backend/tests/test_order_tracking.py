@@ -205,7 +205,7 @@ async def test_paid_claim_and_old_status_button_only_read_history(tmp_path):
 
     runtime.payments.monitor.check = check
     _, replies = await runtime.chat.handle("paid", state, customer="alice")
-    assert "hasn’t confirmed" in replies[0]["text"]["body"]
+    assert "couldn’t verify" in replies[0]["text"]["body"]
     assert replies[-1]["interactive"]["action"]["buttons"][0]["reply"]["title"] == "Check status"
     await runtime.chat.handle("Check status", state, f"status:0:{view.id}", customer="alice")
     await runtime.chat.handle("paid", state, customer="bob")
@@ -308,3 +308,51 @@ async def test_pending_retains_safe_rejection_diagnostics(tmp_path):
     assert result["history_issues"] == ["unreadable_history_link"]
     assert "order" not in result
     runtime.inbox.close()
+
+
+@pytest.mark.parametrize("stamp,day,hour", [
+    ("Today, 9:22 pm", 21, 21),
+    ("placed today, 9:22 PM", 21, 21),
+    ("Yesterday, 9:22 pm", 20, 21),
+    ("Today, 12:22 am", 21, 0),
+    ("21 Nov, 9:22 pm", 21, 21),
+])
+def test_blinkit_relative_history_dates(stamp, day, hour):
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from easydial.providers.order_history import blinkit_placed_at
+
+    current = datetime(2026, 11, 21, 21, 23, tzinfo=ZoneInfo("Asia/Kolkata"))
+    assert blinkit_placed_at(stamp, current=current) == current.replace(day=day, hour=hour, minute=22).timestamp()
+
+
+@pytest.mark.parametrize("stamp", ["Today", "Today, 99:22 pm", "unknown", ""])
+def test_blinkit_invalid_dates_are_not_assumed_current(stamp):
+    from easydial.providers.order_history import blinkit_placed_at
+    assert blinkit_placed_at(stamp) is None
+
+
+async def test_blinkit_today_paid_multiline_order_matches_and_confirms(tmp_path):
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from easydial.providers.order_history import parse_blinkit
+
+    runtime = make_runtime(tmp_path)
+    view = SessionView.model_validate((await reviewed(runtime))["view"])
+    monitor = runtime.payments.monitor
+    worker = SimpleNamespace(order_history=empty_history)
+    await monitor.capture("alice", view, "upi", worker)
+    monitor.activate("alice", view.id)
+    stamp = datetime.now(ZoneInfo("Asia/Kolkata")).strftime("Today, %I:%M %p")
+    card = {"identity": {"id": "new"}, "items": [{"data": {"title": {"text": "Arriving in 8 minutes"}, "subtitle": {"text": stamp}}}]}
+    lines = '\n'.join(f'{x.offer.name}\n{x.offer.pack_size} x {x.quantity}' for x in view.lines)
+    text = f'Order summary\nArriving in 8 minutes\n{len(view.lines)} items in this order\n{lines}\nBill total\n₹{view.review.total_paise/100:.2f}\nOrder id\nNEW123\nPayment\nPaid Online\nDeliver to\n{view.review.address_label}'
+    order = parse_blinkit(card, text)
+    # Fixture is Blinkit; exercise the actual parser through the matching monitor.
+    async def history(*args):
+        return {"orders": [order]}
+    worker.order_history = history
+    assert (await monitor.check("alice", view.id, worker, sleep=no_sleep))["status"] == "confirmed"
+    assert monitor.get("alice", view.id)["checks"] == 1

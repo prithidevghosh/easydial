@@ -403,3 +403,11 @@ Reproduced the reported UPI failure by running payment options and returning to 
 On a persistent header mismatch, navigation now reads the existing cart without resolving or selecting addresses. Only if its full delivery address matches the onboarded address does it accept the new header label. Missing/different full addresses still reject navigation, and no address is changed to manufacture a match. The check applies to search, review, payment entry and QR generation through their shared navigation path. Updated the WhatsApp option description to Generate a UPI QR.
 
 Validation: 183 standard tests passed; new regressions cover changed header with identical, different and absent full address. Live sequence restored the customer checkpoint, revalidated the saved bill, loaded UPI/COD options, then generated and decoded a QR for ₹270 in the same browser context. No payment approval or order submission occurred; the diagnostic QR was not sent to the customer.
+
+## 2026-11-21 — Paid Blinkit order rejected for relative history timestamp
+
+Read-only inspection of the current order found confirmed status, Paid Online, correct two lines/quantities, ₹270 and matching address, but placed_at=None. The history subtitle was Today, 9:22 pm; parsing only supported explicit day/month formats. The final poll timeout also overwrote earlier mismatch diagnostics.
+
+Added Today/Yesterday timestamp parsing in Asia/Kolkata plus the detail-page placed today fallback; unrecognized/malformed timestamps remain unknown. Existing baseline, recency, full items/quantity, address, total and payment checks remain required. Preserve rejection fields across a later read timeout. Pending UX now states that EasyDial could not verify the order, rather than claiming that the merchant has not confirmed it.
+
+Validation: 193 standard tests passed (27 opt-in DOM tests skipped; DOM readers unchanged). Regression coverage includes relative times, AM/PM, invalid times, parser-to-monitor first-check confirmation and prior cancellation/mismatch cases. Ran the real OrderMonitor against the existing customer attempt: matched on one additional read and durably recorded confirmed, paid, ₹270. No new order or payment was created. No personal order/address details added to public fixtures.

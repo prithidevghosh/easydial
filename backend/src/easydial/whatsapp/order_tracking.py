@@ -103,6 +103,7 @@ class OrderMonitor:
         result = {"status": "pending"}
         deadline = time.monotonic() + 30
         for attempt in range(10):
+            previous = result
             result = {"status": "pending"}
             try:
                 history = await asyncio.wait_for(
@@ -140,6 +141,8 @@ class OrderMonitor:
                     "status": "pending",
                     "reason": "history_read_error",
                     "error_type": type(exc).__name__,
+                    "rejected_fields": previous.get("rejected_fields", []),
+                    "history_issues": previous.get("history_issues", []),
                 }
             with self.db:
                 self.db.execute(
@@ -171,7 +174,7 @@ def status_messages(result, view):
     text = (
         "The store shows this order as cancelled or failed. Don’t pay again until any payment or refund is checked."
         if result["status"] == "failed"
-        else "The store hasn’t confirmed your order yet. Don’t pay or order again—I’ll check when you tap below."
+        else "I couldn’t verify your order yet. Don’t pay or order again—I’ll check when you tap below."
     )
     return [text_message(text), status_button(view)]
 
