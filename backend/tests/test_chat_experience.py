@@ -115,3 +115,64 @@ async def test_typing_payload_and_definite_image_failure_falls_back_to_text(tmp_
     )
     assert sent[-1]["text"]["body"] == "Diet Coke · ₹40 · In stock"
     await transport.close()
+
+
+async def test_hindi_new_product_reinterprets_invalid_edit_without_old_history(tmp_path):
+    import json
+    from types import SimpleNamespace
+
+    from easydial.models import IntentEdit, RequestedProduct
+    from tests.test_whatsapp import intent
+
+    calls = []
+
+    async def parse(**kwargs):
+        calls.append(json.loads(kwargs["input"]))
+        if len(calls) == 1:
+            return SimpleNamespace(
+                output_parsed=intent(
+                    "edit", edits=[IntentEdit(kind="set_quantity", line_id="invented", quantity=1)]
+                )
+            )
+        return SimpleNamespace(
+            output_parsed=intent(
+                "search", queries=[RequestedProduct(query="curd", quantity=1, replaces_line_id=None)]
+            )
+        )
+
+    client = SimpleNamespace(responses=SimpleNamespace(parse=parse))
+    chat = ShoppingChat(settings(tmp_path), None, SimpleNamespace(require_client=lambda: client))
+    session = Session(SessionView(id="test", mode="live", address_label="home"))
+    session.say("Clear the cart now.", "user")
+    result = await chat.interpret("ek dahi ka packet order krna h", session, {"choices": []})
+    assert result.action == "search" and result.queries[0].quantity == 1
+    assert len(calls) == 2 and calls[1]["validation_feedback"]
+    assert calls[0]["CURRENT_BASKET"] == []
+    assert "Clear the cart" not in json.dumps(calls)
+    assert session.view.lines == []
+
+
+async def test_repeated_invalid_edit_clarifies_without_mutation(tmp_path):
+    from types import SimpleNamespace
+
+    from easydial.models import IntentEdit
+    from tests.test_whatsapp import intent
+
+    calls = []
+
+    async def parse(**kwargs):
+        calls.append(kwargs)
+        return SimpleNamespace(
+            output_parsed=intent("edit", edits=[IntentEdit(kind="remove", line_id="missing", quantity=1)])
+        )
+
+    chat = ShoppingChat(
+        settings(tmp_path),
+        None,
+        SimpleNamespace(require_client=lambda: SimpleNamespace(responses=SimpleNamespace(parse=parse))),
+    )
+    session = Session(SessionView(id="test", mode="live", address_label="home"))
+    result = await chat.interpret("remove it", session, {"choices": []})
+    assert result.action == "clarify"
+    assert len(calls) == 2
+    assert session.view.lines == []

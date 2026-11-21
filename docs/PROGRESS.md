@@ -1,3 +1,11 @@
+# Hindi new-product intent fix — 2026-11-21
+
+User reported “That item is no longer in your basket” for “ek dahi ka packet order krna h”. The current draft was empty; the error originates from an edit against a missing line. Failed request text/intent was not retained, so the original model output cannot be reconstructed. The interpreter previously received the full SessionView, including stale “Clear the cart now” conversation history. Removed that historical input and supply only authoritative basket line IDs/products/quantities, reviewed-bill presence and displayed choices. Added explicit Hindi/Hinglish discovery examples and one bounded reinterpretation for nonexistent edit/replacement targets; repeated invalid output asks for clarification without mutation.
+
+Validation: 70 tests passed, 7 browser DOM tests skipped (no DOM changes); Ruff/diff checks pass. Real OpenAI interpretation of the exact user sentence and a Devanagari equivalent both returned search, quantity 1, no replacement and no edits. This verifies text intent only, not the original voice transcription or store results. No live cart changes or WhatsApp messages were sent by the diagnostic test.
+
+---
+
 # Payment choices, handoff and chat UX — 2026-11-21
 
 Reviewed upstream Blinkit MCP payment/auth source at `a39547118f4decd04a77ac16316fa09efdb6237a`; see `BLINKIT_MCP_PAYMENT_REVIEW.md`. Its QR flow corroborates our observed UI, but its fixed delay, automatic cash preference and lack of payment-result verification do not resolve our remaining issues. WhatsApp service restarted; local and public HTTPS health return ok, payment-link hosting is configured, and an invalid payment token returns 410. Payment authorization remains disabled.

@@ -61,7 +61,7 @@ class ShoppingChat:
             "last_timestamp": 0,
         }
 
-    async def interpret(self, text, session, state):
+    async def interpret(self, text, session, state, *, repair=False):
         client = self.master.require_client()
         result = await client.responses.parse(
             model=self.settings.openai_text_model,
@@ -83,11 +83,32 @@ Return empty queries/edits unless needed, null offer_id/quantity unless selectin
 Use short, everyday language: one short sentence where possible. Avoid technical words and repeated disclaimers.
 Clarifications must be brief and in the user's language. Never claim any completed action or price
 in clarification. Shopping only: redirect unrelated questions to groceries.
+Interpret only the current request. CURRENT_BASKET is authoritative; an empty list means no items.
+A request such as "मुझे दही चाहिए", "दही मंगवा दो", or "dahi order karo" means search
+for curd/dahi, not set_quantity or remove. Translate generic Indian-language grocery names into
+searchable catalogue terms while preserving brands, quantity and variants. Never edit a missing item.
+Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET line ID.
 """,
             input=json.dumps(
                 {
                     "request": text,
-                    "basket": session.view.model_dump(mode="json"),
+                    "CURRENT_BASKET": [
+                        {
+                            "line_id": line.id,
+                            "name": line.offer.name,
+                            "pack_size": line.offer.pack_size,
+                            "quantity": line.quantity,
+                        }
+                        for line in session.view.lines
+                    ],
+                    "has_reviewed_bill": session.view.review is not None,
+                    "validation_feedback": (
+                        "Your previous interpretation referenced a nonexistent basket line. "
+                        "Reinterpret the current request: new products require search, "
+                        "and ambiguous changes require clarify. Do not invent line IDs."
+                        if repair
+                        else None
+                    ),
                     "DISPLAYED_CHOICES": [
                         {"number": i + 1, **session.offers[id].model_dump(mode="json")}
                         for i, id in enumerate(state["choices"])
@@ -101,7 +122,27 @@ in clarification. Shopping only: redirect unrelated questions to groceries.
         )
         if result.output_parsed is None:
             raise DomainError("I couldn't understand that. Please say it another way.", 422)
-        return result.output_parsed
+        intent = result.output_parsed
+        line_ids = {line.id for line in session.view.lines}
+        invalid_target = (
+            intent.action == "edit"
+            and (not intent.edits or any(edit.line_id not in line_ids for edit in intent.edits))
+        ) or (
+            intent.action == "search"
+            and any(q.replaces_line_id and q.replaces_line_id not in line_ids for q in intent.queries)
+        )
+        if invalid_target:
+            if not repair:
+                return await self.interpret(text, session, state, repair=True)
+            return ChatIntent(
+                action="clarify",
+                queries=[],
+                edits=[],
+                offer_id=None,
+                quantity=None,
+                clarification="कौन सा सामान चाहिए? / Which item would you like?",
+            )
+        return intent
 
     async def handle(self, text, state, action_id=None, progress=None, customer=None):
         session = Session(
