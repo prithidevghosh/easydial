@@ -281,28 +281,25 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
             session.view.results = results
             session.view.comparison = exact_comparison([o for r in results for o in r.offers])
             session.changed()
-            if basket_store:
-                replies.append(text_message(f"Adding to your {basket_store.value.title()} basket."))
             if state["choices"]:
-                replies.extend(self.choice_messages(session, state["choices"]))
+                product_messages = self.choice_messages(
+                    session, state["choices"], partial=any(r.status != "ok" for r in results)
+                )
+                replies.extend(product_messages[:-1])
                 if session.view.comparison:
                     replies.append(text_message(session.view.comparison))
             else:
                 replies.append(
                     text_message(
-                        f"No selectable products were returned{(' from ' + basket_store.value.title()) if basket_store else ''}. "
-                        "Your basket is unchanged. Try a brand or pack size."
+                        "I couldn’t check products right now. Please try again shortly."
+                        if any(r.status != "ok" for r in results)
+                        else "I couldn’t find a match. Try a brand or pack size."
                     )
                 )
-            failures = [
-                f"{r.provider.value.title()}: {r.message or 'could not check; stock unknown'}"
-                for r in results
-                if r.status != "ok"
-            ]
-            if failures:
-                replies.append(text_message("\n".join(failures)))
             if intent.clarification:
                 replies.append(text_message(intent.clarification))
+            if state["choices"]:
+                replies.append(product_messages[-1])
         elif intent.action == "select":
             if intent.offer_id not in state["choices"]:
                 raise DomainError("Please select one of the current products, or search again.")
@@ -563,13 +560,12 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
         return replies
 
     @staticmethod
-    def choice_messages(session, choices):
+    def choice_messages(session, choices, partial=False):
         rows, descriptions, photos = [], [], []
         for i, id in enumerate(choices, 1):
             offer = session.offers[id]
             title = f"{i}. {offer.provider.value.title()}"
             detail = f"{offer.name[:100]} · {offer.pack_size or 'unknown pack'} · {money(offer.price_paise)}"
-            descriptions.append(f"{title}: {detail} · In stock · {offer.suggested_quantity} pack(s)")
             image_url = product_image_url(offer.image_url)
             if image_url and len(photos) < 2:
                 photos.append(
@@ -577,29 +573,39 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
                         "type": "image",
                         "image": {
                             "link": image_url,
-                            "caption": f"{title} · {offer.name} · {offer.pack_size} · {money(offer.price_paise)} · In stock"[
+                            "caption": f"{title} · {offer.name} · {offer.pack_size} · {money(offer.price_paise)} · In stock · {offer.suggested_quantity} pack(s). Reply {i} to choose."[
                                 :1024
                             ],
                         },
                     }
                 )
+            else:
+                descriptions.append(
+                    f"{title}: {detail} · In stock · {offer.suggested_quantity} pack(s). Reply {i} to choose."
+                )
             rows.append(
                 {"id": f"pick:{session.view.version}:{id}", "title": title[:24], "description": detail[:72]}
             )
-        return photos + [
-            text_message("\n".join(descriptions) + "\nChoose a number. Delivery and fees come at review."),
-            {
-                "type": "interactive",
-                "interactive": {
-                    "type": "list",
-                    "body": {"text": "Which product would you like?"},
-                    "action": {
-                        "button": "Choose a product",
-                        "sections": [{"title": "Live results", "rows": rows}],
+        return (
+            photos
+            + ([text_message("\n".join(descriptions))] if descriptions else [])
+            + [
+                {
+                    "type": "interactive",
+                    "interactive": {
+                        "type": "list",
+                        "body": {
+                            "text": "Which product would you like? Tap below or reply with its number. Delivery and fees come at review."
+                            + (" I couldn’t compare all stores this time." if partial else "")
+                        },
+                        "action": {
+                            "button": "Choose a product",
+                            "sections": [{"title": "Live results", "rows": rows}],
+                        },
                     },
                 },
-            },
-        ]
+            ]
+        )
 
     @staticmethod
     def basket_messages(session):

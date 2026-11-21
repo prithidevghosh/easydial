@@ -56,6 +56,8 @@ def test_choices_show_at_most_two_photos_and_keep_numbers():
     }
     replies = ShoppingChat.choice_messages(Session(view, offers=offers), list(offers))
     assert sum(r["type"] == "image" for r in replies) == 2
+    assert replies[-1]["type"] == "interactive"
+    assert "Product 0" not in next(r["text"]["body"] for r in replies if r["type"] == "text")
     assert "In stock" in replies[0]["image"]["caption"]
     assert "Product 3" in next(r["text"]["body"] for r in replies if r["type"] == "text")
     assert len(replies[-1]["interactive"]["action"]["sections"][0]["rows"]) == 4
@@ -176,3 +178,36 @@ async def test_repeated_invalid_edit_clarifies_without_mutation(tmp_path):
     assert result.action == "clarify"
     assert len(calls) == 2
     assert session.view.lines == []
+
+
+async def test_search_keeps_provider_diagnostics_out_of_customer_messages(tmp_path):
+    import json
+
+    from easydial.models import SearchResult
+    from tests.fakes import FixtureProvider
+
+    runtime = make_runtime(tmp_path)
+    good = await FixtureProvider(Provider.INSTAMART).search("milk", "test home")
+    failure = SearchResult(
+        provider=Provider.BLINKIT,
+        query="milk",
+        status="error",
+        message="Complete the browser verification challenge manually",
+    )
+
+    async def search(query, address):
+        return [failure, good]
+
+    runtime.chat.workers.search = search
+    state, replies = await runtime.chat.handle("milk", runtime.chat.initial())
+    output = json.dumps(replies)
+    assert replies[-1]["type"] == "interactive"
+    assert "browser" not in output and "challenge" not in output
+    assert "Adding to" not in output
+    assert "compare all stores" in output
+    assert state["view"]["results"][0]["message"] == failure.message
+    good.offers = []
+    _, replies = await runtime.chat.handle("milk", runtime.chat.initial())
+    assert "try again shortly" in replies[0]["text"]["body"]
+    assert "browser" not in json.dumps(replies)
+    runtime.inbox.close()

@@ -1,3 +1,11 @@
+# Product-choice message UX — 2026-11-21
+
+Per the user’s correction, product cards come first and the choice menu comes last. Each card includes its selection number/instruction; products with photos are not repeated in a second full text list. Removed premature “Adding to your basket” wording during search. Store diagnostics remain in structured private search results; customer output shows only a brief incomplete-comparison note or retry guidance. No customer browser troubleshooting instructions are emitted by search. Meta may deliver media out of order despite sequential sends, so each card is independently actionable.
+
+Validation: 71 tests passed, 7 DOM tests skipped; Ruff passes. Tests cover prompt-last ordering, deduplication, complete menu choices, and sanitized partial/total search failures. No live store changes made.
+
+---
+
 # Hindi new-product intent fix — 2026-11-21
 
 User reported “That item is no longer in your basket” for “ek dahi ka packet order krna h”. The current draft was empty; the error originates from an edit against a missing line. Failed request text/intent was not retained, so the original model output cannot be reconstructed. The interpreter previously received the full SessionView, including stale “Clear the cart now” conversation history. Removed that historical input and supply only authoritative basket line IDs/products/quantities, reviewed-bill presence and displayed choices. Added explicit Hindi/Hinglish discovery examples and one bounded reinterpretation for nonexistent edit/replacement targets; repeated invalid output asks for clarification without mutation.
