@@ -1,3 +1,5 @@
+> Implementation update (2026-11-21): the user has replaced Swiggy MCP with Playwright on **https://instamart.in/**. This document preserves the earlier research; current browser evidence is in [BROWSER_VERIFICATION.md](BROWSER_VERIFICATION.md). MCP findings below are not the current runtime architecture.
+
 # Commerce integration audit
 
 Research date: 2026-11-21. This is documentation review and static source inspection, **not an authenticated end-to-end test**. No customer account was connected, cart changed, payment initiated, or order placed.

@@ -1,3 +1,5 @@
+> Current implementation note (2026-11-21): both commerce workers use Playwright (Blinkit and instamart.in); MCP is superseded. The backend validates typed cart journeys through local Pending. Voice and paid-order stages below remain unverified/proposed. See BROWSER_VERIFICATION.md.
+
 # Proposed agent behaviour
 
 Updated: 2026-11-21. Design proposal only; no implementation. This preserves the requested OpenAI master plus two provider agents while defining the controls needed around them.

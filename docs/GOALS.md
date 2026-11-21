@@ -18,6 +18,10 @@ This is a product hypothesis supplied by the founder, not a finding from user in
 - Research feasibility and hackathon themes before building.
 - Keep separate Markdown records for goals, findings, decisions, and progress so another agent can continue.
 
+## Final product target
+
+Native iOS dictation → understood and editable basket → real Blinkit/Instamart checkout → explicitly approved payment → provider-confirmed paid order. Both provider workers now use Playwright. Payment and order confirmation require a later authorized test; this session must not place any order.
+
 ## Proposed first demonstrable journey
 
 An onboarded user speaks a short grocery request, hears a clarification if needed, receives matching products and costs, changes one item, hears the final payable amount and address, and confirms. The system distinguishes pending payment from confirmed order placement.

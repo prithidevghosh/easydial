@@ -4,7 +4,26 @@ Updated: 2026-11-21. Owner: current agent and founder. Repository: https://githu
 
 This is the primary execution document. Read it together with `docs/PROGRESS.md` at the beginning of every session. Update the checkboxes and evidence before ending a session. A written feature, successful compilation, sample response, and verified live journey are four different levels of completion.
 
-## Current release override — 2026-11-21
+## Latest direction — browser automation and eventual paid-order completion
+
+User now requires both Blinkit and Instamart through browser automation, with dictation → product selection → editable basket → live checkout → paid and provider-confirmed order as the final product goal. Swiggy MCP is no longer the chosen integration. The user's production-access experience motivates the change; do not generalize it into an independently verified claim about every MCP account.
+
+For this work session the user explicitly allows current-location use and forbids placing an order. Test login/search/cart/checkout preparation only. Payment code requires real observed payment surfaces, explicit per-basket approval and provider order/payment evidence; neither a button click nor a pending screen constitutes success.
+
+- [x] Inspect actual Blinkit DOM and fix selectors based on evidence.
+- [x] Inspect Instamart browser login, location, search, variants, cart and checkout.
+- [x] Replace Swiggy MCP runtime/configuration with a browser worker.
+- [x] Retain isolated account browser sessions and show login/challenge/service blockers accurately.
+- [x] Test real add/increase/decrease/replace/remove/review for each reachable provider.
+- [x] Test checkout boundary without placing an order; document every untested stage.
+- [x] Add actual-page regression fixtures and repeat affected tests.
+- [ ] Implement and verify user-approved payment and provider-confirmed order in a later authorized purchase session.
+
+No stealth modifications, CAPTCHA bypasses, proxy rotation, or retries around explicit automation blocks. A normal browser session can reduce repeated login churn but cannot guarantee that sites accept automation.
+
+Verified browser/API evidence: both providers passed search → cart → full address/live bill → local Pending → clear. See `docs/BROWSER_VERIFICATION.md`. No order or payment was attempted. 30 local tests pass with optional Chrome DOM checks.
+
+## Previous release override — historical 2026-11-21 milestone
 
 The user has removed demo mode from scope and requested live Blinkit and Swiggy flows through basket review, with Checkout showing Pending. This supersedes all earlier sample-mode milestones below; those entries are historical evidence only.
 
@@ -37,7 +56,7 @@ The product must be able to answer these questions without losing state:
 - Has the user approved the exact current basket, delivery address and payment method?
 - Did the provider confirm an order, or did we only open payment/click a button?
 
-Latest verification: 26 backend contract/unit tests and Ruff pass; live-only disconnected-home simulator test passes. Earlier sample-journey evidence below is historical and has been superseded. Checked implementation items below do not imply authenticated live validation.
+Latest verification: 30 local backend/DOM tests and Ruff pass; both provider HTTP journeys validated live through Pending and cleanup; live-only disconnected-home simulator test passes. Earlier sample-journey evidence below is historical and has been superseded. Checked implementation items below do not imply authenticated live validation.
 
 ### Non-negotiable goals
 
@@ -59,7 +78,7 @@ These boxes are final outcome checks, not scaffold checks. Do not mark G2 comple
 
 - Native SwiftUI iOS app; Python backend.
 - OpenAI master; explicit Instamart and Blinkit workers.
-- Official Swiggy MCP, and an improved/custom Playwright integration for Blinkit.
+- Dedicated persistent Chrome/Playwright integrations for Blinkit and Instamart.in (supersedes the earlier Swiggy MCP plan).
 - Direct microphone input, initially tap to start/stop.
 - OpenAI transcription and speech output initially; benchmark Sarvam before deciding final speech stack.
 - Both providers stay in scope. Blinkit is not discarded because upstream needs work.

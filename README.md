@@ -2,7 +2,7 @@
 
 Voice-assisted grocery ordering for older adults and people who find commerce apps difficult to use.
 
-**Phase: building. Updated: 2026-11-21.** Native SwiftUI iOS app and Python backend; live-only provider discovery and cart-review pipeline implemented; Checkout stops at Pending. Authenticated integration testing is outstanding.
+**Phase: building. Updated: 2026-11-21.** Native SwiftUI iOS app and Python backend; live-only provider discovery and cart-review pipeline implemented; Checkout stops at Pending. Both websites have reached pre-payment checkout after login; see the [browser verification ledger](docs/BROWSER_VERIFICATION.md) for adapter evidence and remaining gaps.
 
 Repository: [prithidevghosh/easydial](https://github.com/prithidevghosh/easydial) (public).
 
@@ -12,7 +12,7 @@ Start with [plan.md](plan.md) for the detailed execution checklist and [the runb
 
 ## Research verdict
 
-The concept is feasible as a bounded hackathon prototype. The full promise—any Indian language, reliable comparison across both providers, and completed orders—is not yet validated. Both providers remain in scope; no demo catalogue is shipped. Authenticated discovery, live basket/bill verification and a measured language set are the next validation gates. Payment remains deferred.
+The concept is feasible as a bounded hackathon prototype. The full promise—any Indian language, reliable comparison across both providers, and completed orders—is not yet validated. Both providers remain in scope; no demo catalogue is shipped. Provider automation uses dedicated Chrome profiles for Blinkit and instamart.in. A measured language set and full dictation-to-paid-order validation remain outstanding. Payment remains deferred.
 
 ## Read in this order
 

@@ -14,6 +14,8 @@ Without credentials, the home screen shows disconnected stores. No sample produc
 
 `.env` is server-side, ignored by Git. Restart after configuration changes. This is a loopback-only, single-operator development service with expiring bearer sessions and in-memory carts. Do not expose it as a public backend.
 
+Provider workers use installed Google Chrome with dedicated private profiles. Close setup/audit browsers before starting the backend; a profile cannot be owned by two processes. Do not use the legacy Swiggy MCP helper.
+
 ## Native iOS
 
 Open `ios/EasyDial.xcodeproj`, choose an iPhone simulator, and Run. The generated project is committed. Use `xcodegen generate` from `ios` only after changing `project.yml`.
@@ -37,6 +39,8 @@ OpenAI is optional for literal typed search; microphone/intent/voice responses r
 ```sh
 uv --directory backend run ruff check src tests tools
 uv --directory backend run pytest -q
+# Also run observed-DOM regressions locally with Chrome installed:
+EASYDIAL_DOM_TESTS=1 uv --directory backend run pytest -q
 ```
 
 Provider fixtures exist only under `backend/tests` and are not wired to the application. They validate contracts/guards without contacting user accounts. They do not prove live integration success.

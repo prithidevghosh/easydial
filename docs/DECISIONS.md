@@ -47,3 +47,16 @@ An unrelated/external cart is never replaced silently. This single-operator buil
 ## D23 — Explicit primary-action contrast (implemented, 2026-11-21)
 
 User screenshot showed dark inherited text on the dark button. PrimaryActionStyle owns white label contrast, full width, a minimum 56-point height and an 18-point corner radius. Soft secondary controls share a lighter treatment; the home screen removes redundant introductory assistant content and clarifies disconnected stores. Supporting text has an explicit slate colour.
+
+
+## 2026-11-21 — both providers use visible browser automation
+
+User decision: replace Swiggy MCP and eventually support dictation through a paid, provider-confirmed order. This session explicitly prohibits order placement. Runtime removes MCP and OAuth setup; both stores use dedicated persistent headed Chrome profiles, serialized mutations, cart ownership guards and provider readback.
+
+Website correction: `https://www.swiggy.com/instamart` showed a temporary-glitch page, but the user supplied `https://instamart.in/`, which loaded successfully and allowed logged-in search/cart. Do not attribute the old route's failure to an established bot block or conclude Instamart is unavailable.
+
+Empty cart address gate: neither store exposes the full checkout address when the cart is empty. Require the exact selected homepage location captured during onboarding before draft cart writes, then require the provider-specific full saved address and final bill after sync. Any mismatch prevents a successful review; no payment follows automatically.
+
+Readback timing: item rows appear before bills; quantity widgets can update optimistically before the store saves the change. Wait for complete bill data and completed browser network activity before navigating away from cart edits. Never retry an uncertain write blindly; reconcile the provider cart first.
+
+Reuse normal logged-in sessions instead of relaunching headless Firefox for every request. This reduces login churn; it is not a guarantee against future bot checks. No stealth, challenge bypass, fingerprint spoofing or proxy rotation is added.
