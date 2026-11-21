@@ -527,3 +527,48 @@ async def test_blinkit_known_cart_waits_for_hydration(page):
       </div><script>setTimeout(()=>document.querySelector('[disabled]').removeAttribute('disabled'), 350)</script>''')
     cart = await worker.read_cart(page)
     assert cart["items"] == [{"name": "Diet Coke", "pack": "330 ml", "quantity": 4}]
+
+
+async def test_instamart_login_waits_for_delayed_location_gate(page):
+    from easydial.whatsapp.store_login import StoreLogin
+
+    await page.set_content('''<main>Loading</main><script>
+    window.headerClicks = 0;
+    setTimeout(() => {
+      document.querySelector('main').innerHTML = `<button onclick="window.headerClicks++">Sign in</button>
+      <div style="position:fixed;inset:0;background:white;z-index:10">
+        <span id="gate-login">Login</span><p>to see your saved addresses</p>
+      </div>`;
+      document.querySelector('#gate-login').onclick = () => {
+        document.body.innerHTML = '<input name="auth-sidebar-mobile" maxlength="10" type="tel">';
+      };
+    }, 300);
+    </script>''')
+    await StoreLogin.open_instamart_login(page)
+    assert await page.locator('input[name="auth-sidebar-mobile"]').is_visible()
+    assert await page.evaluate('window.headerClicks') == 0
+
+
+async def test_instamart_login_reobserves_overlay_after_header_race(page):
+    from easydial.whatsapp.store_login import StoreLogin
+
+    await page.set_content('''<button id="header">Sign in</button><script>
+    document.querySelector('#header').onclick = () => {
+      document.body.innerHTML = `<div style="position:fixed;inset:0;background:white">
+      <span id="login">Login</span></div>`;
+      document.querySelector('#login').onclick = () => {
+        document.body.innerHTML = '<input name="auth-sidebar-mobile" maxlength="10" type="tel">';
+      };
+    };
+    </script>''')
+    await StoreLogin.open_instamart_login(page)
+    assert await page.locator('input[name="auth-sidebar-mobile"]').is_visible()
+
+
+async def test_instamart_login_accepts_existing_phone_form_without_click(page):
+    from easydial.whatsapp.store_login import StoreLogin
+
+    await page.set_content('''<input name="auth-sidebar-mobile" maxlength="10" type="tel">
+    <button onclick="window.clicked=true">LOGIN</button>''')
+    await StoreLogin.open_instamart_login(page)
+    assert not await page.evaluate('Boolean(window.clicked)')

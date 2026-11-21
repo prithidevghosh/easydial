@@ -435,3 +435,13 @@ Pay-on-delivery already reconciles and replies automatically; it now waits five 
 All manual status requests now refresh even previously confirmed/cancelled outcomes. A refresh failure returns only an availability/retry message, never a cached status or ETA; stored purchase evidence remains necessary to identify the exact order and prevent duplicate purchases.
 
 Validation: 228 tests passed, 27 opt-in DOM tests skipped; lint and diff checks passed. Added automatic-job regressions for five-second scheduling, restart persistence, single verified notification, silent pending checks, retry budget and logout revocation. Server restarted with the changes; local and public health endpoints checked. No live order/payment was submitted for verification.
+
+## 2026-11-21 — Instamart fresh-login hydration race
+
+Reproduced the reported phone-stage timeout twice in fresh headless Chrome contexts without entering a phone number or requesting an OTP. The old immediate check found no location-dialog Login link and committed to the header Sign in selector before Instamart had rendered it. That fixed eight-second wait timed out, resetting onboarding.
+
+Instamart login now observes the visible phone form, location-dialog Login and header Sign in in a bounded loop. Short click waits permit re-observing late overlays/hydration, while challenge checks remain active. An existing phone form returns immediately; this helper never submits a phone number or retries an OTP request. Exhaustion reports that the store login screen did not load rather than a generic sign-in failure.
+
+Live verification: the new helper reached the phone form successfully in two independent fresh headless sessions. No phone/OTP was submitted during diagnostics. Added DOM regressions for delayed location dialog, a dialog appearing after the header action and an already-open phone form. Full OTP/address onboarding still requires the customer's next WhatsApp login attempt; website changes cannot be guaranteed away permanently.
+
+Validation: all 30 opt-in Chrome DOM tests and 228 standard tests passed; lint and diff checks passed. Restarted the WhatsApp server with the fix after validation.

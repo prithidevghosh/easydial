@@ -78,15 +78,37 @@ class StoreLogin:
             await page.get_by_placeholder("Enter mobile number", exact=True).fill(phone)
             await page.get_by_text("Continue", exact=True).click()
         else:
-            login = page.get_by_text("Login", exact=True)
-            if await login.count() and await login.last.is_visible():
-                await login.last.click()
-            else:
-                await page.get_by_role("button", name="Sign in", exact=True).click()
+            await self.open_instamart_login(page)
             await page.locator('input[name="auth-sidebar-mobile"]').fill(phone)
             await page.get_by_role("button", name="LOGIN", exact=True).click()
         # Do not claim an OTP was sent just because the phone submit button was clicked.
         await self.otp_inputs(page).first.wait_for(state="visible", timeout=15000)
+
+    @staticmethod
+    async def open_instamart_login(page):
+        phone = page.locator('input[name="auth-sidebar-mobile"]')
+        deadline = time.monotonic() + 35
+        while time.monotonic() < deadline:
+            await BrowserSession.check_page(page)
+            if await phone.is_visible():
+                return
+            # The fresh-session location dialog hydrates after DOMContentLoaded.
+            # Re-observe it after each bounded click instead of committing to a
+            # hidden/covered header button for the whole timeout.
+            login = page.get_by_text("Login", exact=True).filter(visible=True)
+            header = page.get_by_role("button", name="Sign in", exact=True)
+            target = login if await login.count() == 1 else header
+            if await target.count() == 1 and await target.is_visible():
+                try:
+                    await target.click(timeout=750)
+                except PlaywrightTimeoutError:
+                    pass
+            try:
+                await phone.wait_for(state="visible", timeout=750)
+                return
+            except PlaywrightTimeoutError:
+                pass
+        raise DomainError("Instamart’s login screen isn’t loading right now. Please try again shortly.")
 
     @staticmethod
     async def open_blinkit_login(page):
