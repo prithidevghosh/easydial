@@ -17,3 +17,12 @@ class Settings(BaseSettings):
     blinkit_storage_state: str = ""
     blinkit_verified_location: str = ""
     blinkit_verified_address: str = ""
+    # WhatsApp is a single-account pilot; exactly one allowed sender, never a wildcard.
+    whatsapp_phone_number_id: str = ""
+    whatsapp_access_token: str = ""
+    whatsapp_verify_token: str = ""
+    meta_app_secret: str = ""
+    whatsapp_allowed_sender: str = ""
+    whatsapp_api_version: str = "v27.0"
+    whatsapp_database: str = ".state/whatsapp/pilot.sqlite3"
+    whatsapp_support_contact: str = ""
