@@ -1,3 +1,9 @@
+# Latest research update — deployment and payment
+
+2026-11-21: user reports WhatsApp working. Headless/payment research is recorded in `DEPLOYMENT_AND_PAYMENTS.md`. Browser workers still use `headless=False`; no production deployment or authenticated headless check performed. Recommended payment design is provider-owned UPI with user authorization and durable provider confirmation, conditional on observing transferable website payment artifacts. No cart/payment/order actions or runtime changes were made for this research. Current no-purchase/Pending boundary remains.
+
+---
+
 # Latest operational update — 2026-11-21
 
 User completed Meta app creation and filled private `.env`. Presence checks now pass for Meta/OpenAI settings, FFmpeg and store address. A read-only Meta API request verified sender access. OpenAI API calls and real inbound/outbound WhatsApp delivery are still unverified.

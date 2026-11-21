@@ -4,6 +4,17 @@ Updated: 2026-11-21. Owner: current agent and founder. Repository: https://githu
 
 This is the primary execution document. Read it together with `docs/PROGRESS.md` at the beginning of every session. Update the checkboxes and evidence before ending a session. A written feature, successful compilation, sample response, and verified live journey are four different levels of completion.
 
+## Deployment/payment research update (2026-11-21)
+
+User reports WhatsApp is working and asks about headless hosting and payment. See `docs/DEPLOYMENT_AND_PAYMENTS.md`. Current workers hardcode headed Chrome. Headless hosting is supported by Playwright but neither authenticated store has been verified headless on the intended deployment host. Payment handoff and provider confirmation are still unimplemented; no store/payment actions were performed for this research.
+
+- [x] Audit current browser launch configuration and official headless/container guidance.
+- [x] Research provider payment methods, UPI handoff constraints and durable confirmation requirements.
+- [ ] Inspect real payment-choice and order-status surfaces without initiating a purchase.
+- [ ] Implement configurable headless hosting and verify both stores on the intended host.
+- [ ] Verify a provider-issued cross-device payment handoff, then implement durable approval/reconciliation.
+- [ ] Perform a real purchase only after explicit authorization of the basket and amount.
+
 ## Latest product direction — WhatsApp first (2026-11-21)
 
 User has paused app development and requested feasibility of voice recordings sent to an EasyDial WhatsApp chat driving the existing shopping pipeline. This supersedes iOS as the active customer channel; retain existing app code. Research is recorded in `docs/WHATSAPP_FEASIBILITY.md`. WhatsApp transport is implemented for a single-user pilot and locally tested, but actual Meta/OpenAI delivery and live end-to-end operation are unverified. See `docs/WHATSAPP_SETUP.md`. Meta use-case eligibility for our India-focused service, durable per-user state/store linking and payment remain open gates.

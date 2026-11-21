@@ -72,3 +72,8 @@ User decision: pause app development and investigate routing the complete voice-
 User authorized implementation and assisted Meta setup. Direct Cloud API was chosen. A separate webhook-only process prevents exposing the local session API through the development tunnel. One allowlisted phone-number sender maps to the owner's saved provider profiles; arbitrary users and username-only senders are ignored. SQLite persists turns/choices and inbox/outbox records; interrupted browser operations and uncertain outgoing sends are never blindly replayed. Existing cart guards remain authoritative after restart.
 
 Text/list/button responses are the initial UI; voice input is normalized through FFmpeg and sent to the existing OpenAI transcription model. Payment remains unavailable. Actual Meta setup and OpenAI credentials are required before the first real WhatsApp test. `WHATSAPP_SETUP.md` records the exact steps and limitations.
+
+
+## 2026-11-21 — deployment and payment recommendation (research, not implementation)
+
+Recommend a persistent Linux browser worker with configurable headless Chrome, private per-account onboarding/recovery and persistent state. Current hardcoded headed mode is unchanged. Prefer provider-owned user-authorized payment handoff rather than collecting grocery money through EasyDial's own gateway. Cross-device payment-link/intent/QR availability and provider confirmation surfaces must be observed before implementation. COD and wallets can submit real orders; they are not safe selector-test shortcuts. Details and primary sources: `DEPLOYMENT_AND_PAYMENTS.md`.
