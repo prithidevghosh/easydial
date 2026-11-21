@@ -564,3 +564,11 @@ Validation: 239 standard tests passed; 31 opt-in DOM tests skipped. Lint/diff ch
 - Even an explicit merchant limit now preserves the isolated login page and offers Check login / Use another number / Cancel instead of resetting store selection. Checking only observes the page; it does not bypass limits or repeat OTP requests.
 - Added DOM regressions for countdown, generic failure, explicit request/attempt limits, plus onboarding coverage for retained context and no OTP resend.
 - Validation: 57 onboarding tests and 39 Chrome DOM tests passed; Ruff and diff checks passed. No live login/OTP request was made.
+
+## Live evidence: Instamart rejects phone submission
+- With explicit user approval, made exactly one fresh login attempt using the consented pending account; recorded it in the local request allowance. No automatic repeats, no OTP values captured, no order actions.
+- Actual visible response: "Something went wrong, please try again after sometime." The phone input auth-sidebar-mobile remained visible; there was no OTP field. This establishes a merchant phone-submission error, not the reason behind that error (rate limit, account restriction, network/service failure remain unproven).
+- Previous OTP polling wrongly left this explicit error pending. Added a distinct LoginSubmissionRejected outcome for the observed wording, and a recovery to encrypted phone state with Retry login / Use another number / Cancel. Existing consent is preserved. A new OTP request happens only after explicit retry and the existing per-account allowance.
+- No changes to browser fingerprinting, anti-bot evasion or merchant APIs. Successful Instamart login is NOT verified.
+- Regression tests cover the observed DOM and the retry transition/no automatic resubmission.
+- Validation: 58 onboarding tests, 40 Chrome DOM tests, Ruff and diff checks passed.

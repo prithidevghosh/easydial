@@ -663,3 +663,30 @@ async def test_explicit_merchant_limit_keeps_context_for_checking(tmp_path):
     await turn(r, "Cancel")
     adapter.cancel.assert_awaited_once()
     r.inbox.close()
+
+
+async def test_merchant_phone_error_offers_retry_instead_of_pending_loop(tmp_path):
+    from unittest.mock import AsyncMock
+
+    from easydial.whatsapp.store_login import LoginSubmissionRejected
+
+    r = runtime(tmp_path)
+    await consent(r)
+    adapter = r.onboarding.adapter
+    adapter.request_otp = AsyncMock(side_effect=LoginSubmissionRejected("store error"))
+    replies = await turn(r, "9999999999")
+    state = r.onboarding.accounts.state("919999999999")
+    assert state["stage"] == "phone"
+    assert state["retry_phone"] == "9999999999"
+    assert r.onboarding.accounts.consented("919999999999", "instamart")
+    assert [b["reply"]["title"] for b in replies[0]["interactive"]["action"]["buttons"]] == [
+        "Retry login", "Use another number", "Cancel",
+    ]
+    adapter.request_otp.assert_awaited_once()
+    # The next request only happens after an explicit customer retry.
+    adapter.request_otp.side_effect = None
+    replies = await turn(r, "Retry login")
+    assert adapter.request_otp.await_count == 2
+    assert r.onboarding.accounts.state("919999999999")["stage"] == "otp"
+    assert "Enter the OTP" in replies[0]["text"]["body"]
+    r.inbox.close()

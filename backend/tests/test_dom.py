@@ -689,3 +689,20 @@ async def test_login_limit_requires_explicit_evidence(page, wording, limited):
         await adapter.wait_for_otp("test", "instamart", timeout=0)
     assert isinstance(caught.value, LoginRateLimited) is limited
     assert await page.locator("main").inner_text() == wording
+
+
+async def test_observed_instamart_phone_error_is_not_loading_or_rate_limit(page):
+    from types import SimpleNamespace
+
+    from easydial.whatsapp.store_login import LoginSubmissionRejected, StoreLogin
+
+    await page.set_content('''<input name="auth-sidebar-mobile" type="tel">
+    <div>Something went wrong, please try again after sometime.</div><button>LOGIN</button>''')
+    adapter = StoreLogin(SimpleNamespace(), None)
+
+    async def open_page():
+        return page, None
+
+    adapter.session = lambda *_: SimpleNamespace(open=open_page)
+    with pytest.raises(LoginSubmissionRejected):
+        await adapter.wait_for_otp("test", "instamart", timeout=0)

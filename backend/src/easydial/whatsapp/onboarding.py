@@ -12,7 +12,7 @@ from ..controller import DomainError
 from ..models import SessionView
 from .accounts import CONSENT_TEXT
 from .conversation import text_message
-from .store_login import LoginRateLimited, LoginStillPending
+from .store_login import LoginRateLimited, LoginStillPending, LoginSubmissionRejected
 
 log = logging.getLogger(__name__)
 
@@ -353,6 +353,17 @@ class Onboarding:
                     return self.address_menu(state)
                 return [text_message("Choose Same address or Choose another in the message above.")]
             return self.menu(sender, "Login was interrupted. Choose a store to reconnect.")
+        except LoginSubmissionRejected:
+            pending = self.accounts.state(sender)
+            await self.cancel(sender, provider)
+            state = self.accounts.begin(
+                sender, "phone", provider=provider,
+                retry_phone=pending.get("phone") or pending.get("retry_phone"),
+            )
+            return [button_message(
+                f"{provider.title()} couldn’t start login. Please wait a moment, then tap Retry login.",
+                state["nonce"], [("retry_login", "Retry login"), ("different_number", "Use another number"), ("cancel", "Cancel")],
+            )]
         except LoginStillPending as error:
             log.warning("Store login awaiting OTP screen: provider=%s; request not repeated", provider)
             pending = self.accounts.state(sender)
