@@ -726,6 +726,9 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
                     replies.extend(reconciliation.messages(session.view, pending))
                 else:
                     session.accept_review(session.view.version, review)
+                    state["cart_checkpoint"] = session.view.model_dump(mode="json")
+                    review = await self.resolve_bill(session, review, progress)
+                    session.accept_review(session.view.version, review)
                     session.view.payment_preparation = None
                     state["cart_checkpoint"] = session.view.model_dump(mode="json")
                     replies.extend(self.review_messages(session))
@@ -736,16 +739,15 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
             review = session.view.review
             if not review:
                 raise DomainError("Please review your basket first.")
-            if not breakdown(review)["reconciled"]:
-                raise DomainError("The charges do not reconcile. Review again before approving this bill.")
-            # Validate review identity/expiry before touching even the read-only store path.
-            if now() - review.created_at > timedelta(minutes=5):
-                raise DomainError("This bill expired. Review your basket again before approving.")
+            expired = now() - review.created_at > timedelta(minutes=5)
             fresh = await self.workers.revalidate(session.view)
+            fresh = await self.resolve_bill(session, fresh, progress)
             session.view.payment_preparation = None
-            if fingerprint(session.view, fresh) != fingerprint(session.view, review):
+            if expired or not breakdown(fresh)["reconciled"] or fingerprint(session.view, fresh) != fingerprint(session.view, review):
                 session.accept_review(session.view.version, fresh)
-                replies.append(text_message("The total or fees changed. Please check the updated bill."))
+                state["payment_menu"] = None
+                if breakdown(fresh)["reconciled"]:
+                    replies.append(text_message("Here’s the latest bill. Please check it before continuing."))
                 replies.extend(self.review_messages(session))
             else:
                 session.confirm(session.view.version, review.id, True)
@@ -772,7 +774,8 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
                 raise DomainError("Please choose a payment method from the menu.")
             review = session.view.review
             fresh = await self.workers.revalidate(session.view)
-            if fingerprint(session.view, fresh) != fingerprint(session.view, review):
+            fresh = await self.resolve_bill(session, fresh, progress)
+            if not breakdown(fresh)["reconciled"] or fingerprint(session.view, fresh) != fingerprint(session.view, review):
                 session.accept_review(session.view.version, fresh)
                 state["payment_menu"] = None
                 replies = [
@@ -871,6 +874,21 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
             },
         }
 
+    async def resolve_bill(self, session, review, progress=None):
+        """Bounded read-only recovery; never repeat cart writes or infer missing charges."""
+        if progress and not breakdown(review)["reconciled"]:
+            progress.update("Double-checking the store’s total…")
+        for _ in range(2):
+            if breakdown(review)["reconciled"]:
+                return review
+            try:
+                review = await self.workers.revalidate(session.view)
+            except DomainError:
+                raise DomainError(
+                    "I couldn’t verify the store’s bill just now. Your basket is saved; no payment was started."
+                ) from None
+        return review
+
     @staticmethod
     def review_messages(session):
         review = session.view.review
@@ -881,7 +899,7 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
         next_step = (
             "Tap Choose payment to continue, or tell me what to change."
             if reconciled else
-            "Tap Recheck total to check the bill again, or tell me what to change."
+            "Your basket is saved. You can still tell me what to change."
         )
         replies = [
             text_message(
@@ -911,18 +929,6 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
                     },
                 }
             )
-        else:
-            replies.append({
-                "type": "interactive",
-                "interactive": {
-                    "type": "button",
-                    "body": {"text": "Let’s recheck the total before continuing."},
-                    "action": {"buttons": [{
-                        "type": "reply",
-                        "reply": {"id": f"review:{session.view.version}:current", "title": "Recheck total"},
-                    }]},
-                },
-            })
         return replies
 
     @staticmethod

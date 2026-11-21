@@ -109,3 +109,5 @@ Read actual provider payment categories and let the customer choose. Generate Bl
 2026-11-21: Unclear speech must elicit a neutral English request to repeat, without suggesting a guessed action. Structured unclear_request overrides every proposed action before execution; separate deletion rejection uses the same repeat prompt. Clear contextual requests still work.
 
 2026-11-21: Review actions must match bill validity. Unreconciled totals offer Recheck total, never Choose payment. Do not infer rounding or promise website-to-mobile cart synchronization without evidence.
+
+2026-11-21: Supersede manual bill retry UX with bounded automatic read-only revalidation at review/checkout/payment. Expiry triggers refresh, not user troubleshooting. Persistent discrepancies remain blocked without guessing amounts; no claim of background monitoring.

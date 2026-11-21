@@ -93,7 +93,7 @@ async def test_changed_live_fee_requires_new_approval_and_edit_invalidates_recor
     worker.revalidate = changed
     state, replies = await runtime.chat.handle("checkout", state)
     assert state["view"]["phase"] == "review" and state["view"]["payment_preparation"] is None
-    assert "changed" in replies[0]["text"]["body"]
+    assert "latest bill" in replies[0]["text"]["body"]
     assert "Small cart charge" in replies[1]["text"]["body"]
     stale = f"checkout:{old['view']['version']}:{old['view']['review']['id']}"
     with pytest.raises(DomainError):
@@ -188,7 +188,7 @@ async def test_failed_recheck_revokes_previous_preparation(tmp_path):
     runtime.inbox.close()
 
 
-def test_unreconciled_review_offers_retry_not_payment():
+def test_unreconciled_review_does_not_delegate_retry_or_offer_payment():
     from easydial.controller import Session
     from easydial.whatsapp.conversation import ShoppingChat
 
@@ -200,9 +200,71 @@ def test_unreconciled_review_offers_retry_not_payment():
     replies = ShoppingChat.review_messages(session)
     assert not breakdown(bill)["reconciled"]
     assert "choose how to pay" not in replies[0]["text"]["body"]
-    button = replies[-1]["interactive"]["action"]["buttons"][0]["reply"]
-    assert button["title"] == "Recheck total"
-    assert button["id"].startswith("review:")
+    assert len(replies) == 1
+    assert "Recheck total" not in replies[0]["text"]["body"]
+    assert "basket is saved" in replies[0]["text"]["body"]
     bill.total_paise = 15630
     replies = ShoppingChat.review_messages(session)
     assert replies[-1]["interactive"]["action"]["buttons"][0]["reply"]["title"] == "Choose payment"
+
+
+@pytest.mark.parametrize("recovers", [True, False])
+async def test_checkout_rechecks_mismatched_bill_without_cart_writes(tmp_path, recovers):
+    runtime = make_runtime(tmp_path)
+    state, _ = await runtime.chat.handle("milk", runtime.chat.initial())
+    state, _ = await runtime.chat.handle("1", state)
+    state, _ = await runtime.chat.handle("review", state)
+    state["view"]["review"]["total_paise"] += 30
+    calls = []
+    worker = runtime.chat.workers.workers[0]
+    original = worker.revalidate
+
+    async def revalidate(view):
+        calls.append(True)
+        bill = await original(view)
+        if not recovers or len(calls) == 1:
+            bill.total_paise += 30
+        return bill
+
+    async def forbid(*args):
+        raise AssertionError("cart writes must not be retried")
+
+    worker.revalidate = revalidate
+    runtime.chat.workers.review = forbid
+    before = copy.deepcopy(state["view"]["lines"])
+    state, replies = await runtime.chat.handle("checkout", state)
+    assert len(calls) == (2 if recovers else 3)
+    assert state["view"]["lines"] == before
+    assert state["view"]["payment_preparation"] is None
+    assert not any("Review again" in str(r) or "Recheck total" in str(r) for r in replies)
+    if recovers:
+        assert replies[-1]["interactive"]["action"]["buttons"][0]["reply"]["title"] == "Choose payment"
+    else:
+        assert all(r["type"] == "text" for r in replies)
+    runtime.inbox.close()
+
+async def test_initial_review_recovers_bill_without_resyncing_cart(tmp_path):
+    runtime = make_runtime(tmp_path)
+    state, _ = await runtime.chat.handle("milk", runtime.chat.initial())
+    state, _ = await runtime.chat.handle("1", state)
+    worker = runtime.chat.workers.workers[0]
+    original_review = worker.review
+    calls = []
+
+    async def first(view):
+        calls.append("sync")
+        bill = await original_review(view)
+        bill.total_paise += 30
+        return bill
+
+    async def refresh(view):
+        calls.append("read")
+        assert view.review is not None
+        return await original_review(view)
+
+    worker.review, worker.revalidate = first, refresh
+    state, replies = await runtime.chat.handle("review", state)
+    assert calls == ["sync", "read"]
+    assert replies[-1]["interactive"]["action"]["buttons"][0]["reply"]["title"] == "Choose payment"
+    assert state["view"]["payment_preparation"] is None
+    runtime.inbox.close()

@@ -65,7 +65,7 @@ def breakdown(review):
     )
     if not reconciled:
         warnings.append(
-            "The charges don’t match the total yet. Tap Recheck total before continuing."
+            "I rechecked, but the store’s charges still don’t match its total. I can’t continue to payment yet."
         )
     rows.append(
         {"label": "TOTAL PAYABLE", "value": money(review.total_paise), "amount_paise": review.total_paise}

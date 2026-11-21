@@ -1,3 +1,13 @@
+# Automatic bill recovery — 2026-11-21
+
+Supersedes the manual Recheck total UX below. User requires the agent to handle bill verification itself. Review, checkout, and payment-method selection now retry an inconsistent bill with up to two additional read-only provider revalidations. Never repeat cart synchronization or invent rounding. Checkout refreshes expired bills automatically and presents fresh terms for approval. Any changed or inconsistent bill revokes payment preparation and cannot generate a payment request. Progress can say Double-checking the store’s total using the existing throttled progress mechanism.
+
+Persistent inconsistency produces a short explanation that the store total cannot be verified and the basket is saved; no technical reconciliation error or manual recheck button. This is bounded in-turn recovery, not background polling. The previously observed ₹0.30 discrepancy is not proven resolved. No live cart/payment mutation during this change.
+
+Validation: 106 tests passed, 7 DOM skipped, Ruff passed. Added initial-review recovery and checkout transient/persistent mismatch coverage, preserving basket and blocking payment without resynchronization.
+
+---
+
 # Actionable cart review — 2026-11-21
 
 Fixed contradictory review UX: a bill whose components fail reconciliation now ends with a versioned Recheck total button and an invitation to change items; it does not invite payment. Reconciled bills retain Choose payment. Simplified mismatch wording. Regression verifies the reported ₹85 + ₹12 + ₹23.60 + ₹35.70 versus ₹156 case stays blocked; never invent a rounding adjustment.
