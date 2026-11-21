@@ -640,3 +640,26 @@ async def test_delayed_otp_preserves_request_and_rechecks_without_resend(tmp_pat
     adapter.request_otp.assert_awaited_once()
     assert adapter.wait_for_otp.await_count == 2
     r.inbox.close()
+
+
+async def test_explicit_merchant_limit_keeps_context_for_checking(tmp_path):
+    from unittest.mock import AsyncMock
+
+    from easydial.whatsapp.store_login import LoginRateLimited
+
+    r = runtime(tmp_path)
+    await consent(r)
+    adapter = r.onboarding.adapter
+    adapter.request_otp = AsyncMock(side_effect=LoginRateLimited("limited"))
+    adapter.wait_for_otp = AsyncMock(side_effect=LoginRateLimited("limited"))
+    adapter.cancel = AsyncMock()
+    replies = await turn(r, "9999999999")
+    assert r.onboarding.accounts.state("919999999999")["stage"] == "otp_wait"
+    assert "too many login attempts" in replies[0]["interactive"]["body"]["text"]
+    await turn(r, "Check login")
+    adapter.request_otp.assert_awaited_once()
+    adapter.wait_for_otp.assert_awaited_once()
+    adapter.cancel.assert_not_called()
+    await turn(r, "Cancel")
+    adapter.cancel.assert_awaited_once()
+    r.inbox.close()

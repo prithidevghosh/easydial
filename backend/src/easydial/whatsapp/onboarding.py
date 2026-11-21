@@ -12,7 +12,7 @@ from ..controller import DomainError
 from ..models import SessionView
 from .accounts import CONSENT_TEXT
 from .conversation import text_message
-from .store_login import LoginStillPending
+from .store_login import LoginRateLimited, LoginStillPending
 
 log = logging.getLogger(__name__)
 
@@ -353,12 +353,14 @@ class Onboarding:
                     return self.address_menu(state)
                 return [text_message("Choose Same address or Choose another in the message above.")]
             return self.menu(sender, "Login was interrupted. Choose a store to reconnect.")
-        except LoginStillPending:
+        except LoginStillPending as error:
             log.warning("Store login awaiting OTP screen: provider=%s; request not repeated", provider)
             pending = self.accounts.state(sender)
             state = self.accounts.begin(sender, "otp_wait", provider=provider, phone=pending["phone"])
             return [button_message(
-                "The store hasn’t opened the OTP screen yet. Tap Check login to check the same request; I won’t send another OTP.",
+                ("The store says there have been too many login attempts. Please wait. Check login only checks the current screen; it won’t send another OTP."
+                 if isinstance(error, LoginRateLimited) else
+                 "The store hasn’t opened the OTP screen yet. Tap Check login to check the same request; I won’t send another OTP."),
                 state["nonce"], [("check_login", "Check login"), ("different_number", "Use another number"), ("cancel", "Cancel")],
             )]
         except DomainError as error:

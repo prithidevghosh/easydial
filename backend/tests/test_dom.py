@@ -664,3 +664,28 @@ async def test_login_timeout_is_recoverable_and_does_not_reload(page):
     with pytest.raises(LoginStillPending):
         await adapter.wait_for_otp("test", "instamart", timeout=0)
     assert await page.locator('input[name="auth-sidebar-mobile"]').count() == 1
+
+
+@pytest.mark.parametrize("wording,limited", [
+    ("Didn't receive OTP? Try again in 30 seconds", False),
+    ("Something went wrong. Try again after some time", False),
+    ("Too many login attempts. Please try again later", True),
+    ("Too many requests", True),
+])
+async def test_login_limit_requires_explicit_evidence(page, wording, limited):
+    from types import SimpleNamespace
+
+    from easydial.whatsapp.store_login import LoginRateLimited, LoginStillPending, StoreLogin
+
+    await page.set_content("<main></main>")
+    await page.locator("main").evaluate("(el, text) => el.textContent = text", wording)
+    adapter = StoreLogin(SimpleNamespace(), None)
+
+    async def open_page():
+        return page, None
+
+    adapter.session = lambda *_: SimpleNamespace(open=open_page)
+    with pytest.raises(LoginStillPending) as caught:
+        await adapter.wait_for_otp("test", "instamart", timeout=0)
+    assert isinstance(caught.value, LoginRateLimited) is limited
+    assert await page.locator("main").inner_text() == wording

@@ -6,6 +6,7 @@ No private API replay, challenge bypass, profile sharing, or automatic order act
 import asyncio
 import hashlib
 import json
+import logging
 import re
 import time
 
@@ -18,6 +19,13 @@ from ..providers.browser import BrowserSession, goto_with_retry
 
 class LoginStillPending(DomainError):
     """The phone request was clicked but the OTP screen is not ready yet."""
+
+
+class LoginRateLimited(LoginStillPending):
+    """Explicit merchant request limit; retain the page without replaying login."""
+
+
+log = logging.getLogger(__name__)
 
 
 class StoreLogin:
@@ -96,8 +104,11 @@ class StoreLogin:
             if await self.otp_inputs(page).count():
                 return
             body = (await page.locator("body").inner_text()).casefold()
-            if re.search(r"too many (?:login |otp )?(?:requests|attempts)|try again (?:after|in)", body):
-                raise DomainError("The store is limiting login requests. Please wait before retrying.")
+            if re.search(r"\btoo many (?:(?:login|otp|sign[ -]?in) )?(?:requests|attempts)\b", body):
+                log.warning("Merchant login observation: provider=%s signal=explicit_request_limit", provider)
+                raise LoginRateLimited("The store is limiting login requests.")
+            # A resend countdown or generic 'try again after' is not evidence
+            # of rate limiting. Keep observing the same submitted request.
             if re.search(r"(?:invalid|incorrect) (?:mobile|phone) number", body):
                 raise DomainError("The store rejected that mobile number. Please check it and try again.")
             if any(marker in body for marker in ("upstream connect error", "reset reason: overflow")):

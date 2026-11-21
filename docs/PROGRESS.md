@@ -557,3 +557,10 @@ Validation: 239 standard tests passed; 31 opt-in DOM tests skipped. Lint/diff ch
 - Restart still invalidates in-flight browser login stages; this is intentional because browser OTP state is not durable. No actual OTP request was sent during diagnosis/testing.
 - Validation: full backend run 261 passed / 33 browser skips before adding new tests; onboarding suite including new pending-request test 56 passed. Actual merchant cause (slow response vs refusal) remains unverified.
 - Chrome DOM suite: 35 passed, including delayed OTP appearance and timeout preservation without re-click/reload. Ruff and diff checks passed.
+
+## Correct false login-limit classification
+- Previous change incorrectly treated generic "try again in/after" text as proof of a merchant rate limit. This can occur in resend countdowns or generic errors; the reported attempt's browser had been closed, so its exact merchant wording cannot be recovered.
+- Require explicit "too many [login/OTP/sign-in] requests/attempts" wording for the limit label. Generic countdown/error wording stays pending without asserting a reason.
+- Even an explicit merchant limit now preserves the isolated login page and offers Check login / Use another number / Cancel instead of resetting store selection. Checking only observes the page; it does not bypass limits or repeat OTP requests.
+- Added DOM regressions for countdown, generic failure, explicit request/attempt limits, plus onboarding coverage for retained context and no OTP resend.
+- Validation: 57 onboarding tests and 39 Chrome DOM tests passed; Ruff and diff checks passed. No live login/OTP request was made.
