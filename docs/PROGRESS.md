@@ -1,3 +1,9 @@
+# Onboarding and AWS audit — 2026-11-21
+
+Inspected live source structure for requested public onboarding. Current service accepts one WhatsApp sender, binds one database to those profiles and constructs one shared set of store workers. Chat-based store login/OTP and saved-address selection are absent; current login is manual via local setup tools. No deployment packaging/infrastructure found. Added ONBOARDING_DEPLOYMENT_READINESS.md with evidence, proposed customer journey and release gates. No code/runtime change, cloud provisioning, login or purchase during this audit.
+
+---
+
 # Order confirmation investigation — 2026-11-21
 
 User reported an order visibly arriving while the WhatsApp monitor exhausted its checks. The saved UPI attempt contains seven reads and only a pending result: no parsed order or rejection reason was retained. User then manually cancelled the order and requested no live check; no merchant navigation, order submission, or payment was performed for this investigation. The earlier failure's exact rejected field cannot be recovered from that record or the screenshot (which omits payment/date/address details).
