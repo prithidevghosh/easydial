@@ -356,3 +356,50 @@ async def test_blinkit_today_paid_multiline_order_matches_and_confirms(tmp_path)
     worker.order_history = history
     assert (await monitor.check("alice", view.id, worker, sleep=no_sleep))["status"] == "confirmed"
     assert monitor.get("alice", view.id)["checks"] == 1
+
+
+@pytest.mark.parametrize("refresh", ["delivered", "cancelled", "missing", "error", "unrelated"])
+async def test_confirmed_order_refreshes_delivery_without_reusing_eta(tmp_path, refresh):
+    from easydial.whatsapp.order_tracking import status_messages
+
+    runtime = make_runtime(tmp_path)
+    view = SessionView.model_validate((await reviewed(runtime))["view"])
+    monitor = runtime.payments.monitor
+    worker = SimpleNamespace(order_history=empty_history)
+    await monitor.capture("alice", view, "cash", worker)
+    monitor.activate("alice", view.id)
+    original = merchant_order(view, eta="Arriving in 7 minutes")
+
+    async def confirmed(*args):
+        return {"orders": [original]}
+
+    worker.order_history = confirmed
+    assert (await monitor.check("alice", view.id, worker))["status"] == "confirmed"
+    calls = 0
+
+    async def updated(*args):
+        nonlocal calls
+        calls += 1
+        if refresh == "error":
+            raise TimeoutError()
+        if refresh == "missing":
+            return {"orders": []}
+        return {"orders": [{**original, "status": refresh if refresh != "unrelated" else "delivered",
+                            "order_id": "different" if refresh == "unrelated" else original["order_id"]}]}
+
+    worker.order_history = updated
+    result = await OrderMonitor(runtime.inbox).check("alice", view.id, worker)
+    message = status_messages(result, view)[0]["text"]["body"]
+    assert calls == 1
+    assert "Arriving in 7 minutes" not in message
+    if refresh == "delivered":
+        assert "Order delivered" in message
+        assert "Pay cash on delivery" not in message
+    elif refresh == "cancelled":
+        assert result["status"] == "failed"
+    else:
+        assert result["status"] == "confirmed"
+        assert result["stale"]
+        assert "couldn’t refresh delivery status" in message
+        assert monitor.get("alice", view.id)["status"] == "confirmed"
+    runtime.inbox.close()

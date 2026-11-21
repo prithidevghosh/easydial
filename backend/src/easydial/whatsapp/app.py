@@ -149,10 +149,13 @@ class Runtime:
             if not text or len(text) > 3000:
                 raise DomainError("Please send a shorter message describing your groceries.")
             if self.onboarding and message["type"] == "audio":
-                from .onboarding import logout_requested
+                from .onboarding import account_status_requested, logout_requested
 
-                if logout_requested(text):
-                    replies = await self.onboarding.logout(row["sender"], row["id"], state)
+                if logout_requested(text) or account_status_requested(text):
+                    if logout_requested(text):
+                        replies = await self.onboarding.logout(row["sender"], row["id"], state)
+                    else:
+                        replies = self.onboarding.account_status(row["sender"])
                     self.inbox.supersede_waiting_replies(row["sender"])
                     state["last_timestamp"] = row["timestamp"]
                     state["last_reply_event"] = row["id"]

@@ -82,3 +82,7 @@ Send `logout`, `log out`, `sign out`, or `please log me out`. Explicit voice com
 Logout applies to both connected stores for that WhatsApp customer. It records consent withdrawal, deletes their encrypted merchant session files and account connections/claims, cancels any in-progress OTP login, and closes their browser contexts without saving cookies. It clears the shopping draft, product choices, cart checkpoint and payment approval/menu by creating a fresh conversation session. EasyDial-hosted payment artifacts are revoked; old order-attempt records remain for audit and duplicate-order protection. Already-placed orders are not cancelled, and an already-issued merchant QR cannot be remotely revoked by deleting EasyDial's copy.
 
 The next shopping request or stale payment button is intercepted by onboarding. Select a store, give consent and complete phone/OTP/address setup again before shopping. Other customers' sessions and the shared encryption root key are unaffected. No real pilot customer is logged out as a deployment test.
+
+### Saved login status
+
+Customers can ask “Am I logged in?” or “Is any login session saved?” in text or voice after onboarding. EasyDial answers from that customer's consented connections and encrypted session files before shopping interpretation. This reports saved credentials, not a guarantee that the merchant has not expired them. The query does not change onboarding, baskets, payments or consent. During phone/OTP setup, audio remains gated to avoid sending authentication details to transcription.

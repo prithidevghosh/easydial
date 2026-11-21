@@ -4,6 +4,7 @@ import logging
 import math
 import re
 import time
+from pathlib import Path
 from uuid import uuid4
 
 from ..controller import DomainError
@@ -57,6 +58,16 @@ def logout_requested(text):
     ))
 
 
+def account_status_requested(text):
+    text = text.casefold()
+    # Read-only account questions can be answered even when surrounding speech
+    # is garbled. Never infer login/logout or a shopping action from this path.
+    login = bool(re.search(r"\blog(?:ged)?[ -]?in\b|\bsessions?\b|लॉगिन|लॉग इन|सेशन", text))
+    status = bool(re.search(r"\b(?:saved?|status|sessions?|connected|am i|do i|have|any|which|kya|hai|h|login status)\b|है|क्या|सेव|सेशन", text))
+    store_question = bool(re.search(r"blinkit|instamart", text)) and bool(re.search(r"\b(?:connected|logged in|linked|saved)\b", text))
+    return (login and status) or store_question
+
+
 class Onboarding:
     def __init__(self, accounts, adapter, chats, payments, max_customers=100):
         self.accounts, self.adapter, self.chats, self.payments = accounts, adapter, chats, payments
@@ -86,6 +97,18 @@ class Onboarding:
     async def cancel(self, sender, provider=None):
         await self.adapter.cancel(sender, provider)
 
+    def account_status(self, sender):
+        saved = [
+            provider.title() for provider in self.accounts.connections(sender)
+            if self.accounts.consented(sender, provider)
+            and Path(self.accounts.session_path(sender, provider)).is_file()
+        ]
+        if not saved:
+            return [text_message("No store login is saved. Send Connect to log in.")]
+        return [text_message(
+            "Saved login: " + ", ".join(saved) + ". Send Logout to remove saved logins."
+        )]
+
     async def logout(self, sender, event_id, shopping_state):
         # Revoke access before awaiting browser cleanup; no active draft or stale
         # payment button may survive logout, even with a pending merchant order.
@@ -111,6 +134,8 @@ class Onboarding:
         low = text.casefold().strip()
         if logout_requested(text):
             return await self.logout(sender, event_id, shopping_state)
+        if account_status_requested(text):
+            return self.account_status(sender)
         state = self.accounts.state(sender)
         connections = self.accounts.connections(sender)
         if not state:

@@ -92,12 +92,38 @@ class OrderMonitor:
                 (sender, order_id),
             )
 
+    async def refresh_confirmed(self, row, workers):
+        saved = json.loads(row["result"])
+        view = SessionView.model_validate_json(row["snapshot"])
+        baseline = json.loads(row["baseline"])
+        try:
+            history = await asyncio.wait_for(workers.order_history(view, baseline), timeout=30)
+            candidates = [order for order in history["orders"]
+                if order.get("order_id") == saved["order"]["order_id"]
+                and matches(order, view, row["method"], baseline, row["started_at"])]
+            if len(candidates) == 1:
+                order = candidates[0]
+                if order.get("status") in {"confirmed", "preparing", "on_way", "delivered", "cancelled", "failed"}:
+                    result = {"status": "failed" if order["status"] in {"cancelled", "failed"} else "confirmed", "order": order}
+                    with self.db:
+                        self.db.execute(
+                            "UPDATE order_checks SET status=?,result=?,checks=checks+1 WHERE sender=? AND order_id=?",
+                            (result["status"], json.dumps(result), row["sender"], row["order_id"]),
+                        )
+                    return result
+        except Exception:
+            pass
+        # Keep verified purchase evidence, but never present a cached ETA as current.
+        return {**saved, "stale": True, "order": {**saved["order"], "eta": None}}
+
     async def check(self, sender, order_id, workers, *, sleep=asyncio.sleep):
         row = self.get(sender, order_id)
         if not row or row["status"] == "prepared":
             return {"status": "pending", "reason": "no_verified_attempt"}
-        if row["status"] in {"confirmed", "failed"}:
+        if row["status"] == "failed":
             return json.loads(row["result"])
+        if row["status"] == "confirmed":
+            return await self.refresh_confirmed(row, workers)
         view = SessionView.model_validate_json(row["snapshot"])
         baseline = json.loads(row["baseline"])
         result = {"status": "pending"}
@@ -163,14 +189,19 @@ def status_messages(result, view):
 
     order = result.get("order", {})
     if result["status"] == "confirmed":
-        payment = "Pay cash on delivery." if order["method"] == "cash" else "Payment verified."
-        eta = f" ETA: {order['eta']}." if order.get("eta") else ""
+        delivered = order.get("status") == "delivered"
+        payment = ("" if delivered else "Pay cash on delivery.") if order["method"] == "cash" else "Payment verified."
+        eta = f" ETA: {order['eta']}." if order.get("eta") and not delivered and not result.get("stale") else ""
+        label = "Order delivered" if delivered else "Order confirmed"
+        if result.get("stale"):
+            label = "Previously verified order"
+            eta = " I couldn’t refresh delivery status. Tap Check status to retry."
         items = "; ".join(f"{x.quantity} × {x.offer.name} ({x.offer.pack_size})" for x in view.lines)
         return [
             text_message(
-                f"{items}\nOrder confirmed: {order['order_id']} · {money(order['total_paise'])}. {payment}{eta}"
+                f"{items}\n{label}: {order['order_id']} · {money(order['total_paise'])}. {payment}{eta}"
             )
-        ]
+        ] + ([status_button(view)] if result.get("stale") else [])
     text = (
         "The store shows this order as cancelled or failed. Don’t pay again until any payment or refund is checked."
         if result["status"] == "failed"

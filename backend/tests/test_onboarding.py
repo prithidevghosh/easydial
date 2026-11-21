@@ -492,3 +492,50 @@ async def test_logout_during_otp_is_idempotent_and_survives_restart(tmp_path):
     assert not any(call[0] == "verify" for call in r.onboarding.adapter.calls)
     assert a.state("919999999999")["stage"] == "store"
     r.inbox.close()
+
+
+@pytest.mark.parametrize("text", ["Is any login session saved?", "Am I logged in?", "Istalina safe login sessions?", "kya login saved hai", "मेरा लॉगिन सेव है क्या", "Is Blinkit connected?"])
+def test_account_status_questions(text):
+    from easydial.whatsapp.onboarding import account_status_requested
+    assert account_status_requested(text)
+
+
+async def test_account_status_uses_own_saved_sessions_without_changing_state(tmp_path):
+    r = runtime(tmp_path)
+    alice, bob = "919999999999", "918888888888"
+    await connect(r, alice)
+    await connect(r, bob, phone="8888888888")
+    a = r.onboarding.accounts
+    a.session_box(bob, "instamart").write(a.session_path(bob, "instamart"), {"cookies": []})
+    replies = await turn(r, "any saved login sessions?", alice)
+    assert "No store login" in replies[0]["text"]["body"]
+    a.session_box(alice, "instamart").write(a.session_path(alice, "instamart"), {"cookies": []})
+    onboarding_state = a.state(alice)
+    replies = await turn(r, "any saved login sessions?", alice)
+    assert "Saved login: Instamart" in replies[0]["text"]["body"]
+    assert a.state(alice) == onboarding_state
+    assert a.consented(alice, "instamart")
+    await turn(r, "logout", alice)
+    replies = await turn(r, "any saved login sessions?", alice)
+    assert "No store login" in replies[0]["text"]["body"]
+    r.inbox.close()
+
+
+async def test_garbled_voice_account_question_bypasses_shopping_agent(tmp_path):
+    from unittest.mock import AsyncMock
+
+    r = runtime(tmp_path)
+    await connect(r)
+    sender = "919999999999"
+    a = r.onboarding.accounts
+    a.session_box(sender, "instamart").write(a.session_path(sender, "instamart"), {"cookies": []})
+    client = SimpleNamespace(audio=SimpleNamespace(transcriptions=SimpleNamespace(create=AsyncMock(return_value=SimpleNamespace(text="Istalina safe login sessions?")))))
+    chat = SimpleNamespace(master=SimpleNamespace(require_client=lambda: client), settings=r.settings, workers=SimpleNamespace())
+    r.customer_chats.get = AsyncMock(return_value=chat)
+    msg = message("status-audio", type="audio", audio={"id": "test-audio"})
+    r.inbox.enqueue(msg)
+    await r.process()
+    replies = [json.loads(x[0]) for x in r.inbox.db.execute("SELECT payload FROM outbox WHERE event_id=?", (msg["id"],))]
+    assert any("Saved login: Instamart" in x.get("text", {}).get("body", "") for x in replies)
+    assert a.consented(sender, "instamart")
+    r.inbox.close()
