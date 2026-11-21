@@ -5,6 +5,7 @@ CARD = r"""(link) => {
     const pack = card.querySelector('._3wq_F')?.innerText?.trim();
     const price = card.querySelector('._2jn41')?.innerText?.trim();
     return {path: link.getAttribute('href'), name: link.querySelector('img')?.alt,
+        image: link.querySelector('img')?.currentSrc || link.querySelector('img')?.src,
         pack, price, text: card.innerText,
         add: !!link.querySelector('[data-testid="buttonpair-add"]')};
 }"""

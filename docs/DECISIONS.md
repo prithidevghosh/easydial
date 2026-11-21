@@ -93,3 +93,7 @@ Keep the existing private SQLite store for the single-worker pilot, adding expli
 ## 2026-11-21 — Explicit existing-cart recovery
 
 Do not instruct users to discard a known legacy basket merely because process ownership was lost. On WhatsApp review, show observed and requested items and obtain a one-use, versioned, expiring confirmation before adoption. Recheck actual cart/address first and retain all normal sync/bill checks. Unknown product mappings cannot be adopted. Restore product search from saved names after restart, validating exact IDs/packs before writes. See CART_RECOVERY.md.
+
+## 2026-11-21 — Payment choice before request generation
+
+Read actual provider payment categories and let the customer choose. Generate Blinkit UPI QR only after selection and fresh bill verification; present the verified provider artifact via an expiring token page. Card/wallet/bank authentication stays on the merchant checkout; this is not a transferable gateway session. Never click Pay/COD order submission. Persist attempts before generation and block duplicate/unknown attempts until reconciliation. Keep progress to quiet typing and one delayed text per turn; attach at most two verified product photos to search results. See PAYMENT_HANDOFF.md and CHAT_EXPERIENCE.md.

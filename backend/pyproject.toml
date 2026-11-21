@@ -6,10 +6,12 @@ dependencies = [
     "fastapi>=0.165.0",
     "httpx>=0.28.1",
     "openai>=3.57.0",
+    "pillow>=13.0.0",
     "playwright>=1.65.2",
     "pydantic-settings>=2.16.3",
     "python-multipart>=0.0.34",
     "uvicorn[standard]>=0.54.0",
+    "zxing-cpp>=3.1.1",
 ]
 
 [build-system]

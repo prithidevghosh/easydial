@@ -57,7 +57,7 @@ uv --directory backend sync --locked
 uv --directory backend run python -m easydial.whatsapp
 ```
 
-This starts `http://127.0.0.1:8001`. The server exposes only `/health` and GET/POST `/webhooks/whatsapp`; it does NOT expose the iOS session API. It uses one process and disables access logs so the GET verification token is not recorded in URLs. If Meta settings are incomplete, health reports `setup_required` and ingress returns 503. Restart after changing `.env`.
+This starts `http://127.0.0.1:8001`. The server exposes `/health`, GET/POST `/webhooks/whatsapp`, and opaque expiring `/pay/{token}` pages; it does NOT expose the iOS session API. It uses one process and disables access logs so the GET verification token is not recorded in URLs. If Meta settings are incomplete, health reports `setup_required` and ingress returns 503. Restart after changing `.env`.
 
 Use a public HTTPS tunnel for this local test, for example with the already installed Cloudflare CLI in another terminal:
 
@@ -86,7 +86,7 @@ Use your own verified WhatsApp account to initiate the chat with the Meta test n
 3. Confirm actual products/prices from both stores appear. Choose by menu, typed number, or an unambiguous spoken choice. For a multi-product request, remaining options are narrowed to the chosen store because the existing controller permits one store per basket.
 4. Ask to increase a quantity, remove an item or replace a brand. Verify the displayed draft. A comparison question must not add products.
 5. Tap **Review basket** or ask to review. This is the first store-cart synchronization step. Verify every item, quantity, delivery address, fee and total against the provider website.
-6. Check the detailed charge table and any small-cart/minimum-order fee warning. Tap **Approve amount**. The worker rechecks the live cart/address/bill; changed charges require a new approval. Expect explicit Pending and no order/payment. This records preparation approval only; payment handoff remains disabled.
+6. Check the charge table and fee warnings. Tap **Choose payment**, then select a method actually listed by the store. Blinkit UPI can generate an expiring QR/link (requires `WHATSAPP_PUBLIC_URL`); cards/wallets/banks open the store checkout. No automated payment approval or COD order placement. See `PAYMENT_HANDOFF.md` for limitations and attempt recovery.
 7. Remove all draft items and review again to clear only the cart owned by this session. Verify the store cart is empty. Never clear an unrelated/external cart to make a test pass.
 8. Test an old selection button, repeated webhook, expired store session and a correction after review. Outdated reviews must not remain valid.
 
@@ -122,3 +122,7 @@ These are local integration/contract tests. They do not establish actual Meta de
 ## Headless browser setting
 
 Set `BROWSER_HEADLESS=true` in private `backend/.env` and restart the WhatsApp service to use headless Chrome; default is false. Keep `BROWSER_CHANNEL=chrome`. Both accounts passed read-only headless checks on this Mac. Deployment-host onboarding and cart-write verification are still required; see `PAYMENT_INSPECTION.md`.
+
+## Payment-link hosting
+
+Set `WHATSAPP_PUBLIC_URL` to the HTTPS origin forwarding to port 8001 (no path/query). Keep the service reachable for the lifetime of each QR. Development tunnel URLs change; update the setting and restart when the tunnel changes. Never expose private database/browser files. Blinkit may block fresh headless sessions even after manual verification; fail closed rather than bypassing challenges.

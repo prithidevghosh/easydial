@@ -17,7 +17,9 @@ See `docs/PAYMENT_INSPECTION.md` for actual website evidence, charge tables and 
 - [x] Store sender-scoped order drafts and event revisions; load authoritative baskets from the database before handling checkout and commit replies atomically. See `docs/ORDER_PERSISTENCE.md`.
 - [x] Configure headless/channel settings and verify authenticated read-only use on this Mac.
 - [ ] Validate headless cart writes and recovery on the actual Linux deployment host.
-- [ ] Create and verify a transferable provider-owned payment handoff with specific authorization.
+- [x] Generate and decode a real Blinkit UPI QR without approving payment; implement payment-category choice and expiring HTTPS QR presentation.
+- [ ] Verify Instamart gateway handoff after account linking; current non-UPI methods hand off to store checkout, not a generated gateway session.
+- [x] Add concise chat wording, bounded progress updates and product-image messages.
 - [ ] Implement durable payment-attempt reconciliation and merchant order confirmation.
 - [ ] Test a real paid order only after explicit basket/amount/purchase authorization.
 

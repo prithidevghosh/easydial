@@ -26,5 +26,6 @@ class Settings(BaseSettings):
     meta_app_secret: str = ""
     whatsapp_allowed_sender: str = ""
     whatsapp_api_version: str = "v27.0"
+    whatsapp_public_url: str = ""
     whatsapp_database: str = ".state/whatsapp/pilot.sqlite3"
     whatsapp_support_contact: str = ""

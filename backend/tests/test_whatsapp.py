@@ -69,6 +69,11 @@ def make_runtime(tmp_path):
         return intent("search", queries=[RequestedProduct(query="milk", quantity=2, replaces_line_id=None)])
 
     chat.interpret = interpret
+
+    async def payment_options(view, review):
+        return [{"id": "upi", "title": "UPI", "note": ""}, {"id": "cards", "title": "Cards", "note": ""}]
+
+    workers.payment_options = payment_options
     runtime = Runtime(config, Inbox(config.whatsapp_database), FakeTransport(), chat)
     return runtime
 
@@ -178,7 +183,8 @@ async def test_channel_voice_search_selection_review_pending_and_duplicate(tmp_p
     assert runtime.inbox.load(voice["from"])["view"]["phase"] == "checkout_pending"
     while await runtime.send_one():
         pass
-    assert any("no order" in json.dumps(payload).lower() for _, payload in runtime.transport.sent)
+    assert runtime.inbox.load(voice["from"])["payment_menu"]["methods"]
+    assert runtime.inbox.db.execute("SELECT COUNT(*) FROM payment_requests").fetchone()[0] == 0
     assert len(calls) == 1
     runtime.inbox.close()
 

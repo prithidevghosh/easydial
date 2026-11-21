@@ -30,7 +30,7 @@ CARD = r"""(card) => {
         }
         return true;
     }).map(e => e.innerText.trim());
-    return {id: card.id, name: card.querySelector("div[class*='line-clamp-2']")?.innerText,
+    return {image: card.querySelector('img')?.currentSrc || card.querySelector('img')?.src, id: card.id, name: card.querySelector("div[class*='line-clamp-2']")?.innerText,
         pack: card.querySelector("div[class*='line-clamp-1']")?.innerText,
         text: card.innerText, current_prices: [...new Set(prices)]};
 }"""

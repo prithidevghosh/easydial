@@ -50,10 +50,7 @@ def breakdown(review):
         rows.append({"label": label, "value": value, "amount_paise": parsed})
         readable = readable and parsed is not None
         if SMALL_CART.search(label) and (parsed is None or parsed > 0):
-            warnings.append(
-                f"{label}: {value} is included in this bill. "
-                "You can change your basket and review again before continuing."
-            )
+            warnings.append(f"{label}: {value} extra is included.")
     if not seen_subtotal:
         rows.insert(0, {"label": "Items subtotal", "value": money(subtotal), "amount_paise": subtotal})
     if not review.bill_lines and review.fees_paise is not None:

@@ -21,6 +21,7 @@ class Offer(BaseModel):
     product_id: str
     sku_id: str
     name: str
+    image_url: str | None = None
     brand: str | None = None
     variant: str | None = None
     pack_size: str | None = None

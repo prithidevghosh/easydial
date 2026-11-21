@@ -8,6 +8,7 @@ from ..models import Offer, Provider, Review, SearchResult, SessionView
 from . import blinkit_dom
 from .browser import BrowserSession, click_and_settle
 from .cart_guard import CartConflict, CartGuard
+from .images import product_image_url
 from .money import paise
 
 
@@ -30,6 +31,7 @@ def parse_card(raw: dict, address: str) -> Offer | None:
         product_id=product_id,
         sku_id=product_id,
         name=name,
+        image_url=product_image_url(raw.get("image")),
         pack_size=(raw.get("pack") or (sizes[0] if len(set(sizes)) == 1 else "")).strip().lower() or None,
         brand=None,
         variant=None,

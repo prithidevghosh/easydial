@@ -26,8 +26,25 @@ class MetaTransport:
             headers=self.headers,
             json={"messaging_product": "whatsapp", "to": sender, **payload},
         )
+        # A definite image rejection is safe to replace with its useful text caption.
+        # Never retry a timeout or uncertain send: it may already have been delivered.
+        if response.status_code == 400 and payload.get("type") == "image" and payload["image"].get("caption"):
+            return await self.send(sender, {"type": "text", "text": {"body": payload["image"]["caption"]}})
         response.raise_for_status()
         return response.json()["messages"][0]["id"]
+
+    async def typing(self, message_id):
+        response = await self.http.post(
+            f"{self.base}/{self.settings.whatsapp_phone_number_id}/messages",
+            headers=self.headers,
+            json={
+                "messaging_product": "whatsapp",
+                "status": "read",
+                "message_id": message_id,
+                "typing_indicator": {"type": "text"},
+            },
+        )
+        response.raise_for_status()
 
     async def audio(self, media):
         media_id = media.get("id", "")

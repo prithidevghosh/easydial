@@ -8,6 +8,7 @@ from ..models import Offer, Provider, SearchResult
 from . import instamart_dom
 from .blinkit import BlinkitProvider, cart_signature, normalized
 from .browser import click_and_settle
+from .images import product_image_url
 from .money import paise
 
 
@@ -193,6 +194,7 @@ def parse_card(raw: dict, address: str) -> Offer | None:
         product_id=path,
         sku_id=f"{product_id}:{pack}",
         name=name,
+        image_url=product_image_url(raw.get("image")),
         pack_size=pack,
         price_paise=paise(raw.get("price")),
         available=False if "SOLD OUT" in raw.get("text", "") else (True if raw.get("add") else None),

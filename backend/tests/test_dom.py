@@ -99,3 +99,43 @@ async def test_instamart_free_delivery_survives_struck_price(page):
       <div data-testid="billline-segment-text">FREE</div></div>""")
     data = await page.locator("body").evaluate(instamart_dom.CART)
     assert data["bill"] == [{"label": "Delivery Partner Fee", "value": "FREE"}]
+
+
+async def test_payment_generator_waits_for_real_qr_not_visible_placeholder(page, monkeypatch):
+    import asyncio
+    from contextlib import asynccontextmanager
+    from types import SimpleNamespace
+
+    from easydial.models import Provider
+    from easydial.providers import payments
+    from tests.test_payment_handoff import qr
+
+    image = qr("upi://pay?pa=test@bank&tr=one&am=56&cu=INR")
+    await page.set_content("""<button>UPI</button><button id="generate">Generate QR</button>
+        <button id="pay">Pay Now</button><img class="QrImage" width="200" height="200">
+        <p>Approve payment within 04 m : 59 s</p>""")
+    await page.evaluate(
+        """(src) => {
+        window.generated = 0; window.paid = 0;
+        document.querySelector('#pay').onclick = () => window.paid++;
+        document.querySelector('#generate').onclick = () => {
+            window.generated++;
+            setTimeout(() => document.querySelector('img').src = src, 200);
+        };
+    }""",
+        image,
+    )
+
+    @asynccontextmanager
+    async def browser_page():
+        yield page, None
+
+    async def options(*args):
+        return page
+
+    monkeypatch.setattr(payments, "open_options", options)
+    worker = SimpleNamespace(provider=Provider.BLINKIT, lock=asyncio.Lock(), browser_page=browser_page)
+    result = await payments.generate_upi(worker, None, SimpleNamespace(total_paise=5600))
+    assert result["total_paise"] == 5600 and result["ttl_seconds"] == 299
+    assert await page.evaluate("window.generated") == 1
+    assert await page.evaluate("window.paid") == 0

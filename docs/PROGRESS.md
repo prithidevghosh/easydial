@@ -1,3 +1,15 @@
+# Payment choices, handoff and chat UX — 2026-11-21
+
+Reviewed upstream Blinkit MCP payment/auth source at `a39547118f4decd04a77ac16316fa09efdb6237a`; see `BLINKIT_MCP_PAYMENT_REVIEW.md`. Its QR flow corroborates our observed UI, but its fixed delay, automatic cash preference and lack of payment-result verification do not resolve our remaining issues. WhatsApp service restarted; local and public HTTPS health return ok, payment-link hosting is configured, and an invalid payment token returns 410. Payment authorization remains disabled.
+
+User authorized payment-request generation only and explicitly requested payment-method choice. Implemented live payment-category discovery, versioned WhatsApp menu, Blinkit UPI QR decoding/amount checks and expiring HTTPS presentation links. Cards/wallets/banks hand off to the store checkout; COD does not place an order. Attempts are durable and no uncertain request is automatically regenerated. Instamart PhonePe account-linking blocks independent gateway-link verification; do not claim this is solved. See `PAYMENT_HANDOFF.md`.
+
+Added shorter messages, quiet typing indicators and at most one delayed stage update. Product cards carry image URLs; WhatsApp shows up to two photos and text/menu choices, with definite-failure text fallback. See `CHAT_EXPERIENCE.md`.
+
+Validation: 75 tests pass (including Chrome DOM tests); Ruff passes. Live menus were verified on both stores, and public product images were observed on both. A real Blinkit ₹103 QR was generated and decoded without payment approval. A fresh headless retry was blocked by Blinkit; headed automated generation then caught a QR loading placeholder and recorded an unknown attempt. Fixed the image-read race with a regression test; do not claim the revised complete automated live handoff has passed. The temporary test request belongs to a separate audit order and does not lock the customer’s actual draft. No unknown request was automatically regenerated.
+
+---
+
 # Cart recovery implemented — 2026-11-21
 
 Added WhatsApp review recovery for a nonempty store cart without a matching checkpoint. It shows current store items beside the requested basket, then offers a versioned, expiring Update cart button only for uniquely matched existing products. Confirmation rechecks cart/address before adopting; normal guarded synchronization and fee review follow. No automatic clearing or payment. Unknown/ambiguous products remain protected. Added saved-product-name search fallback after restart, retaining exact ID/pack verification. See `CART_RECOVERY.md`.

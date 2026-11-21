@@ -128,3 +128,27 @@ class ProviderWorkers:
             raise DomainError(
                 "Could not verify the existing cart. Nothing was updated; send review again."
             ) from None
+
+    async def payment_options(self, view, review):
+        from .payments import options
+
+        worker = self.workers[list(Provider).index(review.provider)]
+        try:
+            return await asyncio.wait_for(options(worker, view, review), timeout=75)
+        except DomainError:
+            raise
+        except Exception:
+            raise DomainError("Payment options didn't load. Please try again.") from None
+
+    async def generate_upi(self, view, review):
+        from .payments import generate_upi
+
+        worker = self.workers[list(Provider).index(review.provider)]
+        try:
+            return await asyncio.wait_for(generate_upi(worker, view, review), timeout=75)
+        except DomainError:
+            raise
+        except Exception:
+            raise DomainError(
+                "I couldn't confirm the payment request. Check the store before trying again."
+            ) from None

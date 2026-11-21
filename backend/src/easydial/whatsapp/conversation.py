@@ -11,11 +11,12 @@ from ..controller import DomainError, Session, exact_comparison
 from ..master import INSTRUCTIONS
 from ..models import EditRequest, IntentEdit, Offer, RequestedProduct, SessionView, now
 from ..providers.cart_guard import CartConflict
+from ..providers.images import product_image_url
 from . import reconciliation
 
 
 class ChatIntent(BaseModel):
-    action: Literal["search", "edit", "select", "review", "checkout", "basket", "clarify", "stop"]
+    action: Literal["search", "edit", "select", "review", "checkout", "basket", "clarify", "stop", "payment"]
     queries: list[RequestedProduct]
     edits: list[IntentEdit]
     offer_id: str | None
@@ -33,7 +34,7 @@ def money(paise):
 
 def basket_text(session):
     if not session.view.lines:
-        return "Your draft basket is empty."
+        return "Your basket is empty."
     return (
         "Your basket:\n"
         + "\n".join(
@@ -41,7 +42,7 @@ def basket_text(session):
             f"{money(line.subtotal)}"
             for line in session.view.lines
         )
-        + "\nYou can ask to change any item. Changes reach the store when you review."
+        + "\nWant to change anything?"
     )
 
 
@@ -79,6 +80,7 @@ switching from a request for another product. Only explicit replacement sets rep
 The selectable options for an existing basket belong to its store; other-store prices are comparison only.
 Stop pauses this chat; do not interpret 'don't place an order yet, compare milk' as opt-out.
 Return empty queries/edits unless needed, null offer_id/quantity unless selecting.
+Use short, everyday language: one short sentence where possible. Avoid technical words and repeated disclaimers.
 Clarifications must be brief and in the user's language. Never claim any completed action or price
 in clarification. Shopping only: redirect unrelated questions to groceries.
 """,
@@ -101,11 +103,12 @@ in clarification. Shopping only: redirect unrelated questions to groceries.
             raise DomainError("I couldn't understand that. Please say it another way.", 422)
         return result.output_parsed
 
-    async def handle(self, text, state, action_id=None):
+    async def handle(self, text, state, action_id=None, progress=None, customer=None):
         session = Session(
             view=SessionView.model_validate(state["view"]),
             offers={id: Offer.model_validate(value) for id, value in state["offers"].items()},
         )
+        selected_method = None
         normalized = text.strip().casefold()
         if state["paused"]:
             if normalized not in {"start", "resume", "hi", "hello"}:
@@ -115,12 +118,35 @@ in clarification. Shopping only: redirect unrelated questions to groceries.
                 text_message("Welcome back. Send a voice note or tell me what groceries you need.")
             ]
         kwargs = {"queries": [], "edits": [], "offer_id": None, "quantity": None, "clarification": ""}
+        if not action_id and state.get("payment_menu"):
+            menu = state["payment_menu"]
+            chosen = next(
+                (item for item in menu["methods"] if normalized in {item["id"], item["title"].casefold()}),
+                None,
+            )
+            if chosen:
+                action_id = f"payment:{session.view.version}:{menu['id']}_{chosen['id']}"
         if action_id:
             parts = action_id.split(":", 2)
             if len(parts) != 3 or parts[1] != str(session.view.version):
                 raise DomainError("That choice is old. Ask to see your basket or search again.")
             if parts[0] == "pick":
                 intent = ChatIntent(action="select", **{**kwargs, "offer_id": parts[2]})
+            elif parts[0] == "payment":
+                menu = state.get("payment_menu")
+                if (
+                    not menu
+                    or not session.view.review
+                    or menu["review_id"] != session.view.review.id
+                    or not parts[2].startswith(menu["id"] + "_")
+                    or now() - datetime.fromisoformat(menu["created_at"]) > timedelta(minutes=5)
+                ):
+                    raise DomainError("These payment options expired. Review your basket again.")
+                method_id = parts[2][len(menu["id"]) + 1 :]
+                selected_method = next((x for x in menu["methods"] if x["id"] == method_id), None)
+                if selected_method is None:
+                    raise DomainError("Choose one of the payment options shown.")
+                intent = ChatIntent(action="payment", **kwargs)
             elif parts[0] == "reconcile":
                 pending = state.get("cart_reconciliation")
                 if (
@@ -145,10 +171,8 @@ in clarification. Shopping only: redirect unrelated questions to groceries.
         elif normalized in {"hi", "hello", "start", "help"}:
             return state, [
                 text_message(
-                    "Hi, I'm EasyDial's automated grocery assistant. Send a voice note in your language, "
-                    "or type what you need. I'll search Blinkit and Instamart, and help you change your basket. "
-                    "This pilot stops before payment; no order will be placed. "
-                    f"For help: {self.settings.whatsapp_support_contact}. Reply STOP to pause."
+                    "Hi, I’m EasyDial, your AI grocery helper. What do you need? Type or send a voice note. "
+                    f"Help: {self.settings.whatsapp_support_contact}. STOP to pause."
                 )
             ]
         elif normalized in {"stop", "unsubscribe"}:
@@ -161,6 +185,24 @@ in clarification. Shopping only: redirect unrelated questions to groceries.
             )
         else:
             intent = await self.interpret(text, session, state)
+        if (
+            customer
+            and getattr(self, "payments", None)
+            and intent.action in {"edit", "select", "review", "checkout", "payment"}
+            and self.payments.existing(customer, session.view.id)
+        ):
+            raise DomainError(
+                "A payment request is already open. Check it in the store before changing your basket or starting another."
+            )
+        if progress:
+            progress.update(
+                {
+                    "search": "Finding matching products…",
+                    "review": "Checking your cart and fees…",
+                    "checkout": "Finding payment options…",
+                    "payment": "Preparing your payment option…",
+                }.get(intent.action, "Updating your basket…")
+            )
         session.say(text, "user")
         replies = []
         if intent.action == "search":
@@ -199,12 +241,7 @@ in clarification. Shopping only: redirect unrelated questions to groceries.
             session.view.comparison = exact_comparison([o for r in results for o in r.offers])
             session.changed()
             if basket_store:
-                replies.append(
-                    text_message(
-                        f"Your existing basket is kept. Choose an item from {basket_store.value.title()} "
-                        "to add to it; other-store prices are for comparison only."
-                    )
-                )
+                replies.append(text_message(f"Adding to your {basket_store.value.title()} basket."))
             if state["choices"]:
                 replies.extend(self.choice_messages(session, state["choices"]))
                 if session.view.comparison:
@@ -293,7 +330,7 @@ in clarification. Shopping only: redirect unrelated questions to groceries.
                 session.view.synced_provider = None
                 state["cart_checkpoint"] = None
                 session.changed()
-                replies.append(text_message("Your store basket is now empty. No order was placed."))
+                replies.append(text_message("Your store cart is empty."))
             else:
                 if session.view.lines:
                     session.view.synced_provider = session.view.lines[0].offer.provider
@@ -328,9 +365,7 @@ in clarification. Shopping only: redirect unrelated questions to groceries.
             session.view.payment_preparation = None
             if fingerprint(session.view, fresh) != fingerprint(session.view, review):
                 session.accept_review(session.view.version, fresh)
-                replies.append(
-                    text_message("The live bill changed. Please check this new table and approve again.")
-                )
+                replies.append(text_message("The total or fees changed. Please check the updated bill."))
                 replies.extend(self.review_messages(session))
             else:
                 session.confirm(session.view.version, review.id, True)
@@ -343,10 +378,53 @@ in clarification. Shopping only: redirect unrelated questions to groceries.
                     "total_paise": fresh.total_paise,
                     "breakdown": breakdown(fresh),
                 }
+                methods = await self.workers.payment_options(session.view, fresh)
+                menu = {
+                    "id": uuid4().hex,
+                    "review_id": review.id,
+                    "created_at": now().isoformat(),
+                    "methods": methods,
+                }
+                state["payment_menu"] = menu
+                replies.append(self.payment_choices(session, menu))
+        elif intent.action == "payment":
+            if not selected_method or not session.view.review:
+                raise DomainError("Please choose a payment method from the menu.")
+            review = session.view.review
+            fresh = await self.workers.revalidate(session.view)
+            if fingerprint(session.view, fresh) != fingerprint(session.view, review):
+                session.accept_review(session.view.version, fresh)
+                state["payment_menu"] = None
+                replies = [
+                    text_message("The bill changed. Please check it again."),
+                    *self.review_messages(session),
+                ]
+            elif selected_method["id"] == "upi":
+                if not customer or not getattr(self, "payments", None):
+                    raise DomainError("Payment-link setup is incomplete.")
+                state["payment_menu"] = None
+                prepared = await self.payments.create(customer, session.view, fresh, self.workers)
+                session.view.payment_preparation = {"status": "request_created", **prepared}
                 replies.append(
                     text_message(
-                        "Amount approved for payment preparation. Pending — no order was placed; no payment request was submitted. "
-                        "The payment handoff is not enabled yet."
+                        f"{money(fresh.total_paise)} · {fresh.provider.value.title()}\n"
+                        f"Open your UPI link: {prepared['url']}\nIt expires in a few minutes. Approve only in your UPI app."
+                    )
+                )
+            elif selected_method["id"] == "cash":
+                replies.append(
+                    text_message(
+                        selected_method.get("note")
+                        or "Cash on delivery requires placing the order. EasyDial won’t place it yet."
+                    )
+                )
+            else:
+                from ..providers.payments import STORE_CHECKOUT
+
+                replies.append(
+                    text_message(
+                        f"Use {selected_method['title'].lower()} on {fresh.provider.value.title()}: "
+                        f"{STORE_CHECKOUT[fresh.provider]}\nSign in with the same store account if asked. Check the bill before paying."
                     )
                 )
         elif intent.action == "basket":
@@ -375,6 +453,39 @@ in clarification. Shopping only: redirect unrelated questions to groceries.
         return state, replies
 
     @staticmethod
+    def payment_choices(session, menu):
+        return {
+            "type": "interactive",
+            "interactive": {
+                "type": "list",
+                "body": {"text": f"{money(session.view.review.total_paise)} · Choose a payment method."},
+                "action": {
+                    "button": "Payment options",
+                    "sections": [
+                        {
+                            "title": "From your store",
+                            "rows": [
+                                {
+                                    "id": f"payment:{session.view.version}:{menu['id']}_{item['id']}",
+                                    "title": item["title"][:24],
+                                    "description": (
+                                        item.get("note")
+                                        or (
+                                            "Generate a UPI link / QR"
+                                            if item["id"] == "upi"
+                                            else "Continue securely on the store"
+                                        )
+                                    )[:72],
+                                }
+                                for item in menu["methods"]
+                            ],
+                        }
+                    ],
+                },
+            },
+        }
+
+    @staticmethod
     def review_messages(session):
         review = session.view.review
         items = "\n".join(
@@ -384,7 +495,7 @@ in clarification. Shopping only: redirect unrelated questions to groceries.
             text_message(
                 f"{review.provider.value.title()} — live cart review\n{items}\n\n"
                 f"{table(review)}\n\nDelivery: {review.address_label}\n"
-                "Payment preparation only: no payment or order will be submitted."
+                "Check the total, then choose how to pay."
             )
         ]
         if breakdown(review)["reconciled"]:
@@ -393,17 +504,14 @@ in clarification. Shopping only: redirect unrelated questions to groceries.
                     "type": "interactive",
                     "interactive": {
                         "type": "button",
-                        "body": {
-                            "text": "Check every charge above, including any small-cart fee. "
-                            "Approve this amount for preparation, or ask to change your basket."
-                        },
+                        "body": {"text": "How would you like to pay?"},
                         "action": {
                             "buttons": [
                                 {
                                     "type": "reply",
                                     "reply": {
                                         "id": f"checkout:{session.view.version}:{review.id}",
-                                        "title": "Approve amount",
+                                        "title": "Choose payment",
                                     },
                                 }
                             ]
@@ -415,20 +523,30 @@ in clarification. Shopping only: redirect unrelated questions to groceries.
 
     @staticmethod
     def choice_messages(session, choices):
-        rows, descriptions = [], []
+        rows, descriptions, photos = [], [], []
         for i, id in enumerate(choices, 1):
             offer = session.offers[id]
             title = f"{i}. {offer.provider.value.title()}"
             detail = f"{offer.name[:100]} · {offer.pack_size or 'unknown pack'} · {money(offer.price_paise)}"
-            descriptions.append(f"{title}: {detail}; {offer.suggested_quantity} pack(s)")
+            descriptions.append(f"{title}: {detail} · In stock · {offer.suggested_quantity} pack(s)")
+            image_url = product_image_url(offer.image_url)
+            if image_url and len(photos) < 2:
+                photos.append(
+                    {
+                        "type": "image",
+                        "image": {
+                            "link": image_url,
+                            "caption": f"{title} · {offer.name} · {offer.pack_size} · {money(offer.price_paise)} · In stock"[
+                                :1024
+                            ],
+                        },
+                    }
+                )
             rows.append(
                 {"id": f"pick:{session.view.version}:{id}", "title": title[:24], "description": detail[:72]}
             )
-        return [
-            text_message(
-                "\n".join(descriptions) + "\nItem prices only; fees are checked on review. "
-                "Choose a product by number, voice or the menu."
-            ),
+        return photos + [
+            text_message("\n".join(descriptions) + "\nChoose a number. Delivery and fees come at review."),
             {
                 "type": "interactive",
                 "interactive": {
@@ -450,7 +568,7 @@ in clarification. Shopping only: redirect unrelated questions to groceries.
                 "type": "interactive",
                 "interactive": {
                     "type": "button",
-                    "body": {"text": "Would you like to change anything, or review the combined basket?"},
+                    "body": {"text": "Change anything, or review your basket?"},
                     "action": {
                         "buttons": [
                             {

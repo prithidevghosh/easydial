@@ -48,9 +48,8 @@ def messages(view, pending):
     replies = []
     if pending["checkpoint"]:
         body += (
-            "Tap Update cart to make the store cart match your requested basket above, "
-            "including the shown quantity changes, additions and removals. "
-            "Or tell me what to change first. I'll show the full live bill afterwards. No payment or order will be placed."
+            "Tap Update cart to apply these additions, removals and quantities. "
+            "Or tell me what to change. I’ll show the bill next; no order yet."
         )
         replies.append({"type": "text", "text": {"body": body}})
         replies.append(

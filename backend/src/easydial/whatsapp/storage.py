@@ -21,6 +21,7 @@ class Inbox:
         self.db.row_factory = sqlite3.Row
         self.db.executescript("""
             PRAGMA journal_mode=DELETE;
+            CREATE TABLE IF NOT EXISTS progress_events (event_id TEXT PRIMARY KEY);
             CREATE TABLE IF NOT EXISTS events (
                 id TEXT PRIMARY KEY, sender TEXT NOT NULL, timestamp INTEGER NOT NULL,
                 payload TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'queued');
@@ -144,6 +145,19 @@ class Inbox:
                 "INSERT INTO outbox(event_id,sender,payload) VALUES (?,?,?)",
                 [(row["id"], row["sender"], json.dumps(reply)) for reply in replies],
             )
+
+    def reserve_progress(self, row, text):
+        with self.db:
+            inserted = self.db.execute(
+                "INSERT OR IGNORE INTO progress_events VALUES (?)", (row["id"],)
+            ).rowcount
+            if not inserted:
+                return None
+            result = self.db.execute(
+                "INSERT INTO outbox(event_id,sender,payload,status) VALUES (?,?,?,?)",
+                (row["id"], row["sender"], json.dumps({"type": "text", "text": {"body": text}}), "sending"),
+            )
+            return result.lastrowid
 
     def claim_reply(self):
         row = self.db.execute("SELECT * FROM outbox WHERE status='queued' ORDER BY id LIMIT 1").fetchone()

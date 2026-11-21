@@ -10,13 +10,15 @@ from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse
 
 from ..controller import DomainError
 from ..master import OpenAIMaster
 from ..providers import ProviderWorkers
 from ..settings import Settings
 from .conversation import ShoppingChat, text_message
+from .payments import PaymentRequests, page_html
+from .progress import TurnProgress
 from .storage import Inbox
 from .transport import MetaTransport
 
@@ -39,6 +41,8 @@ class Runtime:
     def __init__(self, settings, inbox, transport, chat):
         self.settings, self.inbox, self.transport, self.chat = settings, inbox, transport, chat
         self.wake = asyncio.Event()
+        self.payments = PaymentRequests(inbox, settings.whatsapp_public_url)
+        self.chat.payments = self.payments
 
     async def process(self):
         row = self.inbox.claim()
@@ -48,6 +52,7 @@ class Runtime:
         message = json.loads(row["payload"])
         replies = []
         status = "done"
+        progress = None
         try:
             if not self.inbox.window_open(row["sender"]):
                 self.inbox.finish(row, state, [], "expired")
@@ -62,6 +67,16 @@ class Runtime:
             if state.get("cart_checkpoint"):
                 self.chat.workers.restore_checkpoint(state["cart_checkpoint"], state["view"]["id"])
             text, action_id = "", None
+            if not state["paused"] and message["type"] in {"audio", "text", "interactive"}:
+                progress = TurnProgress(
+                    self.inbox,
+                    self.transport,
+                    row,
+                    "Listening to your voice note…"
+                    if message["type"] == "audio"
+                    else "Checking your request…",
+                )
+                progress.start()
             if message["type"] == "audio":
                 if state["paused"]:
                     self.inbox.finish(row, state, [], "paused")
@@ -96,7 +111,9 @@ class Runtime:
                 ).fetchone()
                 if not context or context[0] != state.get("last_reply_event"):
                     raise DomainError("That reply refers to an older message. Please use the latest choices.")
-            state, replies = await self.chat.handle(text, state, action_id)
+            state, replies = await self.chat.handle(
+                text, state, action_id, progress=progress, customer=row["sender"]
+            )
             state["last_timestamp"] = row["timestamp"]
             if replies:
                 state["last_reply_event"] = row["id"]
@@ -113,6 +130,9 @@ class Runtime:
                     "Ask to review your basket, or contact support."
                 )
             ]
+        finally:
+            if progress:
+                await progress.close()
         self.inbox.finish(row, state, replies, status)
         return True
 
@@ -209,7 +229,7 @@ def create_whatsapp_app(settings=None):
                 inbox.close()
                 app.state.runtime = None
 
-    # This server exposes ONLY the signed WhatsApp ingress, never the local app's session API.
+    # Signed WhatsApp ingress plus opaque, expiring payment pages; never the local app session API.
     app = FastAPI(
         title="EasyDial WhatsApp", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None
     )
@@ -217,7 +237,31 @@ def create_whatsapp_app(settings=None):
 
     @app.get("/health")
     async def health():
-        return {"status": "setup_required" if missing else "ok", "channel": "whatsapp", "payments": False}
+        return {
+            "status": "setup_required" if missing else "ok",
+            "channel": "whatsapp",
+            "payments": False,
+            "payment_link_host_configured": bool(settings.whatsapp_public_url),
+        }
+
+    @app.get("/pay/{token}")
+    async def payment_page(token: str):
+        runtime = app.state.runtime
+        row = runtime.payments.lookup(token) if runtime else None
+        headers = {
+            "Cache-Control": "no-store",
+            "Referrer-Policy": "no-referrer",
+            "X-Robots-Tag": "noindex, nofollow",
+            "X-Content-Type-Options": "nosniff",
+            "Content-Security-Policy": "default-src 'none'; img-src data:; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'",
+        }
+        if not row:
+            return HTMLResponse(
+                "This payment link expired or is unavailable. Check the store before trying again.",
+                status_code=410,
+                headers=headers,
+            )
+        return HTMLResponse(page_html(row), headers=headers)
 
     @app.get("/webhooks/whatsapp")
     async def verify(request: Request):
