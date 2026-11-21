@@ -1,3 +1,15 @@
+# Unclear speech and previous-basket recovery — 2026-11-21
+
+Investigation of the reported 17:14–17:15 IST responses found an unclear transcript interpreted as removal, followed by a correctly captured request to put the same order back. User confirmed they intended agreement/proceeding after the bill, not deletion. The last nonempty draft was one Mandarin Orange 3-piece pack. No audio replay was possible because original recordings are not retained; do not claim the ASR itself has been fixed or benchmarked.
+
+Added NEXT_STEP context to intent interpretation without replaying old conversation instructions. A separate structured removal-intent check now rejects proposed deletion on unclear/garbled, negated or move/proceed language. This reduces the observed failure but is still model-based, not a guarantee. Bare numbers after a completed selection deterministically clarify add versus replace instead of guessing.
+
+Added restore intent with previous-basket context. Nonempty draft snapshots are retained only after successful basket changes; legacy empty drafts retrieve the most recent nonempty revision scoped to the same customer and order. Context retrieval alone never restores items. Explicit restore rechecks exact products/quantities at the provider, requires confirmation for changed prices, and clears old bill/payment preparation. Pending payment requests still prevent mutation. No customer draft or store cart was changed during diagnostic tests.
+
+Validation: 95 automated tests passed, 7 DOM skipped; final real-model text eval 48/48 across 24 cases twice. Earlier expanded run failed 2 cases; reports and limitations are retained in `INTENT_EVALUATION.md`. Added tests cover deletion verification, restoring known items, changed-price confirmation, failed refresh preserving state, scoped historical context and ambiguous numeric selection.
+
+---
+
 # Automatic stale-selection recovery — 2026-11-21
 
 The selected option was correctly understood, but the controller's ten-minute offer expiry surfaced as “Search again”. The WhatsApp harness now refreshes an expired selected offer automatically using only its provider and saved product name. It requires one exact product ID/SKU/pack/address/mode match; no lookalike or alternate pack is substituted. An unchanged price completes the original add/replacement with its intended quantity. A changed price leaves the basket untouched and presents the updated price for explicit versioned selection, retaining the pending replacement target. Unavailable stock, insufficient quantity, ambiguous identity or failed checks preserve the basket. Freshness enforcement remains in the controller.

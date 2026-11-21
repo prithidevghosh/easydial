@@ -14,7 +14,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from easydial.controller import Session
 from easydial.master import OpenAIMaster
-from easydial.models import BasketLine, Offer, Provider, SessionView
+from easydial.models import BasketLine, Offer, Provider, Review, SessionView
 from easydial.settings import Settings
 from easydial.whatsapp.conversation import ShoppingChat
 
@@ -171,6 +171,34 @@ CASES += [
 ]
 
 
+CASES += [
+    dict(
+        id="garbled_move_not_remove",
+        text="हरके के मूव कीजिए",
+        basket=True,
+        reviewed=True,
+        action="clarify",
+        edits=[],
+    ),
+    dict(
+        id="continue_after_review",
+        text="ha thik h, isko move kijiye",
+        basket=True,
+        reviewed=True,
+        action="checkout|clarify",
+        edits=[],
+    ),
+    dict(
+        id="restore_previous_basket",
+        text="Put the same order in the cart again",
+        basket=False,
+        previous=True,
+        action="restore",
+        edits=[],
+    ),
+]
+
+
 def context(full):
     offers = {}
     for key, name in [("milk", "Amul Taaza Milk"), ("curd", "Nandini Curd")]:
@@ -252,6 +280,21 @@ async def run(args):
                 }
             elif case.get("full_menu"):
                 state["choices"] = ["milk", "curd"]
+            if case.get("reviewed"):
+                session.view.review = Review(
+                    id="review",
+                    version=0,
+                    provider=Provider.INSTAMART,
+                    address_label="synthetic home",
+                    item_subtotal_paise=13600,
+                    fees_paise=0,
+                    total_paise=13600,
+                    payment_method="pending",
+                    mode="live",
+                )
+            if case.get("previous"):
+                previous, _ = context(True)
+                state["previous_basket"] = [line.model_dump(mode="json") for line in previous.view.lines]
             start = time.monotonic()
             try:
                 result = await chat.interpret(case["text"], session, state)

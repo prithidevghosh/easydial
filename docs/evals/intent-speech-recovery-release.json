@@ -1,0 +1,949 @@
+{
+  "model": "gpt-4.1",
+  "passed": 48,
+  "total": 48,
+  "cases": [
+    {
+      "id": "reported_switch_empty",
+      "repeat": 0,
+      "errors": [],
+      "intent": {
+        "action": "search",
+        "queries": [
+          {
+            "query": "Thums Up",
+            "quantity": 1,
+            "replaces_line_id": null
+          }
+        ],
+        "edits": [],
+        "offer_id": null,
+        "quantity": null,
+        "clarification": "",
+        "replaces_line_id": null
+      },
+      "seconds": 1.69
+    },
+    {
+      "id": "reported_switch_full",
+      "repeat": 0,
+      "errors": [],
+      "intent": {
+        "action": "search",
+        "queries": [
+          {
+            "query": "Thums Up",
+            "quantity": 1,
+            "replaces_line_id": null
+          }
+        ],
+        "edits": [
+          {
+            "kind": "remove",
+            "line_id": "milk",
+            "quantity": 2
+          },
+          {
+            "kind": "remove",
+            "line_id": "curd",
+            "quantity": 2
+          }
+        ],
+        "offer_id": null,
+        "quantity": null,
+        "clarification": "",
+        "replaces_line_id": null
+      },
+      "seconds": 2.79
+    },
+    {
+      "id": "hindi_curd",
+      "repeat": 0,
+      "errors": [],
+      "intent": {
+        "action": "search",
+        "queries": [
+          {
+            "query": "dahi curd 500g",
+            "quantity": 1,
+            "replaces_line_id": null
+          }
+        ],
+        "edits": [],
+        "offer_id": null,
+        "quantity": null,
+        "clarification": "",
+        "replaces_line_id": null
+      },
+      "seconds": 1.35
+    },
+    {
+      "id": "devanagari_switch",
+      "repeat": 0,
+      "errors": [],
+      "intent": {
+        "action": "search",
+        "queries": [
+          {
+            "query": "Thums Up",
+            "quantity": 1,
+            "replaces_line_id": null
+          }
+        ],
+        "edits": [
+          {
+            "kind": "remove",
+            "line_id": "milk",
+            "quantity": 2
+          },
+          {
+            "kind": "remove",
+            "line_id": "curd",
+            "quantity": 2
+          }
+        ],
+        "offer_id": null,
+        "quantity": null,
+        "clarification": "",
+        "replaces_line_id": null
+      },
+      "seconds": 1.49
+    },
+    {
+      "id": "mixed_change",
+      "repeat": 0,
+      "errors": [],
+      "intent": {
+        "action": "search",
+        "queries": [
+          {
+            "query": "bread",
+            "quantity": 1,
+            "replaces_line_id": null
+          }
+        ],
+        "edits": [
+          {
+            "kind": "remove",
+            "line_id": "milk",
+            "quantity": 2
+          }
+        ],
+        "offer_id": null,
+        "quantity": null,
+        "clarification": "",
+        "replaces_line_id": null
+      },
+      "seconds": 1.81
+    },
+    {
+      "id": "keep_existing",
+      "repeat": 0,
+      "errors": [],
+      "intent": {
+        "action": "search",
+        "queries": [
+          {
+            "query": "Thums Up cold drink",
+            "quantity": 1,
+            "replaces_line_id": null
+          }
+        ],
+        "edits": [],
+        "offer_id": null,
+        "quantity": null,
+        "clarification": "",
+        "replaces_line_id": null
+      },
+      "seconds": 0.87
+    },
+    {
+      "id": "compare_not_cancel",
+      "repeat": 0,
+      "errors": [],
+      "intent": {
+        "action": "search",
+        "queries": [
+          {
+            "query": "milk",
+            "quantity": 2,
+            "replaces_line_id": null
+          }
+        ],
+        "edits": [],
+        "offer_id": null,
+        "quantity": null,
+        "clarification": "",
+        "replaces_line_id": null
+      },
+      "seconds": 0.95
+    },
+    {
+      "id": "quantity_correction",
+      "repeat": 0,
+      "errors": [],
+      "intent": {
+        "action": "edit",
+        "queries": [],
+        "edits": [
+          {
+            "kind": "set_quantity",
+            "line_id": "milk",
+            "quantity": 3
+          }
+        ],
+        "offer_id": null,
+        "quantity": null,
+        "clarification": "",
+        "replaces_line_id": null
+      },
+      "seconds": 0.79
+    },
+    {
+      "id": "negated_removal",
+      "repeat": 0,
+      "errors": [],
+      "intent": {
+        "action": "search",
+        "queries": [
+          {
+            "query": "bread",
+            "quantity": 1,
+            "replaces_line_id": null
+          }
+        ],
+        "edits": [],
+        "offer_id": null,
+        "quantity": null,
+        "clarification": "",
+        "replaces_line_id": null
+      },
+      "seconds": 0.81
+    },
+    {
+      "id": "clear_only",
+      "repeat": 0,
+      "errors": [],
+      "intent": {
+        "action": "edit",
+        "queries": [],
+        "edits": [
+          {
+            "kind": "remove",
+            "line_id": "milk",
+            "quantity": 2
+          },
+          {
+            "kind": "remove",
+            "line_id": "curd",
+            "quantity": 2
+          }
+        ],
+        "offer_id": null,
+        "quantity": null,
+        "clarification": "",
+        "replaces_line_id": null
+      },
+      "seconds": 1.48
+    },
+    {
+      "id": "reject_options",
+      "repeat": 0,
+      "errors": [],
+      "intent": {
+        "action": "search",
+        "queries": [
+          {
+            "query": "Thums Up",
+            "quantity": 1,
+            "replaces_line_id": null
+          }
+        ],
+        "edits": [],
+        "offer_id": null,
+        "quantity": null,
+        "clarification": "",
+        "replaces_line_id": null
+      },
+      "seconds": 1.06
+    },
+    {
+      "id": "ambiguous_yes",
+      "repeat": 0,
+      "errors": [],
+      "intent": {
+        "action": "clarify",
+        "queries": [],
+        "edits": [],
+        "offer_id": null,
+        "quantity": null,
+        "clarification": "Can you please confirm if you want to add this curd to your basket?",
+        "replaces_line_id": null
+      },
+      "seconds": 1.66
+    },
+    {
+      "id": "ambiguous_unit",
+      "repeat": 0,
+      "errors": [],
+      "intent": {
+        "action": "search",
+        "queries": [
+          {
+            "query": "milk 1 litre",
+            "quantity": 2,
+            "replaces_line_id": null
+          }
+        ],
+        "edits": [],
+        "offer_id": null,
+        "quantity": null,
+        "clarification": "Please confirm: Do you prefer 2 packs of 1 litre milk or a different pack size?",
+        "replaces_line_id": null
+      },
+      "seconds": 0.88
+    },
+    {
+      "id": "replace_one",
+      "repeat": 0,
+      "errors": [],
+      "intent": {
+        "action": "search",
+        "queries": [
+          {
+            "query": "Thums Up",
+            "quantity": 1,
+            "replaces_line_id": "curd"
+          }
+        ],
+        "edits": [],
+        "offer_id": null,
+        "quantity": null,
+        "clarification": "Please select a Thums Up to replace Nandini Curd. The milk will remain in your basket.",
+        "replaces_line_id": null
+      },
+      "seconds": 1.76
+    },
+    {
+      "id": "stop",
+      "repeat": 0,
+      "errors": [],
+      "intent": {
+        "action": "stop",
+        "queries": [],
+        "edits": [],
+        "offer_id": null,
+        "quantity": null,
+        "clarification": "",
+        "replaces_line_id": null
+      },
+      "seconds": 1.43
+    },
+    {
+      "id": "no_automatic_payment",
+      "repeat": 0,
+      "errors": [],
+      "intent": {
+        "action": "review",
+        "queries": [],
+        "edits": [],
+        "offer_id": null,
+        "quantity": null,
+        "clarification": "",
+        "replaces_line_id": null
+      },
+      "seconds": 0.83
+    },
+    {
+      "id": "correct_first_to_second",
+      "repeat": 0,
+      "errors": [],
+      "intent": {
+        "action": "select",
+        "queries": [],
+        "edits": [],
+        "offer_id": "curd",
+        "quantity": null,
+        "clarification": "",
+        "replaces_line_id": "milk"
+      },
+      "seconds": 0.87
+    },
+    {
+      "id": "correct_devanagari",
+      "repeat": 0,
+      "errors": [],
+      "intent": {
+        "action": "select",
+        "queries": [],
+        "edits": [],
+        "offer_id": "curd",
+        "quantity": null,
+        "clarification": "",
+        "replaces_line_id": "milk"
+      },
+      "seconds": 0.74
+    },
+    {
+      "id": "additional_second",
+      "repeat": 0,
+      "errors": [],
+      "intent": {
+        "action": "select",
+        "queries": [],
+        "edits": [],
+        "offer_id": "curd",
+        "quantity": null,
+        "clarification": "",
+        "replaces_line_id": null
+      },
+      "seconds": 2.07
+    },
+    {
+      "id": "bare_number_after_selection",
+      "repeat": 0,
+      "errors": [],
+      "intent": {
+        "action": "clarify",
+        "queries": [],
+        "edits": [],
+        "offer_id": null,
+        "quantity": null,
+        "clarification": "Should that option replace your selected item, or be added as well?",
+        "replaces_line_id": null
+      },
+      "seconds": 0.0
+    },
+    {
+      "id": "second_before_selection",
+      "repeat": 0,
+      "errors": [],
+      "intent": {
+        "action": "select",
+        "queries": [],
+        "edits": [],
+        "offer_id": "curd",
+        "quantity": null,
+        "clarification": "",
+        "replaces_line_id": null
+      },
+      "seconds": 1.15
+    },
+    {
+      "id": "garbled_move_not_remove",
+      "repeat": 0,
+      "errors": [],
+      "intent": {
+        "action": "clarify",
+        "queries": [],
+        "edits": [],
+        "offer_id": null,
+        "quantity": null,
+        "clarification": "Could you please clarify what you mean by 'move'? Do you want to proceed to payment, or change or remove any item?",
+        "replaces_line_id": null
+      },
+      "seconds": 1.08
+    },
+    {
+      "id": "continue_after_review",
+      "repeat": 0,
+      "errors": [],
+      "intent": {
+        "action": "checkout",
+        "queries": [],
+        "edits": [],
+        "offer_id": null,
+        "quantity": null,
+        "clarification": "",
+        "replaces_line_id": null
+      },
+      "seconds": 0.65
+    },
+    {
+      "id": "restore_previous_basket",
+      "repeat": 0,
+      "errors": [],
+      "intent": {
+        "action": "restore",
+        "queries": [],
+        "edits": [],
+        "offer_id": null,
+        "quantity": null,
+        "clarification": "",
+        "replaces_line_id": null
+      },
+      "seconds": 0.82
+    },
+    {
+      "id": "reported_switch_empty",
+      "repeat": 1,
+      "errors": [],
+      "intent": {
+        "action": "search",
+        "queries": [
+          {
+            "query": "Thums Up",
+            "quantity": 1,
+            "replaces_line_id": null
+          }
+        ],
+        "edits": [],
+        "offer_id": null,
+        "quantity": null,
+        "clarification": "",
+        "replaces_line_id": null
+      },
+      "seconds": 0.69
+    },
+    {
+      "id": "reported_switch_full",
+      "repeat": 1,
+      "errors": [],
+      "intent": {
+        "action": "search",
+        "queries": [
+          {
+            "query": "Thums Up soft drink",
+            "quantity": 1,
+            "replaces_line_id": null
+          }
+        ],
+        "edits": [
+          {
+            "kind": "remove",
+            "line_id": "milk",
+            "quantity": 2
+          },
+          {
+            "kind": "remove",
+            "line_id": "curd",
+            "quantity": 2
+          }
+        ],
+        "offer_id": null,
+        "quantity": null,
+        "clarification": "",
+        "replaces_line_id": null
+      },
+      "seconds": 1.73
+    },
+    {
+      "id": "hindi_curd",
+      "repeat": 1,
+      "errors": [],
+      "intent": {
+        "action": "search",
+        "queries": [
+          {
+            "query": "curd packet",
+            "quantity": 1,
+            "replaces_line_id": null
+          }
+        ],
+        "edits": [],
+        "offer_id": null,
+        "quantity": null,
+        "clarification": "",
+        "replaces_line_id": null
+      },
+      "seconds": 1.03
+    },
+    {
+      "id": "devanagari_switch",
+      "repeat": 1,
+      "errors": [],
+      "intent": {
+        "action": "search",
+        "queries": [
+          {
+            "query": "Thums Up",
+            "quantity": 1,
+            "replaces_line_id": null
+          }
+        ],
+        "edits": [
+          {
+            "kind": "remove",
+            "line_id": "milk",
+            "quantity": 2
+          },
+          {
+            "kind": "remove",
+            "line_id": "curd",
+            "quantity": 2
+          }
+        ],
+        "offer_id": null,
+        "quantity": null,
+        "clarification": "",
+        "replaces_line_id": null
+      },
+      "seconds": 1.44
+    },
+    {
+      "id": "mixed_change",
+      "repeat": 1,
+      "errors": [],
+      "intent": {
+        "action": "search",
+        "queries": [
+          {
+            "query": "bread",
+            "quantity": 1,
+            "replaces_line_id": null
+          }
+        ],
+        "edits": [
+          {
+            "kind": "remove",
+            "line_id": "milk",
+            "quantity": 2
+          }
+        ],
+        "offer_id": null,
+        "quantity": null,
+        "clarification": "",
+        "replaces_line_id": null
+      },
+      "seconds": 1.38
+    },
+    {
+      "id": "keep_existing",
+      "repeat": 1,
+      "errors": [],
+      "intent": {
+        "action": "search",
+        "queries": [
+          {
+            "query": "Thums Up",
+            "quantity": 1,
+            "replaces_line_id": null
+          }
+        ],
+        "edits": [],
+        "offer_id": null,
+        "quantity": null,
+        "clarification": "",
+        "replaces_line_id": null
+      },
+      "seconds": 0.84
+    },
+    {
+      "id": "compare_not_cancel",
+      "repeat": 1,
+      "errors": [],
+      "intent": {
+        "action": "search",
+        "queries": [
+          {
+            "query": "milk",
+            "quantity": 2,
+            "replaces_line_id": null
+          }
+        ],
+        "edits": [],
+        "offer_id": null,
+        "quantity": null,
+        "clarification": "",
+        "replaces_line_id": null
+      },
+      "seconds": 0.86
+    },
+    {
+      "id": "quantity_correction",
+      "repeat": 1,
+      "errors": [],
+      "intent": {
+        "action": "edit",
+        "queries": [],
+        "edits": [
+          {
+            "kind": "set_quantity",
+            "line_id": "milk",
+            "quantity": 3
+          }
+        ],
+        "offer_id": null,
+        "quantity": null,
+        "clarification": "",
+        "replaces_line_id": null
+      },
+      "seconds": 0.86
+    },
+    {
+      "id": "negated_removal",
+      "repeat": 1,
+      "errors": [],
+      "intent": {
+        "action": "search",
+        "queries": [
+          {
+            "query": "bread",
+            "quantity": 1,
+            "replaces_line_id": null
+          }
+        ],
+        "edits": [],
+        "offer_id": null,
+        "quantity": null,
+        "clarification": "",
+        "replaces_line_id": null
+      },
+      "seconds": 1.19
+    },
+    {
+      "id": "clear_only",
+      "repeat": 1,
+      "errors": [],
+      "intent": {
+        "action": "edit",
+        "queries": [],
+        "edits": [
+          {
+            "kind": "remove",
+            "line_id": "milk",
+            "quantity": 2
+          },
+          {
+            "kind": "remove",
+            "line_id": "curd",
+            "quantity": 2
+          }
+        ],
+        "offer_id": null,
+        "quantity": null,
+        "clarification": "",
+        "replaces_line_id": null
+      },
+      "seconds": 1.39
+    },
+    {
+      "id": "reject_options",
+      "repeat": 1,
+      "errors": [],
+      "intent": {
+        "action": "search",
+        "queries": [
+          {
+            "query": "Thums Up",
+            "quantity": 1,
+            "replaces_line_id": null
+          }
+        ],
+        "edits": [],
+        "offer_id": null,
+        "quantity": null,
+        "clarification": "",
+        "replaces_line_id": null
+      },
+      "seconds": 0.91
+    },
+    {
+      "id": "ambiguous_yes",
+      "repeat": 1,
+      "errors": [],
+      "intent": {
+        "action": "clarify",
+        "queries": [],
+        "edits": [],
+        "offer_id": null,
+        "quantity": null,
+        "clarification": "Do you want to add this Nandini Curd 500 g to your cart?",
+        "replaces_line_id": null
+      },
+      "seconds": 0.76
+    },
+    {
+      "id": "ambiguous_unit",
+      "repeat": 1,
+      "errors": [],
+      "intent": {
+        "action": "search",
+        "queries": [
+          {
+            "query": "milk 1L pack",
+            "quantity": 2,
+            "replaces_line_id": null
+          }
+        ],
+        "edits": [],
+        "offer_id": null,
+        "quantity": null,
+        "clarification": "Do you want two 1-litre packs of milk or one 2-litre pack? Please confirm the preferred pack size.",
+        "replaces_line_id": null
+      },
+      "seconds": 0.93
+    },
+    {
+      "id": "replace_one",
+      "repeat": 1,
+      "errors": [],
+      "intent": {
+        "action": "search",
+        "queries": [
+          {
+            "query": "Thums Up",
+            "quantity": 1,
+            "replaces_line_id": "curd"
+          }
+        ],
+        "edits": [],
+        "offer_id": null,
+        "quantity": null,
+        "clarification": "Please select a Thums Up to replace the curd. Milk will remain in your basket.",
+        "replaces_line_id": null
+      },
+      "seconds": 0.92
+    },
+    {
+      "id": "stop",
+      "repeat": 1,
+      "errors": [],
+      "intent": {
+        "action": "stop",
+        "queries": [],
+        "edits": [],
+        "offer_id": null,
+        "quantity": null,
+        "clarification": "",
+        "replaces_line_id": null
+      },
+      "seconds": 1.43
+    },
+    {
+      "id": "no_automatic_payment",
+      "repeat": 1,
+      "errors": [],
+      "intent": {
+        "action": "review",
+        "queries": [],
+        "edits": [],
+        "offer_id": null,
+        "quantity": null,
+        "clarification": "I'll show you your bill for review before placing the order.",
+        "replaces_line_id": null
+      },
+      "seconds": 0.91
+    },
+    {
+      "id": "correct_first_to_second",
+      "repeat": 1,
+      "errors": [],
+      "intent": {
+        "action": "select",
+        "queries": [],
+        "edits": [],
+        "offer_id": "curd",
+        "quantity": null,
+        "clarification": "",
+        "replaces_line_id": "milk"
+      },
+      "seconds": 0.74
+    },
+    {
+      "id": "correct_devanagari",
+      "repeat": 1,
+      "errors": [],
+      "intent": {
+        "action": "select",
+        "queries": [],
+        "edits": [],
+        "offer_id": "curd",
+        "quantity": null,
+        "clarification": "",
+        "replaces_line_id": "milk"
+      },
+      "seconds": 0.8
+    },
+    {
+      "id": "additional_second",
+      "repeat": 1,
+      "errors": [],
+      "intent": {
+        "action": "select",
+        "queries": [],
+        "edits": [],
+        "offer_id": "curd",
+        "quantity": null,
+        "clarification": "",
+        "replaces_line_id": null
+      },
+      "seconds": 1.54
+    },
+    {
+      "id": "bare_number_after_selection",
+      "repeat": 1,
+      "errors": [],
+      "intent": {
+        "action": "clarify",
+        "queries": [],
+        "edits": [],
+        "offer_id": null,
+        "quantity": null,
+        "clarification": "Should that option replace your selected item, or be added as well?",
+        "replaces_line_id": null
+      },
+      "seconds": 0.0
+    },
+    {
+      "id": "second_before_selection",
+      "repeat": 1,
+      "errors": [],
+      "intent": {
+        "action": "select",
+        "queries": [],
+        "edits": [],
+        "offer_id": "curd",
+        "quantity": null,
+        "clarification": "",
+        "replaces_line_id": null
+      },
+      "seconds": 0.9
+    },
+    {
+      "id": "garbled_move_not_remove",
+      "repeat": 1,
+      "errors": [],
+      "intent": {
+        "action": "clarify",
+        "queries": [],
+        "edits": [],
+        "offer_id": null,
+        "quantity": null,
+        "clarification": "Did you want to proceed to payment or remove an item? Please confirm.",
+        "replaces_line_id": null
+      },
+      "seconds": 0.89
+    },
+    {
+      "id": "continue_after_review",
+      "repeat": 1,
+      "errors": [],
+      "intent": {
+        "action": "checkout",
+        "queries": [],
+        "edits": [],
+        "offer_id": null,
+        "quantity": null,
+        "clarification": "",
+        "replaces_line_id": null
+      },
+      "seconds": 0.72
+    },
+    {
+      "id": "restore_previous_basket",
+      "repeat": 1,
+      "errors": [],
+      "intent": {
+        "action": "restore",
+        "queries": [],
+        "edits": [],
+        "offer_id": null,
+        "quantity": null,
+        "clarification": "",
+        "replaces_line_id": null
+      },
+      "seconds": 1.49
+    }
+  ]
+}

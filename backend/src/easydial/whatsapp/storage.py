@@ -94,6 +94,17 @@ class Inbox:
         if order is None:
             raise RuntimeError("Missing durable order draft; refusing checkout from conversation state")
         state["view"] = order
+        # Recover only this customer's most recent nonempty draft in this same order.
+        # This supplies context, never changes the live or draft basket automatically.
+        if not order["lines"] and not state.get("previous_basket"):
+            for revision in self.db.execute(
+                "SELECT snapshot FROM order_revisions WHERE sender=? AND order_id=? ORDER BY created_at DESC,rowid DESC LIMIT 30",
+                (sender, order["id"]),
+            ):
+                previous = json.loads(revision[0])
+                if previous["lines"]:
+                    state["previous_basket"] = previous["lines"]
+                    break
         return state
 
     def load_order(self, sender, order_id):

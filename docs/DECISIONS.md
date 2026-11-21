@@ -103,3 +103,5 @@ Read actual provider payment categories and let the customer choose. Generate Bl
 2026-11-21: Preserve recent numbered menu context after selection so explicit ordinal corrections replace the selected line. Keep output prose English-only regardless of input language, per user preference.
 
 2026-11-21: Treat cached offer expiry as an internal recoverable condition in WhatsApp selection. Refresh exact store/SKU/pack automatically; continue unchanged terms, request approval for price changes, and preserve the basket if verification fails. Do not weaken the controller freshness guard.
+
+2026-11-21: Unclear transcripts must not imply deletion. Verify proposed removals separately, ground forward references in the actual next step, and support explicit previous-basket restoration from customer/order-scoped revisions with fresh product checks. Keep existing dictation until a real same-recording comparison supports a change.

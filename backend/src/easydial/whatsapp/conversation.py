@@ -10,20 +10,30 @@ from pydantic import BaseModel, Field
 from ..billing import breakdown, fingerprint, table
 from ..controller import DomainError, Session, exact_comparison
 from ..master import INSTRUCTIONS
-from ..models import EditRequest, IntentEdit, Offer, RequestedProduct, SessionView, now
+from ..models import BasketLine, EditRequest, IntentEdit, Offer, RequestedProduct, SessionView, now
 from ..providers.cart_guard import CartConflict
 from ..providers.images import product_image_url
 from . import reconciliation
 
 
 class ChatIntent(BaseModel):
-    action: Literal["search", "edit", "select", "review", "checkout", "basket", "clarify", "stop", "payment"]
+    action: Literal[
+        "search", "edit", "select", "review", "checkout", "basket", "clarify", "stop", "payment", "restore"
+    ]
     queries: list[RequestedProduct]
     edits: list[IntentEdit]
     offer_id: str | None
     quantity: int | None = Field(ge=1, le=100)
     clarification: str
     replaces_line_id: str | None = None
+
+
+class SelectionDecision(BaseModel):
+    operation: Literal["replace", "add", "clarify"]
+
+
+class RemovalCheck(BaseModel):
+    explicit_removal: bool
 
 
 def text_message(text):
@@ -64,6 +74,22 @@ class ShoppingChat:
         }
 
     async def interpret(self, text, session, state, *, repair=False):
+        # A number after a completed selection does not distinguish add from replace.
+        # Ask rather than let stochastic model output choose a destructive interpretation.
+        if (
+            text.strip().isascii()
+            and text.strip().isdigit()
+            and not state["choices"]
+            and self.recent_choices(session, state)
+        ):
+            return ChatIntent(
+                action="clarify",
+                queries=[],
+                edits=[],
+                offer_id=None,
+                quantity=None,
+                clarification="Should that option replace your selected item, or be added as well?",
+            )
         client = self.master.require_client()
         result = await client.responses.parse(
             model=self.settings.openai_text_model,
@@ -72,7 +98,14 @@ class ShoppingChat:
                 "For explicit edits plus discovery, return action search with both edits and queries. Never drop either part.",
             )
             + """
-This is the WhatsApp channel. Additional actions: select, basket, checkout.
+This is the WhatsApp channel. Additional actions: select, basket, checkout, restore.
+Use restore for "put the same order in the cart again", "undo removal", or "bring back my basket"
+when CURRENT_BASKET is empty and PREVIOUS_BASKET is provided. Do not ask the user to list those items again.
+PREVIOUS_BASKET is historical context only: never restore without the current user's explicit request.
+NEXT_STEP is the actual conversation state. After a reviewed bill, "ha thik h, isko move kijiye"
+means continue to payment-method choice (checkout), never remove. Move/proceed is not remove/delete.
+Broken speech such as "हरके के मूव कीजिए" is ambiguous: clarify briefly in English, never delete items.
+Never guess a removal from an unclear transcript, and never infer a completed payment from agreement.
 RECENT_SELECTION preserves the last selected line and its numbered menu, even after active choices clear.
 "first wla nhi, ap second wla choose kro" after selecting option 1 means select option 2 from
 RECENT_CHOICES and set replaces_line_id to RECENT_SELECTION.line_id. Preserve its quantity unless changed.
@@ -134,6 +167,19 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
                         {"number": i + 1, **session.offers[id].model_dump(mode="json")}
                         for i, id in enumerate(self.recent_choices(session, state))
                     ],
+                    "PREVIOUS_BASKET": [
+                        {
+                            "name": line["offer"]["name"],
+                            "pack": line["offer"].get("pack_size"),
+                            "quantity": line["quantity"],
+                        }
+                        for line in state.get("previous_basket", [])
+                    ],
+                    "NEXT_STEP": "choose_payment_method"
+                    if session.view.review
+                    else "review_basket"
+                    if session.view.lines
+                    else "choose_products",
                     "has_reviewed_bill": session.view.review is not None,
                     "validation_feedback": (
                         "Your previous interpretation had invalid targets or inconsistent action fields. "
@@ -198,6 +244,68 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
                 quantity=None,
                 clarification="Which product or option would you like?",
             )
+        if intent.action == "select" and not intent.replaces_line_id and self.recent_choices(session, state):
+            decision = await client.responses.parse(
+                model=self.settings.openai_text_model,
+                instructions=(
+                    "The customer already selected an item from a numbered menu. Classify the CURRENT "
+                    "request as replace (reject/correct the earlier selection), add (explicitly wants another item too), "
+                    "or clarify (neither is explicit). 'First nahi, second wala' means replace; 'second bhi' means add. "
+                    "Do not infer addition merely because the requested offer differs."
+                ),
+                input=json.dumps(
+                    {"request": text, "recent_selection": state["recent_selection"]}, ensure_ascii=False
+                ),
+                text_format=SelectionDecision,
+                store=False,
+            )
+            if decision.output_parsed and decision.output_parsed.operation == "replace":
+                intent.replaces_line_id = state["recent_selection"]["line_id"]
+            elif not decision.output_parsed or decision.output_parsed.operation == "clarify":
+                return ChatIntent(
+                    action="clarify",
+                    queries=[],
+                    edits=[],
+                    offer_id=None,
+                    quantity=None,
+                    clarification="Should that option replace your selected item, or be added as well?",
+                )
+        if any(edit.kind == "remove" for edit in intent.edits):
+            check = await client.responses.parse(
+                model=self.settings.openai_text_model,
+                instructions=(
+                    "Verify whether the CURRENT utterance explicitly asks to remove the proposed items. "
+                    "Return false for garbled or ambiguous speech, negated removal, keep/retain requests, "
+                    "or move/proceed/continue toward checkout. Move is NOT remove. Do not repair broken "
+                    "speech into a destructive command. True requires clear deletion intent in context. "
+                    "Examples: 'har ke ke move kijiye' / 'हरके के मूव कीजिए' is false; "
+                    "'ha thik h, isko move kijiye' is false; 'cart se orange hata do' is true."
+                ),
+                input=json.dumps(
+                    {
+                        "utterance": text,
+                        "proposed_removals": [
+                            line.offer.name
+                            for line in session.view.lines
+                            if line.id in {e.line_id for e in intent.edits if e.kind == "remove"}
+                        ],
+                    },
+                    ensure_ascii=False,
+                ),
+                text_format=RemovalCheck,
+                store=False,
+            )
+            if check.output_parsed is None or not check.output_parsed.explicit_removal:
+                return ChatIntent(
+                    action="clarify",
+                    queries=[],
+                    edits=[],
+                    offer_id=None,
+                    quantity=None,
+                    clarification="Did you mean continue to checkout? Your basket is unchanged."
+                    if session.view.review
+                    else "Did you want to remove an item? Your basket is unchanged.",
+                )
         # Never pass Indic-script model prose through to an English-only customer chat.
         if re.search(r"[\u0600-\u06ff\u0900-\u0dff]", intent.clarification):
             intent.clarification = (
@@ -240,6 +348,7 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
             view=SessionView.model_validate(state["view"]),
             offers={id: Offer.model_validate(value) for id, value in state["offers"].items()},
         )
+        original_lines = [line.model_dump(mode="json") for line in session.view.lines]
         self.restore_legacy_choices(session, state)
         selected_method = None
         normalized = text.strip().casefold()
@@ -295,6 +404,11 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
                 await self.workers.adopt_checkpoint(pending["checkpoint"], pending["address"])
                 state["cart_checkpoint"] = pending["checkpoint"]
                 intent = ChatIntent(action="review", **kwargs)
+            elif parts[0] == "restore":
+                pending = state.get("pending_restore")
+                if not pending or parts[2] != pending["id"]:
+                    raise DomainError("That basket confirmation is old. Ask to restore your basket again.")
+                intent = ChatIntent(action="restore", **kwargs)
             elif parts[0] in {"review", "basket", "checkout"}:
                 if parts[0] == "checkout" and (not session.view.review or parts[2] != session.view.review.id):
                     raise DomainError("Please review the current bill first.")
@@ -321,7 +435,10 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
         if (
             customer
             and getattr(self, "payments", None)
-            and (intent.action in {"edit", "select", "review", "checkout", "payment"} or intent.edits)
+            and (
+                intent.action in {"edit", "select", "review", "checkout", "payment", "restore"}
+                or intent.edits
+            )
             and self.payments.existing(customer, session.view.id)
         ):
             raise DomainError(
@@ -508,6 +625,71 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
                 session.edit(EditRequest(**edit.model_dump(), expected_version=session.view.version))
             state["choices"] = []
             replies.extend(self.basket_messages(session))
+        elif intent.action == "restore":
+            if session.view.lines:
+                raise DomainError("Your basket already has items. Would you like to replace them?")
+            source = state.get("previous_basket", [])
+            if not source:
+                raise DomainError("Which items would you like to bring back?")
+            lines = [BasketLine.model_validate(line) for line in source]
+            if len({line.offer.provider for line in lines}) != 1 or (
+                session.view.synced_provider and lines[0].offer.provider != session.view.synced_provider
+            ):
+                raise DomainError("Please choose which store basket to restore.")
+            if progress:
+                progress.update("Checking your previous basket…")
+            fresh_lines = []
+            for line in lines:
+                fresh = await self.workers.refresh_offer(line.offer, session.view.address_label)
+                if not fresh.available or fresh.price_paise is None or line.quantity > fresh.max_quantity:
+                    raise DomainError(
+                        "Some previous items aren’t available in that quantity. Your basket is unchanged."
+                    )
+                fresh_lines.append(line.model_copy(update={"offer": fresh}))
+            expected = state.get("pending_restore", {}).get("lines", []) if action_id else source
+            expected_prices = {
+                (line["offer"]["product_id"], line["offer"]["sku_id"]): line["offer"]["price_paise"]
+                for line in expected
+            }
+            if any(
+                expected_prices.get((line.offer.product_id, line.offer.sku_id)) != line.offer.price_paise
+                for line in fresh_lines
+            ):
+                pending = {"id": uuid4().hex, "lines": [line.model_dump(mode="json") for line in fresh_lines]}
+                state["pending_restore"] = pending
+                description = "\n".join(
+                    f"• {line.quantity} × {line.offer.name} ({line.offer.pack_size}) — {money(line.subtotal)}"
+                    for line in fresh_lines
+                )
+                return state, [
+                    text_message("Prices have changed. Restore these items?\n" + description),
+                    {
+                        "type": "interactive",
+                        "interactive": {
+                            "type": "button",
+                            "body": {"text": "Restore your previous basket?"},
+                            "action": {
+                                "buttons": [
+                                    {
+                                        "type": "reply",
+                                        "reply": {
+                                            "id": f"restore:{session.view.version}:{pending['id']}",
+                                            "title": "Restore basket",
+                                        },
+                                    }
+                                ]
+                            },
+                        },
+                    },
+                ]
+            session.view.lines = fresh_lines
+            for line in fresh_lines:
+                session.offers[line.offer.id] = line.offer
+            session.changed()
+            state["choices"] = []
+            state["recent_selection"] = None
+            state["pending_restore"] = None
+            replies = [text_message("Restored your previous basket."), *self.basket_messages(session)]
         elif intent.action == "review":
             session.view.review = None
             session.view.payment_preparation = None
@@ -631,6 +813,8 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
             replies.append(
                 text_message(intent.clarification or "Which groceries and pack sizes would you like?")
             )
+        if original_lines and original_lines != [line.model_dump(mode="json") for line in session.view.lines]:
+            state["previous_basket"] = original_lines
         for reply in replies:
             if reply["type"] == "text":
                 session.say(reply["text"]["body"])

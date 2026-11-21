@@ -62,3 +62,11 @@ An additional real incident exposed missing context rather than a transcription 
 ## Follow-up: expired selections
 
 Correct intent alone is insufficient: the harness now automatically refreshes expired selected offers, using exact provider/product/SKU/pack matching. Unchanged price proceeds; price changes prompt explicit confirmation without removing the original item. Execution tests cover stale ordinal corrections, changed-price confirmation and failures preserving the draft. The language evaluator does not measure these provider effects; use `test_stale_selection.py` and a read-only live refresh for that evidence.
+
+## Follow-up: garbled move/proceed and restoring a removed basket
+
+User confirmed that a voice note intended to agree/proceed was transcribed as unclear text containing “मूव”. The master treated it as removal. The subsequent restore request was clearly transcribed but lacked prior-basket context. Added NEXT_STEP context, an independent explicit-removal check, scoped prior-basket recovery, and a restore action that rechecks products and requests confirmation if prices changed. Speech provider/model remains unchanged: original audio was not retained, so the recognizer itself was not retested or proven fixed.
+
+The expanded 24-case development suite initially passed 46/48, exposing stochastic ordinal-selection and generic-product selection failures in addition to the original incident. A deterministic clarification handles bare numeric replies after selection; a separate add/replace classifier checks recent-menu selections missing a replacement target. Final run passed 48/48 with GPT-4.1 (24 cases twice); raw reports are retained in `evals/intent-speech-recovery-before-selection-check.json` and `evals/intent-speech-recovery-release.json`. These finite model-based checks are not guarantees. The generic-product failure was not reproduced in the final run; continue tracking it rather than treating one passing run as proof of elimination.
+
+Standard suite: 95 passed, 7 DOM skipped; tests cover removal-check rejection, prior-basket restoration and price confirmation, failed refresh atomicity, customer/order scoping, deterministic numeric clarification, and missing replacement-target recovery. No original audio evaluation, live basket mutation, payment or order placement was performed.
