@@ -2,11 +2,15 @@
 
 Voice-assisted grocery ordering for older adults and people who find commerce apps difficult to use.
 
-**Phase: research only. Updated: 2026-11-21. No application has been built.**
+**Phase: building. Updated: 2026-11-21.** Native SwiftUI iOS app and Python backend; sample commerce journey implemented. Live commerce and speech still require credentials and validation.
+
+Repository: [prithidevghosh/easydial](https://github.com/prithidevghosh/easydial) (public).
+
+Start with [plan.md](plan.md) for the detailed execution checklist and [the runbook](docs/RUNBOOK.md) to run the project. Research below records the evidence that informed the build.
 
 ## Research verdict
 
-The concept is feasible as a bounded hackathon prototype. The full promise—any Indian language, reliable comparison across both providers, and completed orders—is not yet validated. Start with a verified language set and an Instamart journey; treat Blinkit and cross-provider comparison as conditional extensions.
+The concept is feasible as a bounded hackathon prototype. The full promise—any Indian language, reliable comparison across both providers, and completed orders—is not yet validated. Both providers remain in scope, with sample comparisons implemented. Authenticated discovery, live checkout and a measured language set are the next validation gates.
 
 ## Read in this order
 

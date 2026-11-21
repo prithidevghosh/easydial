@@ -4,56 +4,45 @@ Updated: 2026-11-21.
 
 ## Current state
 
-Initial desk research and static code audit complete. **Implementation has not started.** Authenticated integration feasibility and speech quality are still unproven. Do not translate “documented” into “tested.”
+Build authorized by the user after the research phase. Native SwiftUI iOS app and FastAPI backend implemented, with a verified synthetic shopping journey. Repository is public: https://github.com/prithidevghosh/easydial. Live commerce and multilingual voice quality remain unverified. Read `plan.md` before continuing.
 
 ## Completed
 
-- Captured user requirements and deferred calling scope.
-- Reviewed official Swiggy Instamart tool contracts, authentication, delegated sessions, access and published operating boundaries.
-- Inspected Blinkit source at commit `a39547118f4decd04a77ac16316fa09efdb6237a`: server, browser authentication, search, cart, checkout, facade, history, configuration and test helpers; checked issue/PR state.
-- Reviewed official Wispr language/developer/MCP pages, OpenAI transcription/VAD docs, and Sarvam speech model docs.
-- Assessed the supplied hackathon themes and drafted an evaluation protocol.
-- Documented a proposed controller/agent design for revisions, comparisons and checkout.
-- Created the Markdown documentation set indexed by the root README.
+- Research and source audit recorded in COMMERCE_RESEARCH.md and VOICE_RESEARCH.md; themes and evaluation protocol documented.
+- Extensive staged implementation plan, product goals, decisions, and verification gates committed.
+- OpenAI structured intent interface with quantity/replacement targets, transcription and speech routes. Missing credentials produce explicit unavailable responses.
+- Separate sample, Instamart MCP, and custom Blinkit Playwright discovery adapters. Live failures never fall back silently to samples.
+- Session isolation, versioned atomic basket edits, equivalent-product item-price comparison, expiring review, approval invalidation, and idempotent sample confirmation.
+- Native microphone recording, text fallback, grouped provider choices, basket sheet, review, and clearly simulated completion.
+- Soothing blue/white visual design, generous touch targets, compact voice control after search, and custom app icon.
+- Reproducible project generation, local runbook, dependency lock, and GitHub CI configuration.
 
-## Not done
+## Verification actually performed
 
-- No user interview, recording collection, speech benchmark, live MCP authentication or provider search.
-- No cart mutation, payment, order or integration deployment.
-- No official confirmation of comparison use-case permission, Blinkit approval, or hackathon eligibility.
-- No dependencies installed, app scaffolding, source modifications to Blinkit, or application code written.
-- No measured performance/cost results.
+- `uv run ruff check src tests`: passed.
+- `uv run pytest -q`: 13 passed. Covers sample journey, session isolation, stale state, basket edit atomicity, replacement preservation, provider failure isolation, unknown prices/stock, review expiry, and disabled live checkout.
+- Native iOS simulator build: succeeded with Xcode 26.5.
+- iPhone 17 simulator UI test: sample search → add → basket → review → explicit sample confirmation → no-real-order result, passed after design refinement.
+- Simulator screenshots inspected for layout; actual older-user usability, VoiceOver and physical-device microphone testing are outstanding.
+- GitHub workflow results should be checked after the CI commit; local checks are not evidence of remote CI completion.
 
-## Highest-priority next steps
+## Outstanding work and blockers
 
-1. Confirm the hackathon name/rules, deadline and whether a hosted demo is required. Current theme analysis relies on the user's supplied wording.
-2. Pick one real target participant, a serviceable city/address and initial languages. Record actual pain points before finalizing the UI.
-3. Clarify with Swiggy whether an attributed, user-directed Instamart/Blinkit comparison is acceptable. No message has been sent. Any outreach needs the user's explicit instruction.
-4. When the user is ready to connect a test account, validate localhost OAuth, `tools/list`, address retrieval and read-only discovery. Capture redacted evidence.
-5. Inspect live Blinkit search outputs at the intended address before committing it to the demo. Validate pack-size extraction, price meaning and availability interpretation.
-6. Collect a small consented speech pilot and execute the paired evaluation when implementation/evaluation is authorized.
-7. Only after a build instruction, implement the narrow journey and validate cart edits. A purchase test requires an explicitly approved basket/amount/address.
+1. Configure OpenAI credentials locally using `backend/.env`, then test actual recorded audio and intent correction; no credential is present in this repository. Language-grounded spoken responses need further work and evaluation; most deterministic responses currently use English.
+2. Authenticate a real Swiggy test account, capture actual tool schemas, verify delivery address and read-only product discovery. OAuth onboarding and token refresh are not implemented.
+3. Authenticate Blinkit with a local browser profile, validate current selectors and product fields at the same address. Custom Playwright code exists but has not run against an authenticated account.
+4. Resolve published Swiggy comparison-use interpretation before enabling live comparison. No outreach has been sent. Both providers remain in scope.
+5. Implement actual provider cart synchronization and verified totals, payment handoff, durable idempotency and order status. Live checkout is deliberately disabled until these gates pass.
+6. Add durable sessions, production authentication, rate limits and deployment configuration before hosting a public service.
+7. Collect consented same-recording language evaluation and compare the baseline with EasyDial. No measured improvement is claimed yet.
+8. Confirm hackathon identity/deadline/rules, target user, address and regional language. Theme 2 remains the best fit if evaluation demonstrates improvement; Theme 1 also fits the useful journey.
 
-## Open questions
+## How to resume
 
-| Question | Why it matters | Current fallback |
-| --- | --- | --- |
-| Is comparison permitted? | Core cross-provider feature depends on it | Single-provider journey; synthetic catalogue for speech evaluation |
-| Does the chosen Swiggy account expose all tools? | Actual capability may differ from docs | Discover schema at connection time |
-| Can hosted callback/production access be obtained in time? | Local prototype permission does not prove public-demo permission | Local demo if rules permit |
-| Does Blinkit still work at the chosen location? | Static code cannot prove DOM compatibility | Clearly unavailable/experimental provider |
-| Which language pair and participants? | Determines meaningful speech/TTS validation | Hindi/Hinglish plus one participant-selected regional language |
-| What is the payment experience for the target user? | QR/UPI may reintroduce friction | Use available methods only; test onboarding and handoff |
-| Is actual order placement required for judging? | Determines transactional demo boundary | State clearly whether journey ends at preview or confirmed order |
+Follow RUNBOOK.md for local startup. Default sample mode needs no secrets; OpenAI requests need an API key on the backend. Use a simulator with the backend at `http://127.0.0.1:8000`. The backend is an in-memory local development service; restarting loses sessions. See IOS_DESIGN.md for design rationale and DECISIONS.md for accepted technical choices.
 
-## Evidence and reproducibility
-
-Research date is 2026-11-21; model IDs and online documentation can change. Pin versions and recheck sources before implementation. Swiggy is a remote service, so runtime tool schemas need a dated snapshot later. Blinkit source links are pinned to the inspected commit.
-
-Temporary Blinkit source: `/private/tmp/easydial-research/hereisSwapnil-blinkit-mcp-a395471`. It may be deleted by the OS; the durable report uses GitHub permalinks. No secrets were downloaded. Existing `.codex/` contents were left untouched.
-
-Use the OpenAI Docs skill for future OpenAI API verification. No other implementation skill was needed for this research phase.
+Do not equate compiled code, mocked tests, or sample purchases with a verified live capability. Preserve unrelated basket items, invalidate review after every edit, distinguish unavailable from out-of-stock, and never report an order without provider evidence. Telephone calls remain deferred.
 
 ## Maintenance convention
 
-After each work session update this file with completed work, actual verification, blockers and next actions. Add decisions to DECISIONS.md with status and evidence. Keep intended goals separate from achieved results. If implementation is authorized later, record the authorization and new phase here before building.
+Each session updates this file and the plan ledger with completed work, actual evidence, blockers and next actions. Record decisions and concise rationale, not private internal deliberation. Make focused commits and push to the public repository. Keep credentials, recordings, addresses and authenticated browser state out of git.

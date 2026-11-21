@@ -1,6 +1,6 @@
 # EasyDial — implementation plan and verification ledger
 
-Updated: 2026-11-21. Owner: current agent and founder. Status: **build authorized; implementation underway**.
+Updated: 2026-11-21. Owner: current agent and founder. Repository: https://github.com/prithidevghosh/easydial (public). Status: **build authorized; implementation underway**.
 
 This is the primary execution document. Read it together with `docs/PROGRESS.md` at the beginning of every session. Update the checkboxes and evidence before ending a session. A written feature, successful compilation, sample response, and verified live journey are four different levels of completion.
 
@@ -17,6 +17,8 @@ The product must be able to answer these questions without losing state:
 - Is the displayed comparison an item subtotal or a final payable total?
 - Has the user approved the exact current basket, delivery address and payment method?
 - Did the provider confirm an order, or did we only open payment/click a button?
+
+Latest verification: 13 backend tests and Ruff pass; revised simulator end-to-end sample journey passes; final iOS simulator build succeeds. Checked implementation items below do not imply authenticated live validation.
 
 ### Non-negotiable goals
 
@@ -95,10 +97,10 @@ No silent fallback from live data to sample data. Provider errors are unavailabl
 - [x] Confirm implementation authorization from the latest user message.
 - [x] Check workspace and local Xcode/Python availability.
 - [x] Create this detailed plan before implementation.
-- [ ] Create backend package, locked dependencies and ignored local secrets/state.
-- [ ] Create native iOS project with microphone/local-network descriptions.
-- [ ] Establish health/config/session endpoints and run instructions.
-- [ ] Document missing credentials without exposing secrets.
+- [x] Create backend package, locked dependencies and ignored local secrets/state.
+- [x] Create native iOS project with microphone/local-network descriptions.
+- [x] Establish health/config/session endpoints and run instructions.
+- [x] Document missing credentials without exposing secrets.
 
 **Exit check:** a new agent can install dependencies, start the service and build the app using the runbook. No previously existing user files were overwritten. **Goal check:** infrastructure supports G1/G2/G3/G9 without pretending to deliver live groceries.
 
@@ -107,18 +109,18 @@ No silent fallback from live data to sample data. Provider errors are unavailabl
 ### Shared contract
 
 - [ ] Product record contains provider, source mode, product/SKU IDs, name, brand, pack size, quantity, price in integer paise, stock state, address context and timestamp.
-- [ ] Unknown size/price/stock remains unknown; unknown fields cannot form exact-match comparisons.
-- [ ] Provider timeouts/errors are isolated; a failure on one does not invent data on the other.
-- [ ] Independent provider reads can run concurrently; Blinkit browser calls serialize.
-- [ ] Search results cannot mutate an external cart or trigger a purchase.
+- [x] Unknown size/price/stock remains unknown; unknown fields cannot form exact-match comparisons.
+- [x] Provider timeouts/errors are isolated; a failure on one does not invent data on the other.
+- [x] Independent provider reads can run concurrently; Blinkit browser calls serialize.
+- [x] Search results cannot mutate an external cart or trigger a purchase.
 
 ### Instamart
 
 - [ ] Connect to official streamable HTTP MCP using server-side user credentials.
 - [ ] Discover actual tools and save a redacted schema snapshot.
-- [ ] Normalize `structuredContent`; inspect error flags before parsing text fallbacks.
-- [ ] Map variant IDs, brands, quantity descriptions, availability and offer prices.
-- [ ] Handle pagination deliberately; disclose any result cap.
+- [x] Normalize `structuredContent`; inspect error flags before parsing text fallbacks.
+- [x] Map variant IDs, brands, quantity descriptions, availability and offer prices.
+- [x] Handle pagination deliberately; disclose any result cap.
 - [ ] Validate the selected saved address and guest-location semantics.
 - [ ] Run a read-only live milk/bread search and compare against provider UI.
 
@@ -129,7 +131,7 @@ No silent fallback from live data to sample data. Provider errors are unavailabl
 - [ ] Support user-driven phone/OTP setup without storing OTP in chat history.
 - [ ] Explicitly set and verify address; never infer customer address from server IP.
 - [ ] Extract structured name, brand, variant, pack size, displayed price and stock evidence.
-- [ ] Handle missing selectors as failure rather than returning fabricated success.
+- [x] Handle missing selectors as failure rather than returning fabricated success.
 - [ ] Run live discovery at selected address and compare with visible cards.
 - [ ] Record selector/access failures; do not bypass site access controls.
 
@@ -137,29 +139,29 @@ No silent fallback from live data to sample data. Provider errors are unavailabl
 
 ## 7. Milestone 2 — basket controller and comparison
 
-- [ ] Maintain an intended basket separate from provider carts.
-- [ ] Resolve offered IDs against server-side results, never trust client/model prices.
-- [ ] Require positive bounded quantities; distinguish pack count from weight/volume.
-- [ ] Support add, set quantity, remove and replacement atomically.
-- [ ] Preserve unrelated lines on every edit.
-- [ ] Increment basket version on meaningful changes.
-- [ ] Reject stale client/model versions and discard stale search completion.
+- [x] Maintain an intended basket separate from provider carts.
+- [x] Resolve offered IDs against server-side results, never trust client/model prices.
+- [x] Require positive bounded quantities; distinguish pack count from weight/volume.
+- [x] Support add, set quantity, remove and replacement atomically.
+- [x] Preserve unrelated lines on every edit.
+- [x] Increment basket version on meaningful changes.
+- [x] Reject stale client/model versions and discard stale search completion.
 - [ ] Invalidate reviews/approval when basket, address, provider or payment changes.
-- [ ] Compare only identical known brand/formulation/pack-size/quantity combinations.
-- [ ] Label subtotal comparisons and unknown fees explicitly.
-- [ ] Do not mutate real carts to answer a price question.
+- [x] Compare only identical known brand/formulation/pack-size/quantity combinations.
+- [x] Label subtotal comparisons and unknown fees explicitly.
+- [x] Do not mutate real carts to answer a price question.
 
 **Test cases:** add milk then bread; set milk to three; remove bread; replace brand; unknown offer ID; negative/zero/excessive quantity; duplicate request; stale version; change address; cheaper different-size item; one failed provider. **Goal check:** G4/G5/G6; did a spoken edit do exactly what was intended, once?
 
 ## 8. Milestone 3 — OpenAI master and language handling
 
-- [ ] Use structured outputs with bounded intents/actions and schema validation.
-- [ ] Pass current basket, recent turns and available options as context.
+- [x] Use structured outputs with bounded intents/actions and schema validation.
+- [x] Pass current basket, recent turns and available options as context.
 - [ ] Keep original transcript and reply language distinct from normalized catalogue queries.
 - [ ] Clarify missing brand/size or ambiguous references when necessary.
 - [ ] Interpret addition, replacement, quantity correction, removal, comparison and stop distinctly.
-- [ ] Never infer purchase authorization from a model-only boolean.
-- [ ] Treat provider text as untrusted content, not instruction.
+- [x] Never infer purchase authorization from a model-only boolean.
+- [x] Treat provider text as untrusted content, not instruction.
 - [ ] Model errors/refusals/timeouts produce a recoverable message with unchanged basket.
 - [ ] Validate actual Hindi/Hinglish and regional-language requests with configured API access.
 
@@ -167,12 +169,12 @@ No silent fallback from live data to sample data. Provider errors are unavailabl
 
 ## 9. Milestone 4 — native iOS journey
 
-- [ ] Home screen with clear EasyDial identity, large microphone and sample/live status.
+- [x] Home screen with clear EasyDial identity, large microphone and sample/live status.
 - [ ] Permission denial has recovery instructions; recording starts only after permission.
 - [ ] Tap start/stop; obvious listening/processing state; no background recording.
 - [ ] Upload short audio to backend, show transcript, let user retry or type.
-- [ ] Offer cards show provider, exact variant, price basis and stock.
-- [ ] Basket has accessible quantity/remove controls and spoken-edit route.
+- [x] Offer cards show provider, exact variant, price basis and stock.
+- [x] Basket has accessible quantity/remove controls and spoken-edit route.
 - [ ] Review screen shows total basis, address, provider and payment choice.
 - [ ] Spoken output identifies AI-generated voice and has replay/stop controls.
 - [ ] Accessibility labels, Dynamic Type, readable contrast and >=44pt targets.
@@ -270,3 +272,7 @@ The project is complete only when an intended user can speak a supported-languag
 | Date | Checkpoint | Result | Next |
 | --- | --- | --- | --- |
 | 2026-11-21 | Build authorization and environment | Xcode 26.5, Swift 6.3.2, Python 3.11 and uv available; no OpenAI key in process environment | Foundation, typed controller and provider discovery |
+
+| 2026-11-21 | Backend foundation | 13 tests pass, read-only provider adapters, structured OpenAI intent/audio endpoints; no credentials used | Live auth and provider smoke tests pending |
+| 2026-11-21 | iOS initial journey | Simulator build and first sample journey passed; premium/soothing layout revision underway | Recheck revised UI and publish focused commit |
+| 2026-11-21 | GitHub | Public repository created; research, plan and backend commits pushed | iOS, CI and final handoff commits |
