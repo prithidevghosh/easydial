@@ -112,21 +112,67 @@ class Onboarding:
             "Saved login: " + ", ".join(saved) + ". Send Logout to remove saved logins."
         )]
 
-    async def logout(self, sender, event_id, shopping_state):
+    def confirm_logout(self, sender, shopping_state):
+        providers = list(self.accounts.connections(sender))
+        if not providers:
+            return [text_message("No store login is saved. Send Connect to log in.")]
+        nonce = uuid4().hex
+        shopping_state["logout_confirmation"] = {
+            "nonce": nonce, "providers": providers, "expires": time.time() + 600,
+        }
+        reply = button_message("Which grocery account should I sign out of?", nonce,
+                               [(p, p.title()) for p in providers])
+        for button in reply["interactive"]["action"]["buttons"]:
+            button["reply"]["id"] = button["reply"]["id"].replace("onboard:", "account-logout:", 1)
+        return [reply]
+
+    async def account_request(self, sender, event_id, text, shopping_state, action=None):
+        pending = shopping_state.get("logout_confirmation")
+        if pending and pending["expires"] < time.time():
+            shopping_state.pop("logout_confirmation", None)
+            pending = None
+        if action and action.startswith("account-logout:"):
+            parts = action.split(":")
+            if len(parts) != 3 or not pending or parts[1] != pending["nonce"] or parts[2] not in pending["providers"]:
+                return [text_message("That logout choice expired. Please ask to sign out again.")]
+            return await self.logout(sender, event_id, shopping_state, parts[2])
+        if pending and text.casefold().strip() in pending["providers"]:
+            return await self.logout(sender, event_id, shopping_state, text.casefold().strip())
+        # Retain existing short commands; natural-language requests go to the master.
+        if logout_requested(text):
+            return await self.logout(sender, event_id, shopping_state)
+        disconnect = re.fullmatch(r"disconnect (blinkit|instamart)", text.casefold().strip())
+        if disconnect:
+            return await self.logout(sender, event_id, shopping_state, disconnect[1])
+        return None
+
+    async def logout(self, sender, event_id, shopping_state, provider=None):
         # Revoke access before awaiting browser cleanup; no active draft or stale
         # payment button may survive logout, even with a pending merchant order.
-        for provider in ("blinkit", "instamart"):
-            self.accounts.consent(sender, provider, event_id, "withdrawn")
-            self.accounts.forget(sender, provider)
-        self.payments.revoke_customer(sender)
-        shopping_state.clear()
-        shopping_state.update({
-            "view": SessionView(id=uuid4().hex, mode="live", address_label="").model_dump(mode="json"),
-            "offers": {}, "choices": [], "paused": False, "last_timestamp": 0,
-        })
-        replies = self.menu(sender, "You're logged out. Saved logins removed. Existing orders stay active. Choose a store to log in again.")
+        targets = (provider,) if provider else ("blinkit", "instamart")
+        for target in targets:
+            self.accounts.consent(sender, target, event_id, "withdrawn")
+            self.accounts.forget(sender, target)
+        view = shopping_state["view"]
+        affected = not provider or not view["lines"] or view.get("synced_provider") == provider or any(
+            line["offer"]["provider"] == provider for line in view["lines"]
+        )
+        shopping_state.pop("logout_confirmation", None)
+        if affected:
+            self.payments.revoke_customer(sender)
+            shopping_state.clear()
+            shopping_state.update({
+                "view": SessionView(id=uuid4().hex, mode="live", address_label="").model_dump(mode="json"),
+                "offers": {}, "choices": [], "paused": False, "last_timestamp": 0,
+            })
+        if provider:
+            remaining = self.accounts.connections(sender)
+            self.accounts.begin(sender, "ready" if remaining else "store")
+            replies = [text_message(f"You're logged out of {provider.title()}. Its saved login was removed. Existing orders stay active.")]
+        else:
+            replies = self.menu(sender, "You're logged out. Saved logins removed. Existing orders stay active. Choose a store to log in again.")
         try:
-            await self.cancel(sender)
+            await self.cancel(sender, provider)
         finally:
             await self.chats.close_customer(sender, save=False)
         return replies
@@ -135,8 +181,9 @@ class Onboarding:
         sender, event_id = row["sender"], row["id"]
         text, action = content(message)
         low = text.casefold().strip()
-        if logout_requested(text):
-            return await self.logout(sender, event_id, shopping_state)
+        account_reply = await self.account_request(sender, event_id, text, shopping_state, action)
+        if account_reply is not None:
+            return account_reply
         if account_status_requested(text):
             return self.account_status(sender)
         state = self.accounts.state(sender)
@@ -145,20 +192,6 @@ class Onboarding:
             count = self.accounts.db.execute("SELECT COUNT(*) FROM onboarding").fetchone()[0]
             if count >= self.max_customers:
                 return [text_message("EasyDial is full for this pilot. Please try again later.")]
-        # Withdrawal is permitted even with an outstanding order. It never cancels an order.
-        disconnect = re.fullmatch(r"disconnect (blinkit|instamart)", low)
-        if disconnect:
-            provider = disconnect[1]
-            await self.cancel(sender, provider)
-            await self.chats.close_customer(sender, save=False)
-            self.accounts.consent(sender, provider, event_id, "withdrawn")
-            self.accounts.forget(sender, provider)
-            self.accounts.begin(sender, "ready" if self.accounts.connections(sender) else "store")
-            return [
-                text_message(
-                    f"{provider.title()} disconnected. Saved login removed and permission withdrawn. Existing orders are not cancelled. Send Connect to link a store again."
-                )
-            ]
         command = low in {"start", "login", "log in", "sign in", "connect", "connect store", "reconnect", "change address"}
         if command or not state:
             if shopping_state["view"]["lines"] or self.payments.existing(

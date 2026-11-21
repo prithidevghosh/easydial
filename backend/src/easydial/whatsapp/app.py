@@ -16,6 +16,7 @@ from ..controller import DomainError
 from ..master import OpenAIMaster
 from ..providers import ProviderWorkers
 from ..settings import Settings
+from .account_requests import TRANSCRIPTION_PROMPT
 from .conversation import ShoppingChat, text_message
 from .payments import PaymentRequests, page_html
 from .progress import TurnProgress
@@ -132,7 +133,7 @@ class Runtime:
                 result = await client.audio.transcriptions.create(
                     model=self.settings.openai_transcription_model,
                     file=("recording.wav", audio, "audio/wav"),
-                    prompt="Grocery conversation in Indian languages. Preserve brands, quantities, negation and corrections.",
+                    prompt=TRANSCRIPTION_PROMPT,
                 )
                 text = result.text.strip()
                 if not text:
@@ -149,13 +150,11 @@ class Runtime:
             if not text or len(text) > 3000:
                 raise DomainError("Please send a shorter message describing your groceries.")
             if self.onboarding and message["type"] == "audio":
-                from .onboarding import account_status_requested, logout_requested
+                from .onboarding import account_status_requested
 
-                if logout_requested(text) or account_status_requested(text):
-                    if logout_requested(text):
-                        replies = await self.onboarding.logout(row["sender"], row["id"], state)
-                    else:
-                        replies = self.onboarding.account_status(row["sender"])
+                account_reply = await self.onboarding.account_request(row["sender"], row["id"], text, state)
+                if account_reply is not None or account_status_requested(text):
+                    replies = account_reply if account_reply is not None else self.onboarding.account_status(row["sender"])
                     self.inbox.supersede_waiting_replies(row["sender"])
                     state["last_timestamp"] = row["timestamp"]
                     state["last_reply_event"] = row["id"]
@@ -173,14 +172,18 @@ class Runtime:
                 ).fetchone()
                 if not context or context[0] != state.get("last_reply_event"):
                     raise DomainError("That reply refers to an older message. Please use the latest choices.")
+            if self.onboarding:
+                state["connected_stores"] = list(self.onboarding.accounts.connections(row["sender"]))
             state, replies = await chat.handle(
                 text, state, action_id, progress=progress, customer=row["sender"]
             )
             if len(replies) == 1 and replies[0].get("type") == "account_action":
                 if not self.onboarding:
                     replies = [text_message("Account setup is unavailable. Please contact support.")]
+                elif replies[0]["action"] == "account_clarify":
+                    replies = self.onboarding.confirm_logout(row["sender"], state)
                 elif replies[0]["action"] == "logout":
-                    replies = await self.onboarding.logout(row["sender"], row["id"], state)
+                    replies = await self.onboarding.logout(row["sender"], row["id"], state, replies[0].get("provider"))
                 else:
                     replies = self.onboarding.account_status(row["sender"])
             state["last_timestamp"] = row["timestamp"]

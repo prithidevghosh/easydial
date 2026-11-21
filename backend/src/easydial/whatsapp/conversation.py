@@ -31,6 +31,7 @@ class ChatIntent(BaseModel):
         "status",
         "logout",
         "account_status",
+        "account_clarify",
         "cancel_checkout",
     ]
     queries: list[RequestedProduct]
@@ -112,7 +113,7 @@ class ShoppingChat:
                 "For explicit edits plus discovery, return action search with both edits and queries. Never drop either part.",
             )
             + """
-This is the WhatsApp channel. Additional actions: select, basket, checkout, restore, logout, account_status.
+This is the WhatsApp channel. Additional actions: select, basket, checkout, restore, logout, account_status, account_clarify.
 Use cancel_checkout for an explicit request to cancel the current checkout/order/payment.
 Set clear_cart=true if the user also wants the basket emptied, including "order cancel kr dijiye
 and cart khali kr dijiye". Also use cancel_checkout with clear_cart=true for an explicit
@@ -121,8 +122,21 @@ Removing just one named item remains edit. Do not split cancellation into remove
 queries/edits and null selection. Cancellation is a request, never proof a merchant order was cancelled.
 Negated, hypothetical or unclear cancellation requests must clarify, never cancel.
 Account management IS supported here. Use logout for a clear current request to sign out,
-disconnect all saved store accounts or remove saved logins, including polite/informal multilingual
+disconnect saved store accounts or remove saved logins, including polite/informal multilingual
 phrasing. Never use logout for negation, hypothetical questions or unclear speech; clarify instead.
+For a named-store logout, set target_provider to that store. "logout from Blinkit" and
+"mujhe Blinkit se logout kar do" mean logout with target_provider blinkit, never a basket edit.
+Use null target_provider only for an unqualified logout or an explicit all-accounts logout.
+If the user clearly asks to logout/sign out but the store name is uncertain or outside the
+supported stores (for example, speech transcribed as "logout from LinkedIn"), use account_clarify
+with no target_provider. This asks which connected grocery account they mean; never silently
+change LinkedIn into Blinkit and never ask about basket edits for an account request.
+ACCOUNT_CONTEXT contains the actual connected stores and any pending logout question. A reply
+like "I meant Blinkit", "yes, Blinkit please", or "ब्लिंकिट वाला" to that question means logout
+with target_provider blinkit. Without that pending question, a store name alone is not logout.
+Clear multilingual commands such as "Blinkit wala account band kar do, sign out karna hai"
+mean scoped logout. Negated/hypothetical logout never authorizes it.
+Account requests take priority over NEXT_STEP, products and basket context.
 Use account_status for questions about saved/connected logins. These actions have no queries,
 edits or selection. Never claim logout is unavailable. They are handled by account management,
 not by shopping tools, even when an order/payment attempt exists.
@@ -132,7 +146,8 @@ PREVIOUS_BASKET is historical context only: never restore without the current us
 NEXT_STEP is the actual conversation state. After a reviewed bill, "ha thik h, isko move kijiye"
 means continue to payment-method choice (checkout), never remove. Move/proceed is not remove/delete.
 If speech/text is garbled, incoherent, or its intended action is unclear, set unclear_request=true.
-This takes priority over every action and all conversation context. Do not repair unclear speech
+If only the store in an otherwise clear logout request is uncertain, use account_clarify instead.
+Otherwise this takes priority over every action and all conversation context. Do not repair unclear speech
 into a guessed request. Ask exactly: "I couldn't understand that clearly. Could you say it again?"
 Return action clarify, empty queries/edits, and null selection fields. Never suggest a guessed action.
 Clear multilingual requests and obvious brand spellings are not automatically unclear.
@@ -180,7 +195,7 @@ whether "rehne do" means keep or cancel, ask rather than removing. Explicit "hat
 If a target is genuinely ambiguous, clarify; otherwise complete both parts without asking the user to repeat.
 Adding a different product keeps every existing basket line. Do not infer replacement or store
 switching from a request for another product. Only explicit replacement sets replaces_line_id.
-Set target_provider to the explicitly requested search store, otherwise null. Never choose the
+For search actions, set target_provider to the explicitly requested search store, otherwise null. Never choose the
 existing store instead of the requested store. Include provider in contextual reasoning.
 For "remove this from Instamart and add the same/similar product on Blinkit", return search,
 target_provider=blinkit, switch_store=true, and a query preserving the basket product name,
@@ -196,7 +211,7 @@ Stop pauses this chat; do not interpret 'don't place an order yet, compare milk'
 Return empty queries/edits unless needed, null offer_id/quantity unless selecting.
 Use short, everyday language: one short sentence where possible. Avoid technical words and repeated disclaimers.
 All customer-facing replies and clarifications MUST be in English, even for Hindi/Hinglish or other input. Never claim any completed action or price
-in clarification. Shopping only: redirect unrelated questions to groceries.
+in clarification. Grocery shopping and connected-account management are supported; redirect other topics briefly.
 Interpret only the current request. CURRENT_BASKET is authoritative; an empty list means no items.
 A request such as "मुझे दही चाहिए", "दही मंगवा दो", or "dahi order karo" means search
 for curd/dahi, not set_quantity or remove. Translate generic Indian-language grocery names into
@@ -206,6 +221,8 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
             input=json.dumps(
                 {
                     "request": text,
+                    "ACCOUNT_CONTEXT": {"connected_stores": state.get("connected_stores", []),
+                                        "pending_logout": state.get("logout_confirmation")},
                     "UNRESOLVED_REQUESTS": state.get("unresolved_requests", []),
                     "CURRENT_BASKET": [
                         {
@@ -257,7 +274,7 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
         if result.output_parsed is None:
             raise DomainError("I couldn't understand that. Please say it another way.", 422)
         intent = result.output_parsed
-        if intent.unclear_request:
+        if intent.unclear_request and intent.action != "account_clarify":
             return ChatIntent(
                 action="clarify",
                 queries=[],
@@ -689,8 +706,10 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
             return await self.cancel_checkout(state, session, customer, True, progress)
         if intent.action == "cancel_checkout":
             return await self.cancel_checkout(state, session, customer, intent.clear_cart, progress)
-        if intent.action in {"logout", "account_status"}:
-            return state, [{"type": "account_action", "action": intent.action}]
+        if intent.action in {"logout", "account_status", "account_clarify"}:
+            return state, [{"type": "account_action", "action": intent.action,
+                            "provider": intent.target_provider.value if intent.target_provider else None}]
+        state.pop("logout_confirmation", None)
         if intent.action == "status":
             if customer and payments and payments.existing(customer, session.view.id):
                 if progress:

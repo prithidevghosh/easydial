@@ -690,3 +690,108 @@ async def test_merchant_phone_error_offers_retry_instead_of_pending_loop(tmp_pat
     assert r.onboarding.accounts.state("919999999999")["stage"] == "otp"
     assert "Enter the OTP" in replies[0]["text"]["body"]
     r.inbox.close()
+
+
+@pytest.mark.parametrize('voice', [False, True])
+async def test_master_scoped_logout_preserves_other_store(tmp_path, voice):
+    from unittest.mock import AsyncMock
+
+    from tests.test_whatsapp import intent
+
+    r = runtime(tmp_path)
+    await connect(r, provider='instamart')
+    sender = '919999999999'
+    r.onboarding.accounts.consent(sender, 'blinkit', 'second-store', 'accepted')
+    r.onboarding.accounts.save_connection(sender, 'blinkit', {'address': 'home', 'location': 'locality'})
+    r.chat.interpret = AsyncMock(return_value=intent('logout', target_provider=Provider.BLINKIT))
+    r.customer_chats.get = AsyncMock(return_value=r.chat)
+    r.customer_chats.close_customer = AsyncMock()
+    phrase = 'मुझे ब्लिंकिट वाले अकाउंट से साइन आउट कर दीजिए'
+    if voice:
+        transcribe = AsyncMock(return_value=SimpleNamespace(text=phrase))
+        r.chat.master = SimpleNamespace(require_client=lambda: SimpleNamespace(
+            audio=SimpleNamespace(transcriptions=SimpleNamespace(create=transcribe))))
+        msg = message('scoped-voice-logout', type='audio', audio={'id': 'test-audio'})
+        r.inbox.enqueue(msg)
+        await r.process()
+        prompt = transcribe.call_args.kwargs['prompt']
+        assert 'Blinkit' in prompt and 'Instamart' in prompt and 'negation' in prompt
+    else:
+        await turn(r, phrase)
+    r.chat.interpret.assert_awaited_once()
+    assert set(r.onboarding.accounts.connections(sender)) == {'instamart'}
+    assert r.onboarding.accounts.consented(sender, 'instamart')
+    assert not r.onboarding.accounts.consented(sender, 'blinkit')
+    assert r.onboarding.accounts.state(sender)['stage'] == 'ready'
+    r.inbox.close()
+
+
+async def test_uncertain_account_scope_asks_account_question_and_checks_button(tmp_path):
+    from unittest.mock import AsyncMock
+
+    from tests.test_whatsapp import intent
+
+    r = runtime(tmp_path)
+    await connect(r, provider='instamart')
+    sender = '919999999999'
+    r.onboarding.accounts.consent(sender, 'blinkit', 'second-store', 'accepted')
+    r.onboarding.accounts.save_connection(sender, 'blinkit', {'address': 'home', 'location': 'locality'})
+    r.chat.interpret = AsyncMock(return_value=intent('account_clarify', unclear_request=True))
+    r.customer_chats.get = AsyncMock(return_value=r.chat)
+    r.customer_chats.close_customer = AsyncMock()
+    replies = await turn(r, 'Please log me out of LinkedIn')
+    question = replies[0]['interactive']
+    assert 'Which grocery account' in question['body']['text']
+    assert len(r.onboarding.accounts.connections(sender)) == 2
+    buttons = question['action']['buttons']
+    blinkit = next(b['reply'] for b in buttons if b['reply']['title'] == 'Blinkit')
+    await turn(r, 'Blinkit', action=blinkit['id'])
+    assert set(r.onboarding.accounts.connections(sender)) == {'instamart'}
+    replies = await turn(r, 'Blinkit', action=blinkit['id'])
+    assert 'expired' in replies[0]['text']['body']
+    assert set(r.onboarding.accounts.connections(sender)) == {'instamart'}
+    r.inbox.close()
+
+
+async def test_voice_followup_retains_pending_account_context(tmp_path):
+    from unittest.mock import AsyncMock
+
+    from tests.test_whatsapp import intent
+
+    r = runtime(tmp_path)
+    await connect(r, provider='blinkit')
+    sender = '919999999999'
+    r.chat.interpret = AsyncMock(return_value=intent('account_clarify'))
+    r.customer_chats.get = AsyncMock(return_value=r.chat)
+    r.customer_chats.close_customer = AsyncMock()
+    await turn(r, 'Sign out of LinkedIn please')
+    assert r.inbox.load(sender)['logout_confirmation']
+    transcribe = AsyncMock(return_value=SimpleNamespace(text='Blinkit'))
+    r.chat.master = SimpleNamespace(require_client=lambda: SimpleNamespace(
+        audio=SimpleNamespace(transcriptions=SimpleNamespace(create=transcribe))))
+    r.inbox.enqueue(message('confirm-voice-logout', type='audio', audio={'id': 'test-audio'}))
+    await r.process()
+    assert not r.onboarding.accounts.connections(sender)
+    assert r.chat.interpret.await_count == 1
+    r.inbox.close()
+
+
+async def test_scoped_logout_keeps_other_stores_active_basket_and_payment(tmp_path):
+    from unittest.mock import AsyncMock, Mock
+
+    r = runtime(tmp_path)
+    await connect(r, provider='instamart')
+    sender = '919999999999'
+    r.onboarding.accounts.consent(sender, 'blinkit', 'second-store', 'accepted')
+    r.onboarding.accounts.save_connection(sender, 'blinkit', {'address': 'home', 'location': 'locality'})
+    state = r.chat.initial()
+    state['view']['lines'] = [{'offer': {'provider': 'instamart'}}]
+    state['view']['synced_provider'] = 'instamart'
+    state['payment_menu'] = {'id': 'instamart-payment'}
+    r.payments.revoke_customer = Mock()
+    r.customer_chats.close_customer = AsyncMock()
+    await r.onboarding.logout(sender, 'scoped-logout', state, 'blinkit')
+    assert state['view']['lines'] and state['payment_menu']['id'] == 'instamart-payment'
+    assert set(r.onboarding.accounts.connections(sender)) == {'instamart'}
+    r.payments.revoke_customer.assert_not_called()
+    r.inbox.close()
