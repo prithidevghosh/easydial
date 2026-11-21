@@ -395,3 +395,11 @@ Customer reported a cart-change rejection before payment discovery. Read-only li
 Known nonempty carts now wait up to five seconds for the cart button to enable. Freshness validation retries mismatching read-only snapshots twice and checks desired contents before mutating the ownership guard, preserving the checkpoint on a persistent mismatch. Real changes still block payment; no cart contents are automatically overwritten.
 
 Validation: 180 standard tests and 27 opt-in Chrome tests passed. New regressions simulate delayed cart hydration, transient emptiness, persistent emptiness and changed quantities, asserting checkpoint preservation. Full live revalidate → bill fingerprint comparison → payment options, restored from the persisted customer checkpoint, succeeded: unchanged saved bill, UPI QR and Pay on delivery. No payment request or order submitted.
+
+## 2026-11-21 — Locality label changes between payment selection and QR
+
+Reproduced the reported UPI failure by running payment options and returning to the homepage in the same customer context. Blinkit replaced the onboarding's short header label (40 characters) with an expanded delivery label (94 characters). Exact header equality incorrectly treated this as an address change, although checkout retained the selected full delivery address.
+
+On a persistent header mismatch, navigation now reads the existing cart without resolving or selecting addresses. Only if its full delivery address matches the onboarded address does it accept the new header label. Missing/different full addresses still reject navigation, and no address is changed to manufacture a match. The check applies to search, review, payment entry and QR generation through their shared navigation path. Updated the WhatsApp option description to Generate a UPI QR.
+
+Validation: 183 standard tests passed; new regressions cover changed header with identical, different and absent full address. Live sequence restored the customer checkpoint, revalidated the saved bill, loaded UPI/COD options, then generated and decoded a QR for ₹270 in the same browser context. No payment approval or order submission occurred; the diagnostic QR was not sent to the customer.

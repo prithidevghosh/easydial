@@ -1161,7 +1161,7 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
                                     "description": (
                                         item.get("note")
                                         or (
-                                            "Generate a UPI link / QR"
+                                            "Generate a UPI QR"
                                             if item["id"] == "upi"
                                             else "Continue securely on the store"
                                         )

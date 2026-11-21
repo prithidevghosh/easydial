@@ -117,9 +117,17 @@ class BlinkitProvider:
             await asyncio.sleep(0.25)
             location = await subtitle.inner_text()
         if normalized(self.verified_location) != normalized(location):
-            raise DomainError(
-                "Blinkit's selected delivery location changed. Reconnect with the intended address."
-            )
+            # Checkout can replace the short locality label with an expanded
+            # address label. Verify the actual delivery address, never infer
+            # identity from truncated header text or select a different address.
+            cart = await self.read_cart(page, resolve_address=False)
+            if not self.verified_address or normalized(self.verified_address) not in normalized(
+                cart.get("address") or ""
+            ):
+                raise DomainError(
+                    "Blinkit's selected delivery location changed. Reconnect with the intended address."
+                )
+            self.verified_location = location
         self.header_address = location
         await page.goto(
             f"https://blinkit.com/s/?q={quote(query)}", wait_until="domcontentloaded", timeout=20000
@@ -163,7 +171,7 @@ class BlinkitProvider:
                 message="Live Blinkit prices; final bill is checked during basket review.",
             )
 
-    async def read_cart(self, page):
+    async def read_cart(self, page, *, resolve_address=True):
         drawer = page.locator(
             "div[class*='CartDrawer'], div[class*='CartSidebar'], div.cart-modal-rn, div[class*='CartWrapper__CartContainer']"
         ).first
@@ -197,7 +205,7 @@ class BlinkitProvider:
             ):
                 break
             await asyncio.sleep(0.25)
-        if data["items"] and not data.get("address") and self.verified_address:
+        if resolve_address and data["items"] and not data.get("address") and self.verified_address:
             await self.select_checkout_address(page)
             for _ in range(32):
                 data = await drawer.evaluate(blinkit_dom.CART)
