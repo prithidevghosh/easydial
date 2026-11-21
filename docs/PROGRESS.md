@@ -533,3 +533,11 @@ Validation: 239 standard tests passed; 31 opt-in DOM tests skipped. Lint/diff ch
 - Existing history identity matching, three-check limits and separate final-order confirmation remain in place.
 - Validation: 244 backend tests passed (31 opt-in DOM tests skipped in that run). Added lifecycle tests for lock retention, single submission, timeout preservation and history-tab cleanup. No live order/payment submitted; actual merchant outcome still requires a customer-authorized test.
 - Opt-in Chrome DOM suite: 32 passed, including delayed order acknowledgement. Ruff and git diff checks passed.
+
+## Resume payment screens and retry upstream overloads
+- Root cause of repeated checkout navigation: payment selection and final COD confirmation each ran revalidate on the main tab, then open_options unconditionally navigated to search/cart again.
+- Payment entry now records an in-memory checkpoint bound to page identity, bill fingerprint (including basket version/items), verified address and five-minute lifetime. A still-visible payment screen resumes directly; changed/expired/missing screens take the normal verified entry path.
+- Live revalidation remains mandatory and read-only, using a temporary tab when payment is open. It never re-adds products and closes its inspection tab even on failure. Final cash submission invalidates the checkpoint before the reserved click.
+- Safe read-only page navigation retries explicit proxy overflow/reset errors and HTTP 502/503/504 at most three times, with bounded backoff. Payment entry retries an explicit overflow page/widget once before any final submission. Final payment/order clicks are never blindly replayed.
+- Tests: full backend run 255 passed / 33 opt-in skips, then nine payment-resume tests passed including an added iframe-overflow case. Chrome DOM suite 33 passed. Tests cover resume, expired/wrong-page/address/bill checkpoints, cart mutation detection, preservation of checkout tab and bounded overload retry.
+- No live payment or order submitted during this change. Checkpoints intentionally do not survive browser/server restart.

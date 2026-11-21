@@ -131,3 +131,29 @@ async def click_and_settle(page, button):
         page.remove_listener("request", started)
         page.remove_listener("requestfinished", finished)
         page.remove_listener("requestfailed", finished)
+
+
+async def goto_with_retry(page, url, **kwargs):
+    """Retry transient read-only navigation, never a payment/order click."""
+    import asyncio
+
+    from playwright.async_api import Error as PlaywrightError
+
+    markers = ("upstream connect error", "reset reason: overflow", "disconnect/reset before headers")
+    for attempt in range(3):
+        try:
+            response = await page.goto(url, **kwargs)
+            text = (await page.locator("body").inner_text()).casefold()
+            transient = any(marker in text for marker in markers) or (
+                response is not None and response.status in {502, 503, 504}
+            )
+            if not transient:
+                return response
+        except PlaywrightError as error:
+            if not any(marker in str(error).casefold() for marker in (
+                *markers, "err_connection_reset", "err_connection_closed", "err_empty_response",
+            )):
+                raise
+        if attempt < 2:
+            await asyncio.sleep(attempt + 1)
+    raise DomainError("The store is temporarily busy. Your basket is saved; please retry shortly.", 503)

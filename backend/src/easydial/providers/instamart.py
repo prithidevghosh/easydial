@@ -7,7 +7,7 @@ from ..controller import DomainError
 from ..models import Offer, Provider, SearchResult
 from . import instamart_dom
 from .blinkit import BlinkitProvider, cart_signature, normalized
-from .browser import click_and_settle
+from .browser import click_and_settle, goto_with_retry
 from .images import product_image_url
 from .money import paise
 
@@ -19,12 +19,12 @@ class InstamartProvider(BlinkitProvider):
         super().__init__("", verified_location, verified_address, browser_profile)
 
     async def navigate(self, page, query):
-        await page.goto("https://instamart.in/", wait_until="domcontentloaded", timeout=25000)
+        await goto_with_retry(page, "https://instamart.in/", wait_until="domcontentloaded", timeout=25000)
         location = await page.get_by_test_id("address-bar").get_by_test_id("address-line").inner_text()
         if normalized(self.verified_location) != normalized(location):
             raise DomainError("Instamart's delivery location changed. Select your intended address.")
         self.header_address = location
-        await page.goto(
+        await goto_with_retry(page,
             f"https://instamart.in/search?custom_back=true&query={quote(query)}",
             wait_until="domcontentloaded",
             timeout=25000,
@@ -64,7 +64,7 @@ class InstamartProvider(BlinkitProvider):
             await go_cart.click()
             await page.wait_for_url("**/cart", timeout=15000)
         else:
-            await page.goto("https://instamart.in/cart", wait_until="domcontentloaded", timeout=25000)
+            await goto_with_retry(page, "https://instamart.in/cart", wait_until="domcontentloaded", timeout=25000)
         for _ in range(32):
             data = await page.locator("body").evaluate(instamart_dom.CART)
             if "Your cart is getting lonely" in data["text"]:

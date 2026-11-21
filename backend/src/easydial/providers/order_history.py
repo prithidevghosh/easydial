@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 
 from ..controller import DomainError
 from ..models import Provider
+from .browser import goto_with_retry
 from .money import paise
 
 
@@ -168,7 +169,7 @@ async def read_history(worker, view, exclude_ids=None):
         page = await context.new_page()
         try:
             if worker.provider == Provider.INSTAMART:
-                await page.goto("https://instamart.in", wait_until="domcontentloaded")
+                await goto_with_retry(page, "https://instamart.in", wait_until="domcontentloaded")
                 async with page.expect_response(
                     lambda r: urlsplit(r.url).path == "/api/instamart/orders" and r.request.method == "GET",
                     timeout=20000,
@@ -193,7 +194,7 @@ async def read_history(worker, view, exclude_ids=None):
             async with page.expect_response(
                 lambda r: urlsplit(r.url).path == "/v1/layout/order_history", timeout=20000
             ) as response:
-                await page.goto("https://blinkit.com/account/orders", wait_until="domcontentloaded")
+                await goto_with_retry(page, "https://blinkit.com/account/orders", wait_until="domcontentloaded")
             payload = await (await response.value).json()
             if not payload.get("is_success"):
                 raise DomainError("Order history is unavailable.")
@@ -213,7 +214,7 @@ async def read_history(worker, view, exclude_ids=None):
                     if not cart.isdigit() or not order.isdigit():
                         issues.append("unreadable_history_link")
                         continue
-                    await page.goto(
+                    await goto_with_retry(page,
                         f"https://blinkit.com/account/orders/{cart}/{order}", wait_until="domcontentloaded"
                     )
                     await page.get_by_text("Order details", exact=True).wait_for()

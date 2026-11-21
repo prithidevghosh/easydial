@@ -618,3 +618,11 @@ async def test_checkout_waits_for_delayed_order_acknowledgement(page):
     }, 250)""")
     await wait_for_submission_response(page)
     assert "Order summary" in await page.locator("body").inner_text()
+
+
+async def test_blinkit_upstream_overflow_is_retryable_before_submission(page):
+    from easydial.providers.payments import CheckoutTemporarilyUnavailable, continue_blinkit_address
+
+    await page.set_content("upstream connect error or disconnect/reset before headers. reset reason: overflow")
+    with pytest.raises(CheckoutTemporarilyUnavailable):
+        await continue_blinkit_address(None, None, None, page)

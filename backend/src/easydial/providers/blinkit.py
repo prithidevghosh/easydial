@@ -6,7 +6,7 @@ from urllib.parse import quote
 from ..controller import DomainError
 from ..models import Offer, Provider, Review, SearchResult, SessionView
 from . import blinkit_dom
-from .browser import BrowserSession, click_and_settle
+from .browser import BrowserSession, click_and_settle, goto_with_retry
 from .cart_guard import CartConflict, CartGuard
 from .images import product_image_url
 from .money import paise
@@ -104,7 +104,7 @@ class BlinkitProvider:
 
     async def navigate(self, page, query):
         # The search layout has no LocationBar. Verify locality on the homepage first.
-        await page.goto("https://blinkit.com/", wait_until="domcontentloaded", timeout=20000)
+        await goto_with_retry(page, "https://blinkit.com/", wait_until="domcontentloaded", timeout=20000)
         await self.browser.check_page(page)
         subtitle = page.locator("div[class*='LocationBar__Subtitle']").first
         location = await subtitle.inner_text()
@@ -128,7 +128,7 @@ class BlinkitProvider:
                 )
             self.verified_location = location
         self.header_address = location
-        await page.goto(
+        await goto_with_retry(page,
             f"https://blinkit.com/s/?q={quote(query)}", wait_until="domcontentloaded", timeout=20000
         )
         await self.browser.check_page(page)
@@ -415,22 +415,30 @@ class BlinkitProvider:
             )
         )
         async with self.lock, self.browser_page() as (page, context):
-            await self.navigate(page, "milk")
-            actual = await self.read_cart(page)
-            # Retry read-only snapshots before declaring a real change. Never
-            # let a transient empty snapshot erase the verified cart checkpoint.
-            for _ in range(2):
-                if cart_signature(actual) == desired:
-                    break
-                await asyncio.sleep(0.5)
+            # Read the live cart without destroying a valid payment screen.
+            separate = bool(getattr(self, "_payment_checkpoint", None))
+            if separate:
+                page = await context.new_page()
+            try:
+                await self.navigate(page, "milk")
                 actual = await self.read_cart(page)
-            if cart_signature(actual) != desired:
-                raise DomainError("The store cart changed. Review the basket again before continuing.")
-            self.guard.check(session.id, cart_signature(actual))
-            required = self.verified_address or session.address_label
-            if not actual.get("address") or normalized(required) not in normalized(actual["address"]):
-                raise DomainError("The delivery address changed. Review it again before continuing.")
-            return self.verified_review(session, actual)
+                # Retry read-only snapshots before declaring a real change. Never
+                # let a transient empty snapshot erase the verified cart checkpoint.
+                for _ in range(2):
+                    if cart_signature(actual) == desired:
+                        break
+                    await asyncio.sleep(0.5)
+                    actual = await self.read_cart(page)
+                if cart_signature(actual) != desired:
+                    raise DomainError("The store cart changed. Review the basket again before continuing.")
+                self.guard.check(session.id, cart_signature(actual))
+                required = self.verified_address or session.address_label
+                if not actual.get("address") or normalized(required) not in normalized(actual["address"]):
+                    raise DomainError("The delivery address changed. Review it again before continuing.")
+                return self.verified_review(session, actual)
+            finally:
+                if separate:
+                    await page.close()
 
     async def adopt_checkpoint(self, checkpoint, expected_address):
         """Explicitly approved recovery: verify the unchanged cart, then adopt without writes."""

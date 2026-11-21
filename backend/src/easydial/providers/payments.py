@@ -4,6 +4,7 @@ import asyncio
 import base64
 import io
 import re
+import time
 from decimal import Decimal, InvalidOperation
 from urllib.parse import parse_qs, urlsplit
 
@@ -43,13 +44,62 @@ class CheckoutTemporarilyUnavailable(DomainError):
     """Store rejected payment entry before any final order/payment action."""
 
 
+async def current_payment_scope(worker, page):
+    if worker.provider == Provider.BLINKIT:
+        if not await page.get_by_text("Select Payment Method", exact=True).is_visible():
+            return None
+        for frame in page.frames:
+            url = urlsplit(frame.url)
+            if url.hostname == "www.zomato.com" and url.path.startswith("/zpaykit/"):
+                if await frame.get_by_text("UPI", exact=True).is_visible():
+                    return frame
+        return None
+    if await page.get_by_text("Payment Options", exact=True).is_visible():
+        return page
+    return None
+
+
 async def open_options(worker, view, review, page):
+    checkpoint = getattr(worker, "_payment_checkpoint", None)
+    if (
+        checkpoint and checkpoint["page"] is page
+        and checkpoint["fingerprint"] == fingerprint(view, review)
+        and checkpoint["address"] == worker.verified_address
+        and time.monotonic() - checkpoint["at"] < 300
+    ):
+        scope = await current_payment_scope(worker, page)
+        if scope is not None:
+            if worker.provider == Provider.INSTAMART:
+                verify_instamart_payment_total(await page.locator("body").inner_text(), review.total_paise)
+            return scope
+    worker._payment_checkpoint = None
     for attempt in range(2):
         try:
-            return await open_options_once(worker, view, review, page)
-        except CheckoutTemporarilyUnavailable:
+            scope = await open_options_once(worker, view, review, page)
+            worker._payment_checkpoint = {
+                "page": page, "fingerprint": fingerprint(view, review),
+                "address": worker.verified_address, "at": time.monotonic(),
+            }
+            return scope
+        except (CheckoutTemporarilyUnavailable, PlaywrightTimeoutError) as error:
+            if isinstance(error, PlaywrightTimeoutError):
+                # Payment widgets can receive the proxy error inside an iframe.
+                transient = False
+                for frame in page.frames:
+                    try:
+                        body = (await frame.locator("body").inner_text(timeout=1000)).casefold()
+                        transient |= any(marker in body for marker in (
+                            "upstream connect error", "reset reason: overflow",
+                            "disconnect/reset before headers",
+                        ))
+                    except PlaywrightTimeoutError:
+                        continue
+                if not transient:
+                    raise
             if attempt:
-                raise
+                raise CheckoutTemporarilyUnavailable(
+                    "The store is temporarily busy. Your basket is saved; please retry shortly."
+                ) from None
             await asyncio.sleep(1)
     raise AssertionError("Unreachable")
 
@@ -102,6 +152,9 @@ async def continue_blinkit_address(worker, view, review, page):
     for _ in range(40):
         if await heading.is_visible():
             return
+        body = (await page.locator("body").inner_text()).casefold()
+        if any(marker in body for marker in ("upstream connect error", "reset reason: overflow", "disconnect/reset before headers")):
+            raise CheckoutTemporarilyUnavailable("The store is busy. Retrying checkout.")
         if await page.get_by_text("Oops! something went wrong", exact=True).is_visible():
             raise CheckoutTemporarilyUnavailable("Blinkit couldn't open payment right now. Your basket is saved; please try again shortly.")
         if await rows.first.is_visible():
@@ -262,6 +315,7 @@ async def prepare_cash(worker, view, review):
 async def submit_cash(worker, view, review, before_submit):
     async with worker.lock, worker.browser_page() as (page, context):
         button = await cash_control(worker, view, review, page)
+        worker._payment_checkpoint = None
         before_submit()  # Commits the once-only reservation before the irreversible click.
         await button.click()
         # A click only dispatches submission. Keep the checkout page and lock

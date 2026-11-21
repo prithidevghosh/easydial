@@ -254,11 +254,13 @@ async def test_payment_entry_retries_only_pre_submission_store_error(monkeypatch
     entry = AsyncMock(side_effect=errors)
     monkeypatch.setattr(payments, 'open_options_once', entry)
     monkeypatch.setattr(payments.asyncio, 'sleep', AsyncMock())
+    worker = SimpleNamespace(verified_address='Test address')
+    monkeypatch.setattr(payments, 'fingerprint', lambda *_: 'bill')
     if failure == 'temporary':
-        assert await payments.open_options(None, None, None, None) == 'verified payment frame'
+        assert await payments.open_options(worker, None, None, None) == 'verified payment frame'
     else:
         with pytest.raises(DomainError):
-            await payments.open_options(None, None, None, None)
+            await payments.open_options(worker, None, None, None)
     assert entry.await_count == (1 if failure == 'bill_changed' else 2)
 
 
