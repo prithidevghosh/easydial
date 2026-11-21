@@ -1,3 +1,9 @@
+# WhatsApp ingress outage recovery — 2026-11-21
+
+Local server was healthy and prior replies were read, but no new inbound events arrived. The configured temporary Cloudflare hostname no longer resolved despite a running cloudflared process. Recreated the tunnel, updated private WHATSAPP_PUBLIC_URL, restarted the server, and verified/saved the new callback in the existing Meta dashboard. Public health and webhook challenge both returned HTTP 200; access token was valid at inspection. Added local/public health and last-inbound-age checks to the safe status tool. No order/payment events replayed. Fresh user test arrived, its reply was marked read, and the user confirmed replies work again.
+
+---
+
 # Durable post-payment verification — 2026-11-21
 
 Built sender/order-scoped history baselines and immutable approved snapshots. Cash submission now checks merchant history automatically; QR links include Check status, and payment-completion claims trigger read-only verification. Poll at most ten times, three seconds apart, within a 30-second read budget. Missing/ambiguous/unpaid/unreadable history remains pending with a button; never retry submission or infer payment from a message. Match new IDs, timestamp, provider, amount, address and items. Instamart uses exact catalog IDs because its history omits pack text. Old status buttons remain usable for the same order after review expiry.

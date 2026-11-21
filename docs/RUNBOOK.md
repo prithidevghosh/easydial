@@ -60,3 +60,7 @@ Run authenticated checks manually using the CREDENTIALS.md checklist. Do not run
 ## Troubleshooting
 
 Connection error: start the backend and check its address/port. Voice unavailable: configure OpenAI and restart. Provider errors: rerun login or validate the selected address; unavailable is not out-of-stock. Review error: inspect the real basket; third-party changes are never silently discarded. Lost local basket after restart: expected until durable sessions are added.
+
+## WhatsApp is silent after restart
+
+Run `uv --directory backend run python tools/whatsapp_status.py`. Local health alone is insufficient: check public tunnel health and last inbound age. A running cloudflared process can retain a dead quick-tunnel hostname. If public DNS/health fails, recreate the tunnel, update private WHATSAPP_PUBLIC_URL, restart the server, and save the new `/webhooks/whatsapp` callback in Meta's WhatsApp Configuration using the existing verify token. Keep the messages subscription enabled. Verify the public endpoint and saved Meta callback, then ask the user to send a fresh message and inspect delivered/read receipts. Do not replay old order/payment messages to test connectivity. Temporary access-token validity is a separate check; do not print tokens in diagnostics.
