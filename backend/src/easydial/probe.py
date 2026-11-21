@@ -18,7 +18,11 @@ async def main():
     address = settings.live_address_label
     if not address:
         raise SystemExit("Set a verified delivery address before live discovery.")
-    results = await ProviderWorkers(settings).search(args.query, address)
+    workers = ProviderWorkers(settings)
+    try:
+        results = await workers.search(args.query, address)
+    finally:
+        await workers.close()
     print(
         json.dumps(
             {"mode": settings.commerce_mode, "results": [r.model_dump(mode="json") for r in results]},

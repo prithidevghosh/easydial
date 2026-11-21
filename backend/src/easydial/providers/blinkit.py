@@ -1,16 +1,14 @@
 import asyncio
 import re
 from contextlib import asynccontextmanager
-from pathlib import Path
 from urllib.parse import quote
-
-from playwright.async_api import async_playwright
 
 from ..controller import DomainError
 from ..models import Offer, Provider, Review, SearchResult, SessionView
 from . import blinkit_dom
+from .browser import BrowserSession, click_and_settle
 from .cart_guard import CartGuard
-from .instamart import paise
+from .money import paise
 
 
 def parse_card(raw: dict, address: str) -> Offer | None:
@@ -19,7 +17,9 @@ def parse_card(raw: dict, address: str) -> Offer | None:
     if not product_id or not name:
         return None
     text = raw.get("text", "")
-    sizes = re.findall(r"\b(?:\d+\s*[x×]\s*)?\d+(?:\.\d+)?\s*(?:kg|g|ml|l|pcs|pieces)\b", text, re.IGNORECASE)
+    sizes = re.findall(
+        r"\b(?:\d+\s*[x×]\s*)?\d+(?:\.\d+)?\s*(?:kg|g|ml|ltr|l|pc|pcs|pieces)\b", text, re.IGNORECASE
+    )
     prices = re.findall(r"₹\s*([\d,]+(?:\.\d{1,2})?)", text)
     # If MRP and offer price cannot be distinguished, price remains unknown.
     visible_prices = raw.get("current_prices", prices)
@@ -30,7 +30,7 @@ def parse_card(raw: dict, address: str) -> Offer | None:
         product_id=product_id,
         sku_id=product_id,
         name=name,
-        pack_size=sizes[0].lower() if len(set(sizes)) == 1 else None,
+        pack_size=(raw.get("pack") or (sizes[0] if len(set(sizes)) == 1 else "")).strip().lower() or None,
         brand=None,
         variant=None,
         price_paise=price,
@@ -72,40 +72,51 @@ def cart_signature(data: dict) -> tuple:
 
 
 class BlinkitProvider:
-    def __init__(self, storage_state: str, verified_location: str, verified_address: str = ""):
+    provider = Provider.BLINKIT
+
+    def __init__(
+        self,
+        storage_state: str,
+        verified_location: str,
+        verified_address: str = "",
+        browser_profile: str = "",
+    ):
         self.storage_state, self.verified_location = storage_state, verified_location
         self.verified_address = verified_address
         self.lock = asyncio.Lock()
         self.guard = CartGuard()
         self.known: dict[str, str] = {}
         self.previous_lines = []
+        self.browser = BrowserSession(browser_profile, storage_state)
+        self.header_address = ""
 
     def connected(self):
-        return bool(self.storage_state and Path(self.storage_state).is_file() and self.verified_location)
+        return bool(self.browser.configured and self.verified_location and self.verified_address)
 
     @asynccontextmanager
     async def browser_page(self):
         if not self.connected():
-            raise DomainError("Connect Blinkit and verify your delivery address first.", 503)
-        async with async_playwright() as pw:
-            browser = await pw.firefox.launch(headless=True)
-            try:
-                context = await browser.new_context(storage_state=self.storage_state)
-                page = await context.new_page()
-                page.set_default_timeout(8000)
-                yield page, context
-            finally:
-                await browser.close()
+            raise DomainError("Connect the store and verify your delivery address first.", 503)
+        page, context = await self.browser.open()
+        yield page, context
 
     async def navigate(self, page, query):
-        await page.goto(
-            f"https://blinkit.com/s/?q={quote(query)}", wait_until="domcontentloaded", timeout=20000
-        )
+        # The search layout has no LocationBar. Verify locality on the homepage first.
+        await page.goto("https://blinkit.com/", wait_until="domcontentloaded", timeout=20000)
+        await self.browser.check_page(page)
         location = await page.locator("div[class*='LocationBar__Subtitle']").first.inner_text()
-        if normalized(self.verified_location) not in normalized(location):
+        if normalized(self.verified_location) != normalized(location):
             raise DomainError(
                 "Blinkit's selected delivery location changed. Reconnect with the intended address."
             )
+        self.header_address = location
+        await page.goto(
+            f"https://blinkit.com/s/?q={quote(query)}", wait_until="domcontentloaded", timeout=20000
+        )
+        await self.browser.check_page(page)
+
+    async def close(self):
+        await self.browser.close()
 
     async def search(self, query: str, address: str) -> SearchResult:
         if not self.connected():
@@ -126,7 +137,7 @@ class BlinkitProvider:
                 raw = await card.evaluate(blinkit_dom.CARD)
                 raw["quantity"] = await card.evaluate(blinkit_dom.QUANTITY)
                 parsed = parse_card(raw, address)
-                if parsed:
+                if parsed and parsed.id not in {offer.id for offer in offers}:
                     offers.append(parsed)
                     self.known[parsed.product_id] = query
             if not offers:
@@ -144,13 +155,28 @@ class BlinkitProvider:
             "div[class*='CartDrawer'], div[class*='CartSidebar'], div.cart-modal-rn, div[class*='CartWrapper__CartContainer']"
         ).first
         if not await drawer.is_visible():
-            button = page.locator(
-                "div[class*='CartButton__Button'], div[class*='CartButton__Container'], a[href='/cart']"
-            ).first
+            button = page.locator("div[class*='CartButton__Button']").first
+            await button.wait_for(state="visible")
+            if await button.get_attribute("disabled") is not None:
+                return {
+                    "items": [],
+                    "text": "Your cart is empty",
+                    "header_address": self.header_address,
+                    "address": None,
+                    "bill": [],
+                    "total": None,
+                }
             await button.click()
         await drawer.wait_for(state="visible")
-        data = await drawer.evaluate(blinkit_dom.CART)
-        data["header_address"] = await page.locator("div[class*='LocationBar__Subtitle']").first.inner_text()
+        # The drawer shell appears before its cart data. Do not read an empty shell.
+        for _ in range(32):
+            data = await drawer.evaluate(blinkit_dom.CART)
+            if (data["items"] and data["total"] and data["bill"]) or re.search(
+                r"(?:cart|basket).*empty|don't have any items|no items in", data["text"], re.I
+            ):
+                break
+            await asyncio.sleep(0.25)
+        data["header_address"] = self.header_address
         if re.search(
             r"can't take your order|currently unavailable|store is closed|high demand", data["text"], re.I
         ):
@@ -159,11 +185,57 @@ class BlinkitProvider:
         return data
 
     async def set_quantity(self, page, line, desired):
+        # Existing items must remain removable even if search inventory stops returning them.
+        before_cart = await self.read_cart(page)
+        existing = [
+            x
+            for x in before_cart["items"]
+            if normalized(x["name"]) == normalized(line.offer.name)
+            and normalized(x["pack"]) == normalized(line.offer.pack_size)
+        ]
+        if len(existing) == 1:
+            current = existing[0]["quantity"]
+            for _ in range(abs(desired - current)):
+                rows = page.locator("div.cart-modal-rn div[class*='DefaultProductCard__Container']")
+                matches = []
+                for i in range(await rows.count()):
+                    row = rows.nth(i)
+                    name = await row.locator("div[class*='ProductTitle']").inner_text()
+                    pack = await row.locator("div[class*='ProductVariant']").inner_text()
+                    if normalized(name) == normalized(line.offer.name) and normalized(pack) == normalized(
+                        line.offer.pack_size
+                    ):
+                        matches.append(row)
+                if len(matches) != 1:
+                    raise DomainError("Blinkit's basket item changed. Inspect its cart before retrying.")
+                row = matches[0]
+                selector = (
+                    "div[class*='AddToCart___StyledDiv2-']"
+                    if desired > current
+                    else "div[class*='AddToCart___StyledDiv-']"
+                )
+                expected = current + (1 if desired > current else -1)
+                await click_and_settle(page, row.locator(selector))
+                for _ in range(32):
+                    current = await row.evaluate(blinkit_dom.QUANTITY) if await row.count() else 0
+                    if current == expected:
+                        break
+                    await asyncio.sleep(0.25)
+                if current != expected:
+                    raise DomainError(
+                        "Blinkit did not confirm the basket quantity. Inspect it before retrying."
+                    )
+            return
+        if existing:
+            raise DomainError("Blinkit's basket variants are ambiguous.")
+        if desired == 0:
+            return
         query = self.known.get(line.offer.product_id)
         if not query:
             raise DomainError("Search this Blinkit item again before reviewing.")
         await self.navigate(page, query)
         card = page.locator("div[role='button'][id]").filter(has=page.locator("div[class*='line-clamp-2']"))
+        await card.first.wait_for(state="visible")
         # Product IDs came from the visible DOM. Match as data, never interpolate into a CSS expression.
         matches = []
         for i in range(await card.count()):
@@ -193,7 +265,7 @@ class BlinkitProvider:
                 button = card.locator(icon).locator("..")
             if await button.count() != 1:
                 raise DomainError("Blinkit's add/remove control is ambiguous. No further changes were made.")
-            await button.click()
+            await click_and_settle(page, button)
             for _ in range(32):
                 current = await card.evaluate(blinkit_dom.QUANTITY)
                 if current != before:
@@ -207,29 +279,34 @@ class BlinkitProvider:
 
     async def review(self, session: SessionView) -> Review:
         if any(not x.offer.pack_size for x in session.lines):
-            raise DomainError("Choose Blinkit products with a verified pack size first.")
+            raise DomainError("Choose products with a verified pack size first.")
         desired = tuple(
             sorted(
                 (normalized(x.offer.name), normalized(x.offer.pack_size), x.quantity) for x in session.lines
             )
         )
         if len({(n, p) for n, p, _ in desired}) != len(desired):
-            raise DomainError("Two Blinkit variants have indistinguishable names and packs. Choose one.")
+            raise DomainError("Two variants have indistinguishable names and packs. Choose one.")
         async with self.lock, self.browser_page() as (page, context):
             await self.navigate(page, "milk")
             before = await self.read_cart(page)
             self.guard.check(session.id, cart_signature(before))
-            # Verify the full selected address before any mutation, not just the locality header.
             required_address = self.verified_address or session.address_label
             address_before = before.get("address") or before.get("header_address") or ""
-            if normalized(required_address) not in normalized(address_before):
+            # Empty carts expose only the selected location header. It must exactly match
+            # onboarding; the full saved address is mandatory in the post-sync checkout bill.
+            address_ok = normalized(required_address) in normalized(address_before)
+            location_only = not before["items"] and normalized(
+                before.get("header_address", "")
+            ) == normalized(self.verified_location)
+            if not address_ok and not location_only:
                 raise DomainError(
-                    "Blinkit's full delivery address could not be verified. Select your saved address and reconnect."
+                    "The store's full delivery address could not be verified. Select your saved address and reconnect."
                 )
             self.guard.before_write(desired)
-            target_ids = {x.offer.product_id for x in session.lines}
+            target_ids = {(x.offer.product_id, x.offer.sku_id) for x in session.lines}
             for line in self.previous_lines:
-                if line.offer.product_id not in target_ids:
+                if (line.offer.product_id, line.offer.sku_id) not in target_ids:
                     await self.set_quantity(page, line, 0)
             for line in session.lines:
                 await self.set_quantity(page, line, line.quantity)
@@ -238,16 +315,16 @@ class BlinkitProvider:
             self.guard.accepted(actual)
             self.previous_lines = [x.model_copy(deep=True) for x in session.lines]
             # Persist session cookies/local storage after cart changes for subsequent worker contexts.
-            await context.storage_state(path=self.storage_state)
+            await self.browser.save()
             if actual != desired:
                 raise DomainError(
-                    "Blinkit's basket does not match the requested items and quantities. Review it in Blinkit."
+                    "The store's basket does not match the requested items and quantities. Review it in the store browser."
                 )
             if not after.get("address") or normalized(required_address) not in normalized(after["address"]):
-                raise DomainError("Blinkit's delivery address changed during basket review.")
+                raise DomainError("The store's delivery address changed during basket review.")
             total = paise(after.get("total"))
             if total is None:
-                raise DomainError("Blinkit's final bill could not be verified. No checkout was attempted.")
+                raise DomainError("The store's final bill could not be verified. No checkout was attempted.")
             bill = [
                 {"label": str(x["label"]), "value": str(x["value"])}
                 for x in after["bill"]
@@ -259,7 +336,7 @@ class BlinkitProvider:
             )
             return Review(
                 version=session.version,
-                provider=Provider.BLINKIT,
+                provider=self.provider,
                 address_label=after["address"],
                 item_subtotal_paise=subtotal,
                 fees_paise=None,
@@ -276,14 +353,14 @@ class BlinkitProvider:
             self.guard.check(session_id, before)
             if before and not self.previous_lines:
                 raise DomainError(
-                    "Blinkit has a partially changed basket. Clear it in Blinkit before continuing."
+                    "The store has a partially changed basket. Clear it in the store browser before continuing."
                 )
             self.guard.before_write(())
             for line in self.previous_lines:
                 await self.set_quantity(page, line, 0)
             after = cart_signature(await self.read_cart(page))
             self.guard.accepted(after)
-            await context.storage_state(path=self.storage_state)
+            await self.browser.save()
             if after:
-                raise DomainError("Blinkit did not confirm an empty basket.")
+                raise DomainError("The store did not confirm an empty basket.")
             self.previous_lines = []

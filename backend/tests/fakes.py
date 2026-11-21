@@ -7,6 +7,9 @@ class FixtureProvider:
     def __init__(self, provider: Provider):
         self.provider = provider
 
+    async def close(self):
+        pass
+
     async def search(self, query: str, address: str) -> SearchResult:
         catalogue = [
             (

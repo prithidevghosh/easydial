@@ -3,7 +3,7 @@
 import asyncio
 from pathlib import Path
 
-from connect_swiggy import ENV, save_settings
+from local_settings import ENV, save_settings
 from playwright.async_api import async_playwright
 
 
@@ -15,8 +15,8 @@ async def main():
     print("Log in on Blinkit's own page, then select your saved full delivery address.")
     print("Do not add products or place an order during this setup step.")
     async with async_playwright() as pw:
-        browser = await pw.firefox.launch(headless=False)
-        context = await browser.new_context()
+        profile = state_dir / "blinkit-profile"
+        context = await pw.chromium.launch_persistent_context(str(profile), channel="chrome", headless=False)
         page = await context.new_page()
         await page.goto("https://blinkit.com", wait_until="domcontentloaded")
         await asyncio.to_thread(input, "After logging in and selecting the address, press Enter here: ")
@@ -35,11 +35,13 @@ async def main():
             ENV,
             {
                 "BLINKIT_STORAGE_STATE": str(state_path),
+                "BLINKIT_BROWSER_PROFILE": str(profile),
+                "LIVE_ADDRESS_LABEL": address,
                 "BLINKIT_VERIFIED_LOCATION": location.strip(),
                 "BLINKIT_VERIFIED_ADDRESS": address,
             },
         )
-        await browser.close()
+        await context.close()
     print("Blinkit session and address saved locally. Use the same physical address for Swiggy.")
     print("Set LIVE_ADDRESS_LABEL in .env if you have not connected Swiggy, then restart the backend.")
 

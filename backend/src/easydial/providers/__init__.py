@@ -1,5 +1,4 @@
 import asyncio
-from pathlib import Path
 
 from ..controller import DomainError
 from ..models import Provider, SearchResult, SessionView
@@ -16,24 +15,28 @@ class ProviderWorkers:
                 settings.blinkit_storage_state,
                 settings.blinkit_verified_location,
                 settings.blinkit_verified_address,
+                settings.blinkit_browser_profile,
             ),
-            InstamartProvider(settings.swiggy_access_token, settings.swiggy_address_id),
+            InstamartProvider(
+                settings.instamart_browser_profile,
+                settings.instamart_verified_address,
+                settings.instamart_verified_location,
+            ),
         ]
 
     def connection_status(self):
-        return {
-            "blinkit": bool(
-                self.settings.blinkit_storage_state
-                and Path(self.settings.blinkit_storage_state).is_file()
-                and self.settings.blinkit_verified_location
-            ),
-            "instamart": bool(self.settings.swiggy_access_token and self.settings.swiggy_address_id),
-        }
+        return {provider.value: worker.connected() for provider, worker in zip(Provider, self.workers)}
+
+    async def close(self):
+        for worker in self.workers:
+            await worker.close()
 
     async def search(self, query: str, address: str) -> list[SearchResult]:
         async def run(provider, worker):
             try:
                 return await asyncio.wait_for(worker.search(query, address), timeout=45)
+            except DomainError as error:
+                return SearchResult(provider=provider, query=query, status="error", message=error.message)
             except Exception:
                 return SearchResult(
                     provider=provider,

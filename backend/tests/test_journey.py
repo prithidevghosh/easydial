@@ -1,5 +1,4 @@
 from datetime import timedelta
-from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -8,7 +7,7 @@ from easydial.app import create_app
 from easydial.controller import DomainError, SessionStore, exact_comparison
 from easydial.models import EditRequest, Intent, IntentEdit, Provider, now
 from easydial.providers.blinkit import parse_card
-from easydial.providers.instamart import normalize_products, paise, unpack
+from easydial.providers.money import paise
 from easydial.settings import Settings
 from tests.fakes import FixtureProvider
 
@@ -157,6 +156,7 @@ def test_live_checkout_cannot_be_enabled_with_env_flag():
                     product_id="p",
                     sku_id="s",
                     name="milk",
+                    pack_size="500 ml",
                     price_paise=2800,
                     available=True,
                     mode="live",
@@ -201,29 +201,7 @@ async def test_comparison_requires_equivalent_known_variants():
     assert exact_comparison([a, b.model_copy(update={"address_label": "other"})]) is None
 
 
-def test_mcp_errors_and_unknown_stock():
-    for payload in [{"success": False, "error": {"message": "private"}}, {"data": []}]:
-        with pytest.raises(ValueError):
-            unpack(SimpleNamespace(isError=False, structuredContent=payload, content=[]))
-    data = {
-        "products": [
-            {
-                "displayName": "Milk",
-                "brand": "Amul",
-                "variations": [
-                    {
-                        "spinId": "p",
-                        "skuId": "s",
-                        "quantityDescription": "500 ml",
-                        "price": {"offerPrice": "28"},
-                    }
-                ],
-            }
-        ]
-    }
-    result = normalize_products(data, "milk", "home")
-    assert result.offers[0].price_paise == 2800
-    assert result.offers[0].available is None
+def test_money_validation():
     assert paise("NaN") is None
     assert paise(True) is None
     assert paise("-1") is None

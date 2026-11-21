@@ -1,210 +1,201 @@
-"""Official MCP discovery and basket review. No order/payment tools are exposed."""
+"""Instamart.in browser search, variant selection, cart edits and verified bill readback."""
 
 import asyncio
-import json
-from decimal import Decimal, InvalidOperation
-
-from mcp import ClientSession
-from mcp.client.streamable_http import streamablehttp_client
+from urllib.parse import quote
 
 from ..controller import DomainError
-from ..models import Offer, Provider, Review, SearchResult, SessionView
-from .cart_guard import CartGuard
+from ..models import Offer, Provider, SearchResult
+from . import instamart_dom
+from .blinkit import BlinkitProvider, cart_signature, normalized
+from .browser import click_and_settle
+from .money import paise
 
 
-def paise(value) -> int | None:
-    if value is None or isinstance(value, bool):
-        return None
-    try:
-        number = Decimal(str(value).replace("₹", "").replace(",", "").strip())
-        if not number.is_finite() or number < 0 or number > 1_000_000:
-            return None
-        return int((number * 100).quantize(Decimal(1)))
-    except (InvalidOperation, ValueError):
-        return None
+class InstamartProvider(BlinkitProvider):
+    provider = Provider.INSTAMART
 
+    def __init__(self, browser_profile: str = "", verified_address: str = "", verified_location: str = ""):
+        super().__init__("", verified_location, verified_address, browser_profile)
 
-def unpack(result) -> dict:
-    if result.isError:
-        raise ValueError("Provider rejected this request.")
-    payload = result.structuredContent
-    if not payload:
-        for block in result.content:
-            if getattr(block, "type", None) == "text":
-                try:
-                    payload = json.loads(block.text)
-                    break
-                except (ValueError, TypeError):
-                    continue
-    if not isinstance(payload, dict) or payload.get("success") is False or payload.get("error"):
-        raise ValueError("Provider returned an error or unrecognized response.")
-    data = payload.get("data", payload)
-    if not isinstance(data, dict):
-        raise ValueError("Provider returned an invalid product payload.")
-    return data
-
-
-def normalize_products(data: dict, query: str, address: str) -> SearchResult:
-    if not isinstance(data.get("products"), list):
-        raise ValueError("The product schema changed; results could not be verified.")
-    offers = []
-    for product in data["products"]:
-        for variant in product.get("variations", []):
-            spin, sku = variant.get("spinId"), variant.get("skuId")
-            if not spin or not sku:
-                continue
-            price = variant.get("price") or {}
-            available = variant.get("isInStockAndAvailable")
-            cap = variant.get("maxQuantity")
-            if not isinstance(cap, int) or isinstance(cap, bool) or cap < 1:
-                cap = 10
-            offers.append(
-                Offer(
-                    id=f"live:instamart:{spin}:{sku}",
-                    provider=Provider.INSTAMART,
-                    product_id=str(spin),
-                    sku_id=str(sku),
-                    name=variant.get("displayName") or product.get("displayName") or "Unnamed product",
-                    brand=variant.get("brandName") or product.get("brand") or None,
-                    variant=variant.get("displayName") or product.get("displayName") or None,
-                    pack_size=variant.get("quantityDescription") or None,
-                    price_paise=paise(price.get("offerPrice")),
-                    available=available if isinstance(available, bool) else None,
-                    max_quantity=min(cap, 100),
-                    mode="live",
-                    address_label=address,
-                )
-            )
-    return SearchResult(
-        provider=Provider.INSTAMART,
-        query=query,
-        offers=offers,
-        truncated=bool(data.get("nextOffset")),
-        message="Live item prices; checkout fees not included.",
-    )
-
-
-class InstamartProvider:
-    endpoint = "https://mcp.swiggy.com/im"
-
-    def __init__(self, token: str, address_id: str):
-        self.token, self.address_id = token, address_id
-        self.lock = asyncio.Lock()
-        self.guard = CartGuard()
-
-    async def call(self, name: str, arguments: dict):
-        if name not in {"get_addresses", "search_products", "get_cart", "update_cart"}:
-            raise ValueError(
-                "Only discovery and basket tools are enabled. Payment and order tools are blocked."
-            )
-        async with streamablehttp_client(
-            self.endpoint, headers={"Authorization": f"Bearer {self.token}"}, timeout=20
-        ) as (read, write, _):
-            async with ClientSession(read, write) as client:
-                await client.initialize()
-                tools = await client.list_tools()
-                if name not in {tool.name for tool in tools.tools}:
-                    raise ValueError("This account does not expose the required tool.")
-                return unpack(await client.call_tool(name, arguments))
+    async def navigate(self, page, query):
+        await page.goto("https://instamart.in/", wait_until="domcontentloaded", timeout=25000)
+        location = await page.get_by_test_id("address-bar").get_by_test_id("address-line").inner_text()
+        if normalized(self.verified_location) != normalized(location):
+            raise DomainError("Instamart's delivery location changed. Select your intended address.")
+        self.header_address = location
+        await page.goto(
+            f"https://instamart.in/search?custom_back=true&query={quote(query)}",
+            wait_until="domcontentloaded",
+            timeout=25000,
+        )
+        await self.browser.check_page(page)
 
     async def search(self, query: str, address: str) -> SearchResult:
-        if not self.token or not self.address_id:
+        if not self.browser.configured or not self.verified_location:
             return SearchResult(
                 provider=Provider.INSTAMART,
                 query=query,
                 status="not_connected",
-                message="Connect a Swiggy account and verified address first.",
+                message="Connect Instamart in Chrome and select your delivery address first.",
             )
-        data = await self.call("search_products", {"query": query, "addressId": self.address_id})
-        return normalize_products(data, query, address)
-
-    async def review(self, session: SessionView) -> Review:
-        if not self.token or not self.address_id:
-            raise DomainError("Connect Swiggy and select a delivery address first.", 503)
-        desired = tuple(sorted((x.offer.product_id, x.offer.sku_id, x.quantity) for x in session.lines))
         async with self.lock:
-            before = await self.call("get_cart", {})
-            self.guard.check(session.id, cart_signature(before))
-            self.guard.before_write(desired)
-            await self.call(
-                "update_cart",
-                {
-                    "items": [{"spinId": p, "skuId": s, "quantity": q} for p, s, q in desired],
-                    "selectedAddressId": self.address_id,
-                },
-            )
-            after = await self.call("get_cart", {})
-            actual = cart_signature(after)
-            # Remember the provider readback even when stock changes prevent review.
-            self.guard.accepted(actual)
-            if actual != desired:
-                raise DomainError(
-                    "Swiggy changed quantities or removed an item. Check availability and edit your basket before reviewing again."
-                )
-            if after.get("addressWarning") or after.get("unserviceableItems") or after.get("cartWarning"):
-                raise DomainError(
-                    "Swiggy reported a delivery or basket issue. Check the selected address and items in Instamart."
-                )
-            details = after.get("selectedAddressDetails") or {}
-            if details.get("id") != self.address_id:
-                raise DomainError("Swiggy's basket delivery address does not match your selected address.")
-            if any(x.get("isInStockAndAvailable") is not True for x in after.get("items", [])):
-                raise DomainError("Swiggy could not confirm availability for every basket item.")
-            total = paise(after.get("cartTotalAmount"))
-            bill = after.get("billBreakdown") or {}
-            payable = paise((bill.get("toPay") or {}).get("value"))
-            if total is None or (payable is not None and payable != total):
-                raise DomainError("Swiggy's payable total could not be verified.")
-            bill_lines = [
-                {"label": str(x["label"]), "value": str(x["value"])}
-                for x in bill.get("lineItems", [])
-                if "label" in x and "value" in x
-            ]
-            subtotal = next(
-                (
-                    paise(x["value"])
-                    for x in bill_lines
-                    if x["label"].strip().casefold() in {"item total", "item subtotal", "items total"}
-                ),
-                None,
-            )
-            return Review(
-                version=session.version,
+            page, _ = await self.browser.open()
+            await self.navigate(page, query)
+            cards = page.get_by_test_id("item-collection-card-full")
+            await cards.first.wait_for(state="visible")
+            offers = []
+            for i in range(min(await cards.count(), 30)):
+                offer = parse_card(await cards.nth(i).evaluate(instamart_dom.CARD), address)
+                if offer and offer.id not in {x.id for x in offers}:
+                    offers.append(offer)
+                    self.known[offer.product_id] = query
+            if not offers:
+                raise DomainError("Instamart's product cards could not be verified.")
+            return SearchResult(
                 provider=Provider.INSTAMART,
-                address_label=details.get("address") or session.address_label,
-                item_subtotal_paise=subtotal,
-                fees_paise=None,
-                total_paise=total,
-                payment_method="Pending — payment is not enabled",
-                mode="live",
-                bill_lines=bill_lines,
-                cart_reference=after.get("cartId"),
+                query=query,
+                offers=offers,
+                truncated=await cards.count() > 30,
+                message="Live Instamart item prices. Final fees require basket review.",
             )
 
-    async def clear(self, session_id: str):
-        async with self.lock:
-            before = await self.call("get_cart", {})
-            self.guard.check(session_id, cart_signature(before))
-            self.guard.before_write(())
-            await self.call("update_cart", {"items": [], "selectedAddressId": self.address_id})
-            after = cart_signature(await self.call("get_cart", {}))
-            self.guard.accepted(after)
-            if after:
-                raise DomainError("Swiggy did not confirm an empty basket.")
+    async def read_cart(self, page):
+        go_cart = page.get_by_text("Go to Cart", exact=True)
+        if not page.url.endswith("/cart") and await go_cart.is_visible():
+            await go_cart.click()
+            await page.wait_for_url("**/cart", timeout=15000)
+        else:
+            await page.goto("https://instamart.in/cart", wait_until="domcontentloaded", timeout=25000)
+        for _ in range(32):
+            data = await page.locator("body").evaluate(instamart_dom.CART)
+            if "Your cart is getting lonely" in data["text"]:
+                data["text"] = "Your cart is empty"
+            payable = next((paise(x["value"]) for x in data["bill"] if x["label"] == "To Pay"), None)
+            if "cart is empty" in data["text"].casefold() or (
+                data["items"] and payable is not None and payable == paise(data["total"])
+            ):
+                break
+            await asyncio.sleep(0.25)
+        await self.browser.check_page(page)
+        cart_signature(data)
+        data["header_address"] = self.header_address
+        if data["items"]:
+            payable = next((paise(x["value"]) for x in data["bill"] if x["label"] == "To Pay"), None)
+            if payable is None or payable != paise(data["total"]):
+                raise DomainError("Instamart's bill and payable amount do not match yet. Review again.")
+        return data
+
+    async def set_quantity(self, page, line, desired):
+        before = await self.read_cart(page)
+        matching = [
+            x
+            for x in before["items"]
+            if normalized(x["name"]) == normalized(line.offer.name)
+            and normalized(x["pack"]) == normalized(line.offer.pack_size)
+        ]
+        current = matching[0]["quantity"] if len(matching) == 1 else 0
+        if len(matching) > 1:
+            raise DomainError("Instamart has ambiguous product variants in its cart.")
+        if current == 0 and desired > 0:
+            query = self.known.get(line.offer.product_id)
+            if not query:
+                raise DomainError("Search this Instamart item again before reviewing.")
+            await self.navigate(page, query)
+            cards = page.get_by_test_id("item-collection-card-full")
+            await cards.first.wait_for(state="visible")
+            matching_cards = []
+            for i in range(await cards.count()):
+                card = cards.nth(i)
+                raw = await card.evaluate(instamart_dom.CARD)
+                offer = parse_card(raw, line.offer.address_label)
+                if (
+                    offer
+                    and offer.product_id == line.offer.product_id
+                    and offer.pack_size == line.offer.pack_size
+                ):
+                    matching_cards.append(card)
+            if not matching_cards:
+                raise DomainError("Instamart's product or pack changed. Search again.")
+            await click_and_settle(page, matching_cards[0].get_by_test_id("buttonpair-add"))
+            modal = page.get_by_test_id("InstamartItemCustomizationWidget")
+            # Addition may open pack selection. Wait for an observed outcome, never click a generic Confirm.
+            for _ in range(32):
+                if await modal.is_visible() or await page.get_by_text("Go to Cart", exact=True).is_visible():
+                    break
+                await asyncio.sleep(0.25)
+            if await modal.is_visible():
+                variants = modal.get_by_test_id("variants-container")
+                matches = []
+                for i in range(await variants.count()):
+                    variant = variants.nth(i)
+                    pack = " ".join(await variant.get_by_test_id("variants-name").all_text_contents())
+                    if normalized(pack) == normalized(line.offer.pack_size):
+                        matches.append(variant)
+                if len(matches) != 1:
+                    raise DomainError(
+                        "Choose the exact Instamart pack in its browser; no variant was guessed."
+                    )
+                await click_and_settle(page, matches[0].get_by_test_id("add_buttons_center"))
+                await modal.get_by_test_id("InstamartItemCustomizationWidget-cta").click()
+                await modal.wait_for(state="hidden")
+                await page.get_by_text("Go to Cart", exact=True).wait_for(state="visible")
+            before = await self.read_cart(page)
+            matching = [
+                x
+                for x in before["items"]
+                if normalized(x["name"]) == normalized(line.offer.name)
+                and normalized(x["pack"]) == normalized(line.offer.pack_size)
+            ]
+            if len(matching) != 1 or matching[0]["quantity"] != 1:
+                raise DomainError("Instamart did not confirm the exact pack addition. Inspect its cart.")
+            current = 1
+        for _ in range(abs(desired - current)):
+            rows = page.get_by_test_id("item-list-available-items-container").get_by_role("listitem")
+            matches = []
+            for i in range(await rows.count()):
+                row = rows.nth(i)
+                if normalized(await row.get_by_test_id("cart-item-name").inner_text()) == normalized(
+                    line.offer.name
+                ) and normalized(await row.get_by_test_id("cart-item-quantity").inner_text()) == normalized(
+                    line.offer.pack_size
+                ):
+                    matches.append(row)
+            if len(matches) != 1:
+                raise DomainError("Instamart's basket item changed. No further changes made.")
+            expected = current + (1 if desired > current else -1)
+            await click_and_settle(
+                page,
+                matches[0].get_by_test_id("add_buttons_plus" if desired > current else "add_buttons_minus"),
+            )
+            # Reloaded provider readback prevents treating optimistic animation as success.
+            after = await self.read_cart(page)
+            found = [
+                x["quantity"]
+                for x in after["items"]
+                if normalized(x["name"]) == normalized(line.offer.name)
+                and normalized(x["pack"]) == normalized(line.offer.pack_size)
+            ]
+            current = found[0] if len(found) == 1 else 0
+            if current != expected:
+                raise DomainError(
+                    "Instamart did not confirm the requested quantity. Inspect its cart before retrying."
+                )
 
 
-def cart_signature(data: dict) -> tuple:
-    items = data.get("items")
-    if items is None and data.get("cartAbsent") is True:
-        return ()
-    if not isinstance(items, list):
-        raise ValueError("Unrecognized cart response")
-    result = []
-    for item in items:
-        p, s, q = item.get("spinId"), item.get("skuId"), item.get("quantity")
-        if not p or not s or isinstance(q, bool) or not isinstance(q, int) or q < 1:
-            raise ValueError("Unrecognized cart item")
-        result.append((str(p), str(s), q))
-    if len({(p, s) for p, s, _ in result}) != len(result):
-        raise ValueError("Duplicate SKU rows cannot be reconciled safely")
-    return tuple(sorted(result))
+def parse_card(raw: dict, address: str) -> Offer | None:
+    path, name, pack = raw.get("path"), raw.get("name"), raw.get("pack")
+    if not path or not path.startswith("/p/") or not name or not pack:
+        return None
+    product_id = path.rsplit("-", 1)[-1]
+    return Offer(
+        id=f"live:instamart:{product_id}:{pack}",
+        provider=Provider.INSTAMART,
+        product_id=path,
+        sku_id=f"{product_id}:{pack}",
+        name=name,
+        pack_size=pack,
+        price_paise=paise(raw.get("price")),
+        available=False if "SOLD OUT" in raw.get("text", "") else (True if raw.get("add") else None),
+        mode="live",
+        address_label=address,
+    )

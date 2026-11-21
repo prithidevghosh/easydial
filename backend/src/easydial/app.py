@@ -31,6 +31,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app):
         yield
+        await workers.close()
         if master.client:
             await master.client.close()
 
