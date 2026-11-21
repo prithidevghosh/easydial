@@ -572,3 +572,12 @@ Validation: 239 standard tests passed; 31 opt-in DOM tests skipped. Lint/diff ch
 - No changes to browser fingerprinting, anti-bot evasion or merchant APIs. Successful Instamart login is NOT verified.
 - Regression tests cover the observed DOM and the retry transition/no automatic resubmission.
 - Validation: 58 onboarding tests, 40 Chrome DOM tests, Ruff and diff checks passed.
+
+## Cancellation and clear-basket intent recovery
+- Added structured cancel_checkout + clear_cart intent fields. Explicit cancellation with basket clearing, and clear-basket-only requests, route ahead of the existing-attempt guard. All-line removal under an active attempt uses the same cleanup; ordinary item edits retain their original behavior.
+- Tested the actual configured interpreter with the reported Hinglish phrases: both yielded cancel_checkout/clear_cart=true. English empty-basket also matched; negated cancellation clarified; payment-status remained status.
+- Before cleaning up, run one fresh history check. Revoke EasyDial-hosted QR access and stop automatic checks, then clear and verify the store cart. Existing merchant records remain retained under the original draft; a new basket cannot reuse old payment/selection buttons.
+- A QR already delivered to WhatsApp may remain payable at the merchant until expiry. The response explicitly says not to pay it. Clearing a cart does not claim cancellation of a placed order; confirmed/uncertain submitted orders require the merchant Orders page.
+- Failed cart clearing retains the draft and provides a direct Clear basket retry button, bypassing the generic existing-attempt response.
+- Paused, uncommitted Instamart diagnostic work is preserved in .state/deferred-instamart-work/changes.patch plus test_browser_modes.py; it is excluded from this cancellation deployment.
+- Validation: 269 backend tests passed, 40 opt-in browser tests skipped; five live interpreter cases passed; Ruff/diff checks passed. No live cart or order was cancelled during tests.

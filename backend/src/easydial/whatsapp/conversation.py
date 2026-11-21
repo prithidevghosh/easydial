@@ -31,6 +31,7 @@ class ChatIntent(BaseModel):
         "status",
         "logout",
         "account_status",
+        "cancel_checkout",
     ]
     queries: list[RequestedProduct]
     edits: list[IntentEdit]
@@ -41,6 +42,7 @@ class ChatIntent(BaseModel):
     unclear_request: bool = False
     target_provider: Provider | None = None
     switch_store: bool = False
+    clear_cart: bool = False
 
 
 class SelectionDecision(BaseModel):
@@ -111,6 +113,13 @@ class ShoppingChat:
             )
             + """
 This is the WhatsApp channel. Additional actions: select, basket, checkout, restore, logout, account_status.
+Use cancel_checkout for an explicit request to cancel the current checkout/order/payment.
+Set clear_cart=true if the user also wants the basket emptied, including "order cancel kr dijiye
+and cart khali kr dijiye". Also use cancel_checkout with clear_cart=true for an explicit
+request to empty the whole basket alone ("ap cart khali kr dijiye", "remove everything").
+Removing just one named item remains edit. Do not split cancellation into remove-item edits or status. Use empty
+queries/edits and null selection. Cancellation is a request, never proof a merchant order was cancelled.
+Negated, hypothetical or unclear cancellation requests must clarify, never cancel.
 Account management IS supported here. Use logout for a clear current request to sign out,
 disconnect all saved store accounts or remove saved logins, including polite/informal multilingual
 phrasing. Never use logout for negation, hypothetical questions or unclear speech; clarify instead.
@@ -367,6 +376,74 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
             )
         return intent
 
+    async def cancel_checkout(self, state, session, customer, clear_cart, progress):
+        from .order_tracking import status_button
+
+        payments = getattr(self, "payments", None)
+        attempt = payments.existing(customer, session.view.id) if customer and payments else None
+        if progress:
+            progress.update("Stopping checkout and checking your order…")
+        merchant_uncertain = False
+        if attempt:
+            result = await payments.monitor.check(customer, session.view.id, self.workers, max_checks=1)
+            if result["status"] not in {"pending", "not_found", "failed"} or (
+                result["status"] == "pending" and (
+                    result.get("reason") != "no_matching_order"
+                    or result.get("rejected_fields") or result.get("history_issues")
+                )
+            ) or "merchant_order_id" in attempt.keys():
+                merchant_uncertain = True
+                if not clear_cart:
+                    return state, [
+                        text_message("I can’t cancel a placed or submitted order here. Please open the store’s Orders page to cancel it."),
+                        status_button(session.view),
+                    ]
+            payments.stop_checkout(customer, session.view.id)
+        if clear_cart:
+            empty = session.view.model_copy(deep=True)
+            empty.lines = []
+            empty.synced_provider = session.view.synced_provider or (
+                session.view.lines[0].offer.provider if session.view.lines else None
+            )
+            try:
+                if empty.synced_provider:
+                    await self.workers.clear(empty)
+            except DomainError:
+                return state, [{
+                    "type": "interactive", "interactive": {
+                        "type": "button",
+                        "body": {"text": "Checkout is stopped, but I couldn’t clear the store basket yet. Don’t pay the old QR. Tap below to retry clearing it."},
+                        "action": {"buttons": [{"type": "reply", "reply": {
+                            "id": f"cancel_checkout:{session.view.version}:{session.view.id}",
+                            "title": "Clear basket",
+                        }}]},
+                    },
+                }]
+        # Preserve the original attempt in its durable tables, tied to its old
+        # draft ID. A new draft cannot reuse old QR, payment or selection buttons.
+        old_view = session.view
+        new_state = self.initial()
+        new_state["view"]["address_label"] = old_view.address_label
+        new_state["previous_basket"] = [line.model_dump(mode="json") for line in old_view.lines]
+        if not clear_cart:
+            # Keep cart ownership under the old draft until the user clears it.
+            # With a payment attempt, starting another checkout needs explicit recovery.
+            state["payment_menu"] = None
+            state["cash_confirmation"] = None
+            state["retry_confirmation"] = None
+            state["view"]["payment_preparation"] = None
+            return state, [text_message("EasyDial checkout is stopped. Your basket is saved. Don’t pay the old QR; it may remain payable until it expires.")]
+        note = " Don’t pay the old QR; it may remain payable until it expires." if attempt and "merchant_order_id" not in attempt.keys() else ""
+        if merchant_uncertain:
+            provider = old_view.review.provider.value
+            url = "https://blinkit.com/account/orders" if provider == "blinkit" else "https://instamart.in"
+            return new_state, [text_message(
+                "Your basket is cleared. I couldn’t confirm cancellation of the order. "
+                f"Check or cancel it in the store’s Orders page: {url}" + note
+            )]
+        return new_state, [text_message(("Checkout stopped and your basket is cleared." if attempt else "Your basket is cleared.") + note),
+                           text_message("What would you like to order next?")]
+
     @staticmethod
     def retry_payment_confirmation(state, view):
         pending = {"id": uuid4().hex, "order_id": view.id, "created_at": now().isoformat()}
@@ -510,6 +587,10 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
                 ]
             elif parts[0] == "pick":
                 intent = ChatIntent(action="select", **{**kwargs, "offer_id": parts[2]})
+            elif parts[0] == "cancel_checkout":
+                if parts[2] != session.view.id:
+                    raise DomainError("That choice belongs to another basket.")
+                intent = ChatIntent(action="cancel_checkout", clear_cart=True, **kwargs)
             elif parts[0] == "retry_payment":
                 if parts[2] != session.view.id:
                     raise DomainError("That retry belongs to another basket.")
@@ -601,6 +682,13 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
             )
         else:
             intent = await self.interpret(text, session, state)
+        if intent.action == "edit" and session.view.lines and customer and payments and payments.existing(customer, session.view.id) and (
+            {edit.line_id for edit in intent.edits if edit.kind == "remove"}
+            == {line.id for line in session.view.lines}
+        ):
+            return await self.cancel_checkout(state, session, customer, True, progress)
+        if intent.action == "cancel_checkout":
+            return await self.cancel_checkout(state, session, customer, intent.clear_cart, progress)
         if intent.action in {"logout", "account_status"}:
             return state, [{"type": "account_action", "action": intent.action}]
         if intent.action == "status":

@@ -65,6 +65,17 @@ class PaymentRequests:
             (sender, order_id),
         ).fetchone()
 
+    def stop_checkout(self, sender, order_id):
+        """Stop local QR access/checks; this does not revoke a merchant payment."""
+        with self.inbox.db:
+            self.inbox.db.execute(
+                "UPDATE payment_requests SET status='revoked',artifact=NULL,expires_at=0 WHERE sender=? AND order_id=?",
+                (sender, order_id),
+            )
+            self.inbox.db.execute(
+                "UPDATE automatic_order_checks SET done=1 WHERE sender=? AND order_id=?", (sender, order_id),
+            )
+
     def release_for_confirmed_retry(self, sender, order_id):
         """Archive an unresolved attempt only after explicit retry confirmation."""
         db = self.inbox.db
