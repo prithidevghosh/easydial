@@ -9,7 +9,7 @@ work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 curl -fsSL "https://github.com/docker/compose/releases/download/$version/docker-compose-linux-x86_64" -o "$work/docker-compose-linux-x86_64"
 curl -fsSL "https://github.com/docker/compose/releases/download/$version/checksums.txt" -o "$work/checksums.txt"
-(cd "$work" && grep ' docker-compose-linux-x86_64$' checksums.txt | sha256sum -c -)
+(cd "$work" && grep -E ' [*]?docker-compose-linux-x86_64$' checksums.txt | sha256sum -c -)
 install -m 755 "$work/docker-compose-linux-x86_64" /usr/local/lib/docker/cli-plugins/docker-compose
 serial=${DATA_VOLUME_ID//-/}
 device="/dev/disk/by-id/nvme-Amazon_Elastic_Block_Store_$serial"
