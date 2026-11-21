@@ -89,3 +89,7 @@ An additional product request must preserve existing groceries. Once a basket ha
 ## 2026-11-21 — Durable order records before checkout
 
 Keep the existing private SQLite store for the single-worker pilot, adding explicit sender-scoped order drafts and immutable per-event revisions. Load order data from the database each turn and commit updates atomically with responses. A cache is not the source of truth for checkout; always revalidate live merchant fees and basket identity. Multi-user provider authentication and production retention remain separate requirements. See ORDER_PERSISTENCE.md.
+
+## 2026-11-21 — Explicit existing-cart recovery
+
+Do not instruct users to discard a known legacy basket merely because process ownership was lost. On WhatsApp review, show observed and requested items and obtain a one-use, versioned, expiring confirmation before adoption. Recheck actual cart/address first and retain all normal sync/bill checks. Unknown product mappings cannot be adopted. Restore product search from saved names after restart, validating exact IDs/packs before writes. See CART_RECOVERY.md.

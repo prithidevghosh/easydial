@@ -1,3 +1,11 @@
+# Cart recovery implemented — 2026-11-21
+
+Added WhatsApp review recovery for a nonempty store cart without a matching checkpoint. It shows current store items beside the requested basket, then offers a versioned, expiring Update cart button only for uniquely matched existing products. Confirmation rechecks cart/address before adopting; normal guarded synchronization and fee review follow. No automatic clearing or payment. Unknown/ambiguous products remain protected. Added saved-product-name search fallback after restart, retaining exact ID/pack verification. See `CART_RECOVERY.md`.
+
+Validation: 65 tests passed including DOM checks; Ruff passed. Live headless read-only inspection found Instamart quantity 2 of the saved milk pack; the requested draft has quantity 3 plus quantity 2 of the banana pack. The recovery proposal mapped the existing milk uniquely, verified the configured address, and a read-only search found the missing banana with the exact saved product ID/pack. No quantity was changed. The user still needs to confirm the concrete comparison in WhatsApp before their basket is changed.
+
+---
+
 # Explicit database-backed order drafts — 2026-11-21
 
 Added sender-scoped `order_drafts` and event-scoped `order_revisions` to the private SQLite database. Every turn now reads its basket/bill/preparation from the order table before handling review or checkout. Draft, revision, conversation, event outcome and responses commit together; older versions and duplicate event completions are protected. Existing snapshots migrate at startup without changing baskets. See `ORDER_PERSISTENCE.md`. This does not enable multi-user store sessions or payments.

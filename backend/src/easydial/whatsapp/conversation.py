@@ -1,5 +1,6 @@
 import asyncio
 import json
+from datetime import datetime, timedelta
 from typing import Literal
 from uuid import uuid4
 
@@ -9,6 +10,8 @@ from ..billing import breakdown, fingerprint, table
 from ..controller import DomainError, Session, exact_comparison
 from ..master import INSTRUCTIONS
 from ..models import EditRequest, IntentEdit, Offer, RequestedProduct, SessionView, now
+from ..providers.cart_guard import CartConflict
+from . import reconciliation
 
 
 class ChatIntent(BaseModel):
@@ -118,6 +121,21 @@ in clarification. Shopping only: redirect unrelated questions to groceries.
                 raise DomainError("That choice is old. Ask to see your basket or search again.")
             if parts[0] == "pick":
                 intent = ChatIntent(action="select", **{**kwargs, "offer_id": parts[2]})
+            elif parts[0] == "reconcile":
+                pending = state.get("cart_reconciliation")
+                if (
+                    not pending
+                    or not pending.get("checkpoint")
+                    or pending["id"] != parts[2]
+                    or pending["version"] != session.view.version
+                    or now() - datetime.fromisoformat(pending["created_at"]) > timedelta(minutes=5)
+                ):
+                    raise DomainError("This cart comparison expired. Send review for a fresh comparison.")
+                # Only this explicit versioned button authorizes adopting the observed cart.
+                state["cart_reconciliation"] = None
+                await self.workers.adopt_checkpoint(pending["checkpoint"], pending["address"])
+                state["cart_checkpoint"] = pending["checkpoint"]
+                intent = ChatIntent(action="review", **kwargs)
             elif parts[0] in {"review", "basket", "checkout"}:
                 if parts[0] == "checkout" and (not session.view.review or parts[2] != session.view.review.id):
                     raise DomainError("Please review the current bill first.")
@@ -267,7 +285,9 @@ in clarification. Shopping only: redirect unrelated questions to groceries.
             replies.extend(self.basket_messages(session))
         elif intent.action == "review":
             session.view.review = None
+            session.view.payment_preparation = None
             session.view.phase = "shopping"
+            state["cart_reconciliation"] = None
             if not session.view.lines and session.view.synced_provider:
                 await self.workers.clear(session.view)
                 session.view.synced_provider = None
@@ -279,11 +299,19 @@ in clarification. Shopping only: redirect unrelated questions to groceries.
                     session.view.synced_provider = session.view.lines[0].offer.provider
                 # Persist the intended provider even when a partial browser write fails.
                 state["view"] = session.view.model_dump(mode="json")
-                review = await self.workers.review(session.view)
-                session.accept_review(session.view.version, review)
-                session.view.payment_preparation = None
-                state["cart_checkpoint"] = session.view.model_dump(mode="json")
-                replies.extend(self.review_messages(session))
+                try:
+                    review = await self.workers.review(session.view)
+                except CartConflict as conflict:
+                    pending = reconciliation.proposal(session.view, conflict)
+                    if not pending:
+                        raise
+                    state["cart_reconciliation"] = pending if pending.get("checkpoint") else None
+                    replies.extend(reconciliation.messages(session.view, pending))
+                else:
+                    session.accept_review(session.view.version, review)
+                    session.view.payment_preparation = None
+                    state["cart_checkpoint"] = session.view.model_dump(mode="json")
+                    replies.extend(self.review_messages(session))
         elif intent.action == "checkout":
             # Persist revocation even if the live read fails and this turn is rejected.
             state["view"]["payment_preparation"] = None
@@ -294,8 +322,6 @@ in clarification. Shopping only: redirect unrelated questions to groceries.
             if not breakdown(review)["reconciled"]:
                 raise DomainError("The charges do not reconcile. Review again before approving this bill.")
             # Validate review identity/expiry before touching even the read-only store path.
-            from datetime import timedelta
-
             if now() - review.created_at > timedelta(minutes=5):
                 raise DomainError("This bill expired. Review your basket again before approving.")
             fresh = await self.workers.revalidate(session.view)

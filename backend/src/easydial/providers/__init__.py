@@ -110,3 +110,21 @@ class ProviderWorkers:
             raise
         except Exception:
             raise DomainError("Could not recheck the live bill. No payment was initiated.", 502) from None
+
+    async def adopt_checkpoint(self, checkpoint, expected_address):
+        view = SessionView.model_validate(checkpoint)
+        if (
+            not view.synced_provider
+            or not view.lines
+            or any(x.offer.provider != view.synced_provider for x in view.lines)
+        ):
+            raise DomainError("Invalid cart recovery checkpoint. Review again.")
+        worker = self.workers[list(Provider).index(view.synced_provider)]
+        try:
+            await asyncio.wait_for(worker.adopt_checkpoint(view, expected_address), timeout=60)
+        except DomainError:
+            raise
+        except Exception:
+            raise DomainError(
+                "Could not verify the existing cart. Nothing was updated; send review again."
+            ) from None

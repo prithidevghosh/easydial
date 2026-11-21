@@ -79,7 +79,7 @@ async def test_owned_cart_quantity_and_clear():
 async def test_foreign_cart_never_mutated():
     worker = ContractBlinkit()
     worker.cart["items"] = [{"name": "Someone else's food", "pack": "1 kg", "quantity": 1}]
-    with pytest.raises(DomainError, match="existing or externally changed"):
+    with pytest.raises(DomainError, match="saved checkpoint"):
         await worker.review(basket())
     assert worker.writes == []
 

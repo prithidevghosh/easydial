@@ -97,7 +97,7 @@ class InstamartProvider(BlinkitProvider):
         if len(matching) > 1:
             raise DomainError("Instamart has ambiguous product variants in its cart.")
         if current == 0 and desired > 0:
-            query = self.known.get(line.offer.product_id)
+            query = self.known.get(line.offer.product_id) or line.offer.name
             if not query:
                 raise DomainError("Search this Instamart item again before reviewing.")
             await self.navigate(page, query)

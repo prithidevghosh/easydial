@@ -7,7 +7,7 @@ from ..controller import DomainError
 from ..models import Offer, Provider, Review, SearchResult, SessionView
 from . import blinkit_dom
 from .browser import BrowserSession, click_and_settle
-from .cart_guard import CartGuard
+from .cart_guard import CartConflict, CartGuard
 from .money import paise
 
 
@@ -230,7 +230,7 @@ class BlinkitProvider:
             raise DomainError("Blinkit's basket variants are ambiguous.")
         if desired == 0:
             return
-        query = self.known.get(line.offer.product_id)
+        query = self.known.get(line.offer.product_id) or line.offer.name
         if not query:
             raise DomainError("Search this Blinkit item again before reviewing.")
         await self.navigate(page, query)
@@ -290,7 +290,6 @@ class BlinkitProvider:
         async with self.lock, self.browser_page() as (page, context):
             await self.navigate(page, "milk")
             before = await self.read_cart(page)
-            self.guard.check(session.id, cart_signature(before))
             required_address = self.verified_address or session.address_label
             address_before = before.get("address") or before.get("header_address") or ""
             # Empty carts expose only the selected location header. It must exactly match
@@ -303,6 +302,12 @@ class BlinkitProvider:
                 raise DomainError(
                     "The store's full delivery address could not be verified. Select your saved address and reconnect."
                 )
+            try:
+                self.guard.check(session.id, cart_signature(before))
+            except CartConflict as conflict:
+                conflict.cart = before
+                conflict.previous_lines = self.previous_lines
+                raise
             self.guard.before_write(desired)
             target_ids = {(x.offer.product_id, x.offer.sku_id) for x in session.lines}
             for line in self.previous_lines:
@@ -366,6 +371,29 @@ class BlinkitProvider:
             if not actual.get("address") or normalized(required) not in normalized(actual["address"]):
                 raise DomainError("The delivery address changed. Review it again before continuing.")
             return self.verified_review(session, actual)
+
+    async def adopt_checkpoint(self, checkpoint, expected_address):
+        """Explicitly approved recovery: verify the unchanged cart, then adopt without writes."""
+        desired = tuple(
+            sorted(
+                (normalized(x.offer.name), normalized(x.offer.pack_size), x.quantity)
+                for x in checkpoint.lines
+            )
+        )
+        async with self.lock, self.browser_page() as (page, context):
+            await self.navigate(page, "milk")
+            actual = await self.read_cart(page)
+            if cart_signature(actual) != desired or actual.get("address") != expected_address:
+                raise DomainError(
+                    "The store cart or address changed again. Send review for a fresh comparison; nothing was updated."
+                )
+            if normalized(self.verified_address or checkpoint.address_label) not in normalized(
+                actual.get("address", "")
+            ):
+                raise DomainError("The store address could not be verified. Nothing was updated.")
+            self.guard.owner = checkpoint.id
+            self.guard.accepted(desired)
+            self.previous_lines = [x.model_copy(deep=True) for x in checkpoint.lines]
 
     async def clear(self, session_id: str):
         async with self.lock, self.browser_page() as (page, context):
