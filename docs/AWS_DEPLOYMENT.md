@@ -6,9 +6,25 @@ For console provisioning and GitHub Actions, follow [AWS_QUICKSTART.md](AWS_QUIC
 
 ## Current status
 
-Deployment packaging and infrastructure are being prepared and validated locally. AWS resources and a public URL must not be claimed until account access, stack creation and remote acceptance pass. The account screenshot shows `WSParticipantRole`, suggesting workshop/federated access rather than an established IAM Identity Center portal. The console's displayed region is `us-east-1`; verify the workshop's permitted regions and account expiry before provisioning. A workshop cleanup can remove infrastructure and invalidate its URL.
+AWS deployment is running in **us-east-1**, using the default CLI credentials for `WSParticipantRole`; STS verified account **137420770749**. CloudFormation stack **easydial-pilot** is **CREATE_COMPLETE**. The user confirmed a **72-hour workshop account lifetime** (exact expiry not supplied). Migrate state, encryption key and infrastructure to a lasting account before workshop cleanup.
 
-Instamart login remains unverified and can return a generic merchant error even in visible Chrome after locality selection. That unresolved provider issue is not fixed by deploying. Blinkit is the primary end-to-end acceptance target. AWS-IP/browser acceptance is a separate live test.
+- Instance: `i-010fdbda3d15a34ac`, private `t3.large`, no public SSH/VNC.
+- Distribution: `EIOBHZXSIYKV3`; verified VPC origin `vo_4TiKrWWRxv6FT4WiXhDH8C` points to the EasyDial worker.
+- Public origin: **https://d1m5hsnftwd3t2.cloudfront.net**
+- Webhook: **https://d1m5hsnftwd3t2.cloudfront.net/webhooks/whatsapp**
+- Join QR: **https://d1m5hsnftwd3t2.cloudfront.net/join/qr.png**
+- Runtime secret: `RuntimeSecret-FvGMU8qjVyP8-5YIWBW` in Secrets Manager. All allowlisted local credentials were uploaded privately. Edit there and restart the service for updates; preserve `CUSTOMER_SESSION_KEY` to retain decryptability.
+- Application image digest: `sha256:8343d1f56105f5f849a5509d37417fc458ab0b73043ff8805691fad686d28130`, immutable tags `053960a57e686f3e56921bc09b3707651311df9d` and `f833b3669243f1ffaf422152f46e72cf943ebbf8` (same application image; latter changes host bootstrap only).
+- Host checkout: `f833b3669243f1ffaf422152f46e72cf943ebbf8`. The first bootstrap stopped because Docker checksum filenames use a binary `*` marker; fixed, committed, pushed, and rerun successfully. Initial stack SourceCommit remains `053960a`; use the fixed commit for any new/replacement bootstrap.
+- Local WhatsApp worker was stopped, a consistent encrypted-state bundle exported, and the state restored on EBS. Cloud records verified: 1 customer, 23 consent events, 9 order drafts. No currently connected merchant accounts/session files existed in the source DB; reconnect through onboarding. Keep the local worker stopped to avoid duplicate consumers.
+- The user will update Meta manually. **Meta callback cutover and a fresh inbound/outbound WhatsApp exchange remain unverified** until they report saving it and send a message.
+
+Validation completed: **277 backend tests passed / 40 opt-in browser tests skipped**; real Chrome headed-on-Xvfb and headless modes passed both locally in Docker and on EC2; public health 200; verification challenge matched; invalid signature 403; valid empty webhook 200; join QR is a valid PNG; Meta account read and OpenAI models read both returned 200 from AWS. No synthetic customer messages or orders were submitted. Backup/restart succeeded; a private S3 backup was restored into a separate temporary directory and SQLite integrity passed. Full EC2 reboot recovery and restore to a separate EBS volume remain untested.
+
+**Merchant blocker:** Read-only anonymous browser inspection from AWS returned **Blinkit HTTP 403**, title `blinkit | Error Page`, with access-denied text, even with headed Chrome on Xvfb. Instamart homepage returned HTTP 200 without that denial, but its earlier login failure remains unresolved. This does **not** establish end-to-end cloud shopping parity. Do not bypass merchant checks or promise the deployed ordering flow until provider access/onboarding is verified.
+
+An earlier account-wide CloudFront lookup incorrectly identified the workshop editor distribution (`E152O048YH4MHC`, `d1u1gjfp31gxc4.cloudfront.net`). It was never modified or used for customer cutover. The user was corrected before saving; use only the stack-verified URL above.
+
 
 ## Deployment shape
 
@@ -29,7 +45,7 @@ This design incurs ongoing EC2, NAT Gateway, EBS, public IPv4, CloudFront, stora
 AWS CLI v2 is installed locally. For the workshop/federated console session:
 
 ```sh
-aws login --profile easydial --region us-east-1
+aws login --region us-east-1
 ```
 
 Approve the correct account in the browser if the role permits `SignInLocalDevelopmentAccess`. If denied, use the workshop page's **Get AWS CLI credentials** and configure its temporary access key, secret and session token locally under profile `easydial`. Never paste them into chat or commit them. A session token is required for these temporary credentials. Do not create root or permanent access keys for this task.
@@ -39,7 +55,7 @@ If it actually is IAM Identity Center, use `aws configure sso --profile easydial
 Verify:
 
 ```sh
-uv --directory backend run python ../deploy/aws/deploy.py identity --profile easydial --region us-east-1
+uv --directory backend run python ../deploy/aws/deploy.py identity --region us-east-1
 ```
 
 The role needs CloudFormation, VPC/EC2/EBS/NAT, IAM role creation and PassRole, ECR, Secrets Manager, CloudFront including VPC origins/service-linked-role creation, CloudWatch Logs/alarms, S3, and SSM command permissions. A workshop policy may prohibit some of these. Do not silently widen IAM permissions or work around an explicit denial.
@@ -51,9 +67,9 @@ Run from the repository root after committing and pushing the deployment revisio
 ```sh
 uvx cfn-lint deploy/aws/infrastructure.yaml
 docker build --platform linux/amd64 -f deploy/container/Dockerfile -t easydial:aws-check .
-uv --directory backend run python ../deploy/aws/deploy.py provision --profile easydial --region us-east-1
-uv --directory backend run python ../deploy/aws/deploy.py upload-secrets --profile easydial --region us-east-1
-uv --directory backend run python ../deploy/aws/deploy.py publish --profile easydial --region us-east-1
+uv --directory backend run python ../deploy/aws/deploy.py provision --region us-east-1
+uv --directory backend run python ../deploy/aws/deploy.py upload-secrets --region us-east-1
+uv --directory backend run python ../deploy/aws/deploy.py publish --region us-east-1
 ```
 
 Provisioning outputs the instance ID, immutable repository, private secret ARN, backup bucket and HTTPS URLs. CloudFront VPC origin deployment may take approximately 15 minutes. Before release, check EC2's cloud-init log through Session Manager and `/etc/easydial/bootstrap-complete`. No application starts until a release is selected and required secrets validate.
@@ -75,7 +91,7 @@ Provisioning outputs the instance ID, immutable repository, private secret ARN, 
 5. Release:
 
    ```sh
-   uv --directory backend run python ../deploy/aws/deploy.py release --profile easydial --region us-east-1
+   uv --directory backend run python ../deploy/aws/deploy.py release --region us-east-1
    ```
 
    The deployment command waits for SSM success and public HTTPS health. Inspect the printed SSM command ID if it fails. The release waits for application health and restores the previous image if startup fails. A schema migration may require a data backup restore as well; image rollback alone is not guaranteed backward compatibility.
@@ -92,11 +108,11 @@ No VNC daemon runs by default. For a supervised inspection, use SSM to start `x1
 
 ## Release acceptance (not complete until observed)
 
-- [ ] Correct AWS account/region and workshop resource lifetime confirmed.
-- [ ] CloudFormation stack, SSM access, EBS mount, CloudFront origin and TLS validated.
-- [ ] Cloud secrets validated; no local paths or secrets in image/logs.
+- [x] Correct AWS account/region and workshop resource lifetime confirmed (72 hours; exact expiry unknown).
+- [x] CloudFormation stack, SSM access, EBS mount, CloudFront origin and TLS validated.
+- [x] Cloud secrets validated and privately rendered; no developer profile paths or credentials included in image build context.
 - [ ] Health succeeds after EC2/container restart; state and consent persist.
-- [ ] Valid Meta webhook signature accepted, invalid signature rejected; verification query preserved by CloudFront.
+- [x] Valid empty Meta webhook signature accepted, invalid signature rejected; verification query preserved by CloudFront.
 - [ ] Text/voice WhatsApp messages produce ordered English replies from AWS.
 - [ ] Blinkit consent/login/OTP, saved-address selection, multi-item search/choice/cart review work from AWS.
 - [ ] Read-only provider checks and user-authorized cart clear succeed; no dummy fallback.

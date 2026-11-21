@@ -589,3 +589,14 @@ Validation: 239 standard tests passed; 31 opt-in DOM tests skipped. Lint/diff ch
 - With the server stopped, reran the clear action against the now-empty store and persisted the empty EasyDial draft using an explicitly labelled maintenance revision. No synthetic user message or WhatsApp reply was created. Old QR access/automatic checks were stopped; prior attempt records retained.
 - Added regression coverage for direct cart entry/no address resolution and retained the cart contract tests. No order was placed or merchant order cancellation claimed.
 - Validation: 270 backend tests passed, 40 opt-in browser tests skipped; Ruff/diff checks passed. Live store empty-cart readback and local draft persistence both succeeded.
+
+
+## AWS workshop deployment — 2026-11-22
+- Verified AWS account 137420770749 with default CLI credentials. User confirmed 72-hour workshop lifetime; stable endpoint is limited to that resource lifetime.
+- Provisioned private t3.large, encrypted retained EBS, NAT, ECR, Secrets Manager, CloudWatch, private S3 backups and CloudFront VPC origin in us-east-1. Stack CREATE_COMPLETE. Correct endpoint: https://d1m5hsnftwd3t2.cloudfront.net.
+- Fixed checksum binary-marker parsing in host bootstrap (f833b36), pushed and verified on EC2. App image digest and infrastructure identifiers are recorded in docs/AWS_DEPLOYMENT.md.
+- 277 backend tests passed; 40 browser tests skipped. Actual Linux Chrome passed headed and headless smoke checks locally and remotely. Public signature/challenge/health/QR checks passed; Meta and OpenAI authenticated reads from AWS returned 200.
+- Stopped local WhatsApp worker and migrated consistent state to AWS. No merchant connection/session files currently existed; onboarding is required. Cloud retains customer/order/consent records.
+- Backup upload, restart and isolated temporary-directory restore passed SQLite integrity. Daily backup timer enabled. EC2 reboot and separate-volume restore still untested.
+- User asked to change Meta webhook manually; gave correct callback and existing token instructions. Fresh real message/callback cutover not yet observed.
+- Live cloud merchant blocker: Blinkit anonymous homepage returns 403/access denied in headed Chrome; Instamart homepage 200 but login remains unverified. Do not claim local/cloud shopping parity. No live order, payment or OTP request made.

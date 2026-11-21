@@ -27,3 +27,7 @@ The concept is feasible as a bounded hackathon prototype. The full promise—any
 7. [Progress, unknowns, and handoff](docs/PROGRESS.md)
 
 The documents distinguish published capabilities, source-code observations, design recommendations, and untested assumptions. Decisions are provisional unless identified as user requirements. They record concise rationale and evidence, not private internal deliberation.
+
+## AWS pilot
+
+Deployment state, credentials location, fixed webhook, backup/cutover procedure and current merchant-access blockers are tracked in [AWS deployment handoff](docs/AWS_DEPLOYMENT.md). This workshop account lasts 72 hours; a running backend is not proof of merchant ordering availability.

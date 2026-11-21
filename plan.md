@@ -389,3 +389,20 @@ See [onboarding implementation plan](docs/ONBOARDING_IMPLEMENTATION.md) and [ope
 - [x] Block shopping and stale order actions until fresh consent/login/address selection.
 - [x] Preserve other customers and existing merchant orders; retain historical attempt audit records.
 - [x] Regression-test isolation, negation, voice, repeated logout, restart and login after logout.
+
+
+## AWS workshop deployment — 2026-11-22
+
+- [x] Verify authorized AWS account 137420770749 using STS.
+- [x] Confirm workshop resources last 72 hours; permanent hosting requires migration before expiry.
+- [x] Test backend (277 passed) and real Chrome in the amd64 Linux container.
+- [x] Publish immutable image and privately upload allowlisted credentials.
+- [x] Verify private EC2 bootstrap, SSM, encrypted state mount and CloudFront reachability.
+- [x] Stop local worker and migrate consistent DB with the same key (no saved merchant sessions were present).
+- [x] Verify cloud health, webhook signatures/challenge, join QR, service restart persistence and backup integrity.
+- [ ] Switch Meta callback and verify a fresh WhatsApp exchange from AWS.
+- [ ] Validate merchant session/search/cart behavior from AWS; no unrequested orders.
+
+Operational details and remaining acceptance gates: [AWS deployment handoff](docs/AWS_DEPLOYMENT.md).
+
+Cloud merchant acceptance blocked: Blinkit returned HTTP 403/access denied in headed Chrome. Instamart homepage works; login not verified. See AWS handoff before claiming deployment parity.
