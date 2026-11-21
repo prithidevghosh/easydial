@@ -33,7 +33,7 @@ async def test_unclear_removal_gets_independent_check_before_any_edit(tmp_path):
     )
     result = await chat.interpret("हरके के मूव कीजिए", Session(view), state)
     assert result.action == "clarify" and result.edits == []
-    assert "unchanged" in result.clarification
+    assert result.clarification == "I couldn't understand that clearly. Could you say it again?"
     assert len(calls) == 2
     runtime.inbox.close()
 
@@ -161,4 +161,28 @@ async def test_selection_verifier_recovers_missing_replacement_target(tmp_path):
     )
     result = await chat.interpret("first nahi second", session, state)
     assert result.replaces_line_id == session.view.lines[0].id
+    runtime.inbox.close()
+
+
+@pytest.mark.parametrize("action", ["search", "edit", "select", "review", "checkout", "restore", "payment"])
+async def test_unclear_request_blocks_every_action(tmp_path, action):
+    runtime = make_runtime(tmp_path)
+    state, _ = await selected(runtime)
+    before = copy.deepcopy(state["view"]["lines"])
+
+    async def parse(**kwargs):
+        proposed = intent(action)
+        proposed.unclear_request = True
+        proposed.clarification = "Did you mean checkout?"
+        return SimpleNamespace(output_parsed=proposed)
+
+    runtime.chat.master = SimpleNamespace(
+        require_client=lambda: SimpleNamespace(responses=SimpleNamespace(parse=parse))
+    )
+    del runtime.chat.interpret  # Remove the fixture interpreter; exercise the real harness.
+    state, replies = await runtime.chat.handle("garbled request", state)
+    assert state["view"]["lines"] == before
+    assert replies == [{"type": "text", "text": {
+        "body": "I couldn't understand that clearly. Could you say it again?"
+    }}]
     runtime.inbox.close()

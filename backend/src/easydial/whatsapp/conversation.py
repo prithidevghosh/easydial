@@ -26,6 +26,7 @@ class ChatIntent(BaseModel):
     quantity: int | None = Field(ge=1, le=100)
     clarification: str
     replaces_line_id: str | None = None
+    unclear_request: bool = False
 
 
 class SelectionDecision(BaseModel):
@@ -104,6 +105,11 @@ when CURRENT_BASKET is empty and PREVIOUS_BASKET is provided. Do not ask the use
 PREVIOUS_BASKET is historical context only: never restore without the current user's explicit request.
 NEXT_STEP is the actual conversation state. After a reviewed bill, "ha thik h, isko move kijiye"
 means continue to payment-method choice (checkout), never remove. Move/proceed is not remove/delete.
+If speech/text is garbled, incoherent, or its intended action is unclear, set unclear_request=true.
+This takes priority over every action and all conversation context. Do not repair unclear speech
+into a guessed request. Ask exactly: "I couldn't understand that clearly. Could you say it again?"
+Return action clarify, empty queries/edits, and null selection fields. Never suggest a guessed action.
+Clear multilingual requests and obvious brand spellings are not automatically unclear.
 Broken speech such as "हरके के मूव कीजिए" is ambiguous: clarify briefly in English, never delete items.
 Never guess a removal from an unclear transcript, and never infer a completed payment from agreement.
 RECENT_SELECTION preserves the last selected line and its numbered menu, even after active choices clear.
@@ -202,6 +208,12 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
         if result.output_parsed is None:
             raise DomainError("I couldn't understand that. Please say it another way.", 422)
         intent = result.output_parsed
+        if intent.unclear_request:
+            return ChatIntent(
+                action="clarify", queries=[], edits=[], offer_id=None, quantity=None,
+                clarification="I couldn't understand that clearly. Could you say it again?",
+                unclear_request=True,
+            )
         line_ids = {line.id for line in session.view.lines}
         invalid_target = (
             intent.action in {"edit", "search"}
@@ -302,9 +314,7 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
                     edits=[],
                     offer_id=None,
                     quantity=None,
-                    clarification="Did you mean continue to checkout? Your basket is unchanged."
-                    if session.view.review
-                    else "Did you want to remove an item? Your basket is unchanged.",
+                    clarification="I couldn't understand that clearly. Could you say it again?",
                 )
         # Never pass Indic-script model prose through to an English-only customer chat.
         if re.search(r"[\u0600-\u06ff\u0900-\u0dff]", intent.clarification):

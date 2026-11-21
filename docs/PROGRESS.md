@@ -1,3 +1,11 @@
+# Ask to repeat unclear speech — 2026-11-21
+
+User explicitly requested no guessed action when speech or intent is unclear. Added structured unclear_request output with a deterministic clarification override before action validation/execution. All proposed searches, edits, selections, review, checkout, restoration and payment actions are discarded when flagged. Rejected deletion checks now also ask to repeat instead of suggesting checkout or removal. Reply: "I couldn't understand that clearly. Could you say it again?" Basket remains unchanged. Detecting uncertainty remains model-dependent; ASR is unchanged.
+
+Validation: 102 tests passed, 7 DOM skipped; Ruff passed. Real-model text eval 24/24, including the reported garbled transcript returning unclear_request=true and the exact repeat prompt. No live cart or payment actions performed. Report: evals/intent-repeat-request.json.
+
+---
+
 # Unclear speech and previous-basket recovery — 2026-11-21
 
 Investigation of the reported 17:14–17:15 IST responses found an unclear transcript interpreted as removal, followed by a correctly captured request to put the same order back. User confirmed they intended agreement/proceeding after the bill, not deletion. The last nonempty draft was one Mandarin Orange 3-piece pack. No audio replay was possible because original recordings are not retained; do not claim the ASR itself has been fixed or benchmarked.
