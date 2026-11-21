@@ -387,3 +387,11 @@ Live reproduction confirmed that Proceed To Pay can reopen Blinkit's saved-addre
 Shared address selection now supports an already-open picker. Payment entry follows bounded screen transitions, selects only a unique full-address match, rereads the cart and verifies its signature, address and bill fingerprint before continuing. Repeated address prompts and the observed Blinkit error screen stop with an appropriate message; no payment/order submission controls are clicked.
 
 Validation: 177 standard tests and 26 Chrome DOM tests passed; Ruff and diff checks passed. Regression coverage includes the address-to-cart-to-payment transition, bill-change refusal, direct payment entry and store errors. One live attempt encountered Blinkit's own temporary error screen; the final complete options() run succeeded with UPI QR and Pay on delivery. No payment QR was generated and no order submitted.
+
+## 2026-11-21 — Cart hydration during payment freshness checks
+
+Customer reported a cart-change rejection before payment discovery. Read-only live inspection found both cart rows and quantities identical to the persisted customer view/checkpoint. The failure site checks live signature after guard.check; a transient empty result is accepted by that guard and clears its expected checkpoint before the desired-cart comparison fails. The cart reader previously returned empty immediately for a disabled button, including the page's initial hydration state. The exact failed DOM snapshot was not retained, so hydration is the supported diagnosis rather than a captured replay of that event.
+
+Known nonempty carts now wait up to five seconds for the cart button to enable. Freshness validation retries mismatching read-only snapshots twice and checks desired contents before mutating the ownership guard, preserving the checkpoint on a persistent mismatch. Real changes still block payment; no cart contents are automatically overwritten.
+
+Validation: 180 standard tests and 27 opt-in Chrome tests passed. New regressions simulate delayed cart hydration, transient emptiness, persistent emptiness and changed quantities, asserting checkpoint preservation. Full live revalidate → bill fingerprint comparison → payment options, restored from the persisted customer checkpoint, succeeded: unchanged saved bill, UPI QR and Pay on delivery. No payment request or order submitted.

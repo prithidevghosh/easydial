@@ -509,3 +509,21 @@ async def test_blinkit_payment_transition_handles_direct_entry_and_store_error(p
     await page.set_content('<div>Oops! something went wrong</div>')
     with pytest.raises(DomainError, match="couldn't open payment"):
         await continue_blinkit_address(None, None, None, page)
+
+
+async def test_blinkit_known_cart_waits_for_hydration(page):
+    from easydial.providers.blinkit import BlinkitProvider
+
+    worker = BlinkitProvider("", "Test locality")
+    worker.guard.expected = (("diet coke", "330 ml", 4),)
+    await page.set_content('''<div class="CartButton__Button-test" disabled
+      onclick="document.querySelector('.cart-modal-rn').style.display='block'">My Cart</div>
+      <div class="cart-modal-rn" style="display:none">
+        <div class="DefaultProductCard__Container-test">
+          <div class="ProductTitle">Diet Coke</div><div class="ProductVariant">330 ml</div>
+          <div class="AddToCart__UpdatedButtonContainer">4</div>
+        </div><div class="BillCard__BillItemContainer">Items total<br>₹200</div>
+        <div class="CheckoutStrip__NetPriceText">₹200</div>
+      </div><script>setTimeout(()=>document.querySelector('[disabled]').removeAttribute('disabled'), 350)</script>''')
+    cart = await worker.read_cart(page)
+    assert cart["items"] == [{"name": "Diet Coke", "pack": "330 ml", "quantity": 4}]

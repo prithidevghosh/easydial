@@ -170,6 +170,14 @@ class BlinkitProvider:
         if not await drawer.is_visible():
             button = page.locator("div[class*='CartButton__Button']").first
             await button.wait_for(state="visible")
+            # During hydration Blinkit renders a disabled, apparently empty cart
+            # before restoring its contents. A known nonempty cart must get time
+            # to load before absence is treated as evidence.
+            if self.guard.expected or self.guard.attempted:
+                for _ in range(20):
+                    if await button.get_attribute("disabled") is None:
+                        break
+                    await asyncio.sleep(0.25)
             if await button.get_attribute("disabled") is not None:
                 return {
                     "items": [],
@@ -403,9 +411,16 @@ class BlinkitProvider:
         async with self.lock, self.browser_page() as (page, context):
             await self.navigate(page, "milk")
             actual = await self.read_cart(page)
-            self.guard.check(session.id, cart_signature(actual))
+            # Retry read-only snapshots before declaring a real change. Never
+            # let a transient empty snapshot erase the verified cart checkpoint.
+            for _ in range(2):
+                if cart_signature(actual) == desired:
+                    break
+                await asyncio.sleep(0.5)
+                actual = await self.read_cart(page)
             if cart_signature(actual) != desired:
                 raise DomainError("The store cart changed. Review the basket again before continuing.")
+            self.guard.check(session.id, cart_signature(actual))
             required = self.verified_address or session.address_label
             if not actual.get("address") or normalized(required) not in normalized(actual["address"]):
                 raise DomainError("The delivery address changed. Review it again before continuing.")
