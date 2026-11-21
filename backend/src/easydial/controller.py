@@ -48,7 +48,19 @@ class Session:
             if not offer or offer.available is not True or offer.price_paise is None:
                 raise DomainError("Choose an available product with a verified price.", 422)
             if self.view.synced_provider and self.view.synced_provider != offer.provider:
-                raise DomainError("Sync an empty basket with the previous store before switching stores.")
+                store = self.view.synced_provider.value.title()
+                destination = offer.provider.value.title()
+                if self.view.lines:
+                    raise DomainError(
+                        f"Your basket is still linked to {store}. To switch to {destination}, "
+                        f"first ask me to remove all items, then send ‘review’ to empty the {store} cart. "
+                        "After that, select the new store’s product. No items have been changed."
+                    )
+                raise DomainError(
+                    f"Your draft is empty, but the {store} cart has not been confirmed empty yet. "
+                    f"Send ‘review’ first, then select the {destination} product again. "
+                    "No items have been changed."
+                )
             if offer.mode != self.view.mode or offer.address_label != self.view.address_label:
                 raise DomainError("This product belongs to another delivery context.")
             if now() - offer.retrieved_at > timedelta(minutes=10):

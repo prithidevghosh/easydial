@@ -82,6 +82,36 @@ def test_synced_store_must_be_cleared_before_switching():
         address_label="home",
     )
     current.offers[offer.id] = offer
-    with pytest.raises(DomainError, match="previous store"):
+    with pytest.raises(DomainError, match="Instamart cart has not been confirmed empty"):
         current.edit(EditRequest(kind="add", offer_id=offer.id, expected_version=0))
     assert current.view.lines == []
+
+
+def test_store_switch_with_items_explains_removal_before_review():
+    from easydial.controller import Session
+    from easydial.models import BasketLine, EditRequest, Offer, SessionView
+
+    old = Offer(
+        id="old",
+        provider=Provider.INSTAMART,
+        product_id="p",
+        sku_id="p",
+        name="Milk",
+        price_paise=1000,
+        available=True,
+        mode="live",
+        address_label="home",
+    )
+    new = old.model_copy(update={"id": "new", "provider": Provider.BLINKIT})
+    view = SessionView(
+        id="test",
+        mode="live",
+        address_label="home",
+        synced_provider=Provider.INSTAMART,
+        lines=[BasketLine(offer=old, quantity=3)],
+    )
+    session = Session(view, offers={new.id: new})
+    with pytest.raises(DomainError, match="first ask me to remove all items"):
+        session.edit(EditRequest(kind="add", offer_id=new.id, expected_version=0))
+    assert session.view.lines[0].quantity == 3
+    assert session.view.version == 0

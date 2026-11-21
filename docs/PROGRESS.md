@@ -1,3 +1,9 @@
+# Store-switch diagnosis — 2026-11-21
+
+User encountered the old “Sync an empty basket” error. Read-only inspection found draft version 6 still contains quantity 3 from Instamart, with `synced_provider=instamart` and no legacy cart checkpoint. Selecting Blinkit correctly hits the single-store guard. Replaced the technical error with store-specific instructions: remove all draft items, review to verify/clear the previous store cart, then choose the new store. Empty drafts get a shorter review-first message. No customer state or store cart was changed. The legacy externally changed/unknown cart protection still applies; if review refuses the existing cart, the user must clear it directly in Instamart, then review again.
+
+---
+
 # Latest implementation — payment inspection and fee transparency
 
 2026-11-21: inspected both logged-in payment-choice pages without initiating payment or placing an order. See `PAYMENT_INSPECTION.md` for evidence. Blinkit test basket was cleared; existing Instamart basket was preserved. WhatsApp now shows a detailed monospace charge table, warns about small-cart/minimum-order fees, and requires a reconciled fresh bill before recording preparation-only approval. Payment handoff remains disabled.
