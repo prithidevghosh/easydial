@@ -477,3 +477,9 @@ The reported voice request transcribed correctly as “Please order a cookie for
 Live read-only search using the customer's consented Blinkit connection now returned multiple cookie products and prices, including chocolate cookies and butter cookies. No cart/address changes or order submission occurred. Added regressions for cookie/cookies, biscuit/biscuits, eggs, tomatoes, diet Coke variants and unrelated-product rejection.
 
 Validation: full standard suite passed (31 opt-in DOM tests skipped); final focused relevance suite passed all 17 tests. Lint/diff checks passed. Server restarted with the fix.
+
+## 2026-11-21 — Semantic product ranking replaces literal filtering
+
+Implemented the requested architectural change: raw validated catalogue candidates from both stores go through a structured OpenAI semantic ranker before user choices. Removed the old lexical matcher and its tests. Model output is restricted to existing IDs; original prices, packs, images, availability and exact-refresh checks remain code controlled. API/validation failure returns retry UX, never unfiltered recommendations. No customer credentials/address are sent to ranking. See SEMANTIC_PRODUCT_RANKING.md for the contract and limits.
+
+Validation: 230 standard tests passed (31 opt-in DOM tests skipped; selectors unchanged), lint/diff checks passed. Five live semantic cases passed and a live customer-scoped Blinkit cookie search returned relevant ranked cookie variants. No cart mutation/order/payment. Restarted server with semantic ranking enabled through the existing OpenAI configuration.

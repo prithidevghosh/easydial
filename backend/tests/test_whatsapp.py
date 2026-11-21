@@ -62,6 +62,8 @@ def make_runtime(tmp_path):
     config = settings(tmp_path)
     workers = ProviderWorkers(config)
     workers.workers = [FixtureProvider(p) for p in Provider]
+    from unittest.mock import AsyncMock
+    workers.ranker = SimpleNamespace(rank=AsyncMock(side_effect=lambda query, offers: offers), close=AsyncMock())
     master = SimpleNamespace(require_client=lambda: None)
     chat = ShoppingChat(config, workers, master)
 

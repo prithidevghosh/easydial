@@ -10,7 +10,6 @@ from .browser import BrowserSession, click_and_settle
 from .cart_guard import CartConflict, CartGuard
 from .images import product_image_url
 from .money import paise
-from .relevance import matches_query
 
 
 def parse_card(raw: dict, address: str) -> Offer | None:
@@ -158,7 +157,6 @@ class BlinkitProvider:
                 parsed = parse_card(raw, address)
                 if (
                     parsed
-                    and matches_query(query, parsed.name, parsed.pack_size)
                     and parsed.id not in {offer.id for offer in offers}
                 ):
                     offers.append(parsed)

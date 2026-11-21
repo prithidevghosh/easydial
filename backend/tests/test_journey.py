@@ -20,6 +20,8 @@ def client():
         )
     ) as client:
         client.app.state.workers.workers = [FixtureProvider(p) for p in Provider]
+        from unittest.mock import AsyncMock
+        client.app.state.workers.ranker.rank = AsyncMock(side_effect=lambda query, offers: offers)
         yield client
 
 
@@ -272,6 +274,8 @@ async def test_provider_failure_isolated_without_fake_stock():
 
     workers.workers = [FixtureProvider(p) for p in Provider]
     workers.workers[0].search = broken
+    from unittest.mock import AsyncMock
+    workers.ranker.rank = AsyncMock(side_effect=lambda query, offers: offers)
     results = await workers.search("milk", "home")
     assert results[0].status == "error" and results[0].offers == []
     assert "private" not in results[0].message

@@ -5,11 +5,13 @@ from ..models import Provider, SearchResult, SessionView
 from ..settings import Settings
 from .blinkit import BlinkitProvider, normalized
 from .instamart import InstamartProvider
+from .semantic_ranking import SemanticProductRanker
 
 
 class ProviderWorkers:
     def __init__(self, settings: Settings):
         self.settings = settings
+        self.ranker = SemanticProductRanker(settings)
         self.workers = [
             BlinkitProvider(
                 settings.blinkit_storage_state,
@@ -62,6 +64,7 @@ class ProviderWorkers:
         return {provider.value: worker.connected() for provider, worker in zip(Provider, self.workers)}
 
     async def close(self):
+        await self.ranker.close()
         for worker in self.workers:
             await worker.close()
 
@@ -79,7 +82,7 @@ class ProviderWorkers:
                     message="Could not verify this store. Check the connection and try again; stock is unknown.",
                 )
 
-        return list(
+        results = list(
             await asyncio.gather(
                 *(
                     run(p, w)
@@ -89,6 +92,21 @@ class ProviderWorkers:
                 )
             )
         )
+
+        candidates = [o for r in results if r.status == "ok" for o in r.offers]
+        if candidates:
+            try:
+                ranked = await self.ranker.rank(query, candidates)
+                for result in results:
+                    if result.status == "ok":
+                        result.offers = [o for o in ranked if o.provider == result.provider]
+            except Exception:
+                for result in results:
+                    if result.status == "ok" and result.offers:
+                        result.offers = []
+                        result.status = "error"
+                        result.message = "Product matching is temporarily unavailable. Please retry."
+        return results
 
     async def refresh_offer(self, offer, address):
         """Read only the selected store; never substitute a similarly named SKU/pack."""
