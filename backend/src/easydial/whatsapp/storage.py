@@ -26,12 +26,39 @@ class Inbox:
                 payload TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'queued');
             CREATE TABLE IF NOT EXISTS customers (
                 sender TEXT PRIMARY KEY, state TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS order_drafts (
+                sender TEXT NOT NULL, order_id TEXT NOT NULL, version INTEGER NOT NULL,
+                status TEXT NOT NULL, snapshot TEXT NOT NULL, last_event_id TEXT,
+                updated_at INTEGER NOT NULL,
+                PRIMARY KEY(sender, order_id));
+            CREATE TABLE IF NOT EXISTS order_revisions (
+                event_id TEXT PRIMARY KEY, sender TEXT NOT NULL, order_id TEXT NOT NULL,
+                version INTEGER NOT NULL, outcome TEXT NOT NULL, snapshot TEXT NOT NULL,
+                created_at INTEGER NOT NULL);
+            CREATE INDEX IF NOT EXISTS order_revisions_by_customer
+                ON order_revisions(sender, order_id, created_at);
             CREATE TABLE IF NOT EXISTS outbox (
                 id INTEGER PRIMARY KEY, event_id TEXT NOT NULL, sender TEXT NOT NULL,
                 payload TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'queued',
                 remote_id TEXT, delivery TEXT);
         """)
         with self.db:
+            # Idempotently migrate existing private customer snapshots without touching store carts.
+            for row in self.db.execute("SELECT sender,state FROM customers").fetchall():
+                state = json.loads(row["state"])
+                view = state["view"]
+                self.db.execute(
+                    "INSERT OR IGNORE INTO order_drafts VALUES (?,?,?,?,?,?,?)",
+                    (
+                        row["sender"],
+                        view["id"],
+                        view["version"],
+                        view["phase"],
+                        json.dumps(view),
+                        None,
+                        int(time.time()),
+                    ),
+                )
             self.db.execute("UPDATE events SET status='interrupted' WHERE status='processing'")
             self.db.execute("UPDATE outbox SET status='uncertain' WHERE status='sending'")
 
@@ -51,6 +78,21 @@ class Inbox:
 
     def load(self, sender):
         row = self.db.execute("SELECT state FROM customers WHERE sender=?", (sender,)).fetchone()
+        if not row:
+            return None
+        state = json.loads(row[0])
+        # The order record, not the conversational snapshot, supplies all basket/bill data.
+        order = self.load_order(sender, state["view"]["id"])
+        if order is None:
+            raise RuntimeError("Missing durable order draft; refusing checkout from conversation state")
+        state["view"] = order
+        return state
+
+    def load_order(self, sender, order_id):
+        row = self.db.execute(
+            "SELECT snapshot FROM order_drafts WHERE sender=? AND order_id=?",
+            (sender, order_id),
+        ).fetchone()
         return json.loads(row[0]) if row else None
 
     def interrupted(self, sender):
@@ -78,6 +120,22 @@ class Inbox:
                 expanded.append(reply)
         replies = expanded
         with self.db:
+            view = state["view"]
+            existing = self.load_order(row["sender"], view["id"])
+            if existing and existing["version"] > view["version"]:
+                raise RuntimeError("Refusing to overwrite a newer order draft")
+            if self.db.execute("SELECT 1 FROM order_revisions WHERE event_id=?", (row["id"],)).fetchone():
+                return  # Finishing the same inbound event must not duplicate replies or revisions.
+            snapshot = json.dumps(view)
+            timestamp = int(time.time())
+            self.db.execute(
+                "INSERT OR REPLACE INTO order_drafts VALUES (?,?,?,?,?,?,?)",
+                (row["sender"], view["id"], view["version"], view["phase"], snapshot, row["id"], timestamp),
+            )
+            self.db.execute(
+                "INSERT INTO order_revisions VALUES (?,?,?,?,?,?,?)",
+                (row["id"], row["sender"], view["id"], view["version"], status, snapshot, timestamp),
+            )
             self.db.execute(
                 "INSERT OR REPLACE INTO customers VALUES (?,?)", (row["sender"], json.dumps(state))
             )

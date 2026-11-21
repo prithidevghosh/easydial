@@ -13,6 +13,7 @@ See `docs/PAYMENT_INSPECTION.md` for actual website evidence, charge tables and 
 - [x] Block incomplete/non-reconciling bills; re-read cart/address/fees before amount approval.
 - [x] Require fresh approval for changed bills, revoke on edits/failed rechecks, expire reviews.
 - [x] Persist verified cart ownership checkpoints for restart; still reject external changes.
+- [x] Store sender-scoped order drafts and event revisions; load authoritative baskets from the database before handling checkout and commit replies atomically. See `docs/ORDER_PERSISTENCE.md`.
 - [x] Configure headless/channel settings and verify authenticated read-only use on this Mac.
 - [ ] Validate headless cart writes and recovery on the actual Linux deployment host.
 - [ ] Create and verify a transferable provider-owned payment handoff with specific authorization.

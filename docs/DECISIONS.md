@@ -85,3 +85,7 @@ Use provider-read bill rows in a WhatsApp monospace table; explicitly warn about
 ## 2026-11-21 — Add products to the existing basket by default
 
 An additional product request must preserve existing groceries. Once a basket has a store, show selectable additions from that store; other-store offers may remain comparison evidence but must not lead users into a blocked selection. Never infer a store switch or replacement from an additive request. Recover old mixed-store menus with compatible choices and preserve all basket lines. Separate multi-store orders or explicit whole-basket migration remain future work.
+
+## 2026-11-21 — Durable order records before checkout
+
+Keep the existing private SQLite store for the single-worker pilot, adding explicit sender-scoped order drafts and immutable per-event revisions. Load order data from the database each turn and commit updates atomically with responses. A cache is not the source of truth for checkout; always revalidate live merchant fees and basket identity. Multi-user provider authentication and production retention remain separate requirements. See ORDER_PERSISTENCE.md.

@@ -1,3 +1,11 @@
+# Explicit database-backed order drafts — 2026-11-21
+
+Added sender-scoped `order_drafts` and event-scoped `order_revisions` to the private SQLite database. Every turn now reads its basket/bill/preparation from the order table before handling review or checkout. Draft, revision, conversation, event outcome and responses commit together; older versions and duplicate event completions are protected. Existing snapshots migrate at startup without changing baskets. See `ORDER_PERSISTENCE.md`. This does not enable multi-user store sessions or payments.
+
+Validation: 60 tests pass, including Chrome DOM checks; Ruff and diff checks pass. Private pre-migration database backup created, service restarted, and one existing draft migrated with an exact snapshot match. Health is ok; headless remains enabled and payments remain disabled.
+
+---
+
 # Local headless mode enabled — 2026-11-21
 
 User requested actual headless operation. The private backend `.env` still had the default headed setting; set `BROWSER_HEADLESS=true`, verified no queued/processing requests, gracefully stopped the service and restarted it. Both provider workers now resolve headless=True with channel=chrome; local health returned ok. Browser contexts launch lazily on the next shopping request. No cart mutation or order was performed. Private `.env` remains untracked.
