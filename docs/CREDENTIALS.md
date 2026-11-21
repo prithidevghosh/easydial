@@ -1,5 +1,7 @@
 # Connect EasyDial for live testing
 
+**WhatsApp-first setup:** use [WHATSAPP_SETUP.md](WHATSAPP_SETUP.md) and the private `tools/connect_whatsapp.py` helper. Existing grocery sessions below are reused; do not run two workers against the same Chrome profiles.
+
 Updated 2026-11-21. Current target: real product discovery → chosen basket → live provider basket/bill → **Checkout: Pending**. Payment and order placement are not called. There is no sample mode or sample catalogue in the application.
 
 Both provider websites have been inspected after login through the pre-payment cart. Backend adapter verification is recorded separately in BROWSER_VERIFICATION.md; unit tests alone do not establish live success.

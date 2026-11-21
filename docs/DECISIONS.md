@@ -65,3 +65,10 @@ Reuse normal logged-in sessions instead of relaunching headless Firefox for ever
 ## 2026-11-21 — WhatsApp-first channel, research only
 
 User decision: pause app development and investigate routing the complete voice-note shopping journey through WhatsApp. Retain the existing commerce backend and app code. Recommendation: direct Meta WhatsApp Business Cloud API; Twilio Sandbox is an optional test route, not a policy bypass. Feasibility is technically positive but conditional on Meta accepting this focused shopping-service use case, secure customer store-account linking, and eventual payment implementation. No WhatsApp runtime/account changes or messages were made. Detailed evidence, uncertainties and acceptance gates: `WHATSAPP_FEASIBILITY.md`.
+
+
+## 2026-11-21 — implement a single-user WhatsApp pilot
+
+User authorized implementation and assisted Meta setup. Direct Cloud API was chosen. A separate webhook-only process prevents exposing the local session API through the development tunnel. One allowlisted phone-number sender maps to the owner's saved provider profiles; arbitrary users and username-only senders are ignored. SQLite persists turns/choices and inbox/outbox records; interrupted browser operations and uncertain outgoing sends are never blindly replayed. Existing cart guards remain authoritative after restart.
+
+Text/list/button responses are the initial UI; voice input is normalized through FFmpeg and sent to the existing OpenAI transcription model. Payment remains unavailable. Actual Meta setup and OpenAI credentials are required before the first real WhatsApp test. `WHATSAPP_SETUP.md` records the exact steps and limitations.

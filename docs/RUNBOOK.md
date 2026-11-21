@@ -1,5 +1,7 @@
 # Run EasyDial locally
 
+**Active channel: WhatsApp.** Follow [WHATSAPP_SETUP.md](WHATSAPP_SETUP.md). Start with `uv --directory backend run python -m easydial.whatsapp`; expose only its webhook server on port 8001. The iOS/local API instructions below are retained for development and must not run concurrently against the same store profiles during live WhatsApp tests.
+
 Updated 2026-11-21. Application is live-only. Start with [credential setup](CREDENTIALS.md).
 
 ## Backend

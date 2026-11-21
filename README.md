@@ -2,7 +2,9 @@
 
 Voice-assisted grocery ordering for older adults and people who find commerce apps difficult to use.
 
-**Phase: building. Updated: 2026-11-21.** Native SwiftUI iOS app and Python backend; live-only provider discovery and cart-review pipeline implemented; Checkout stops at Pending. Both websites have reached pre-payment checkout after login; see the [browser verification ledger](docs/BROWSER_VERIFICATION.md) for adapter evidence and remaining gaps.
+**Phase: WhatsApp-first pilot. Updated: 2026-11-21.** Send voice notes to an EasyDial WhatsApp business chat; the Python backend searches Blinkit and Instamart and manages a reviewable basket. The channel implementation is locally tested; real WhatsApp delivery awaits Meta credentials and an OpenAI key. Checkout stops at Pending. Native iOS development is paused, with existing code retained.
+
+Start with the [WhatsApp setup guide](docs/WHATSAPP_SETUP.md). Existing store-browser evidence and limitations are in the [verification ledger](docs/BROWSER_VERIFICATION.md).
 
 Repository: [prithidevghosh/easydial](https://github.com/prithidevghosh/easydial) (public).
 

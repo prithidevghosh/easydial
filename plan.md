@@ -6,18 +6,18 @@ This is the primary execution document. Read it together with `docs/PROGRESS.md`
 
 ## Latest product direction — WhatsApp first (2026-11-21)
 
-User has paused app development and requested feasibility of voice recordings sent to an EasyDial WhatsApp chat driving the existing shopping pipeline. This supersedes iOS as the active customer channel; retain existing app code. Research is recorded in `docs/WHATSAPP_FEASIBILITY.md`. WhatsApp transport is technically supported, but this integration is not built or live-tested. Meta use-case eligibility for our India-focused service, durable per-user state/store linking and payment remain open gates.
+User has paused app development and requested feasibility of voice recordings sent to an EasyDial WhatsApp chat driving the existing shopping pipeline. This supersedes iOS as the active customer channel; retain existing app code. Research is recorded in `docs/WHATSAPP_FEASIBILITY.md`. WhatsApp transport is implemented for a single-user pilot and locally tested, but actual Meta/OpenAI delivery and live end-to-end operation are unverified. See `docs/WHATSAPP_SETUP.md`. Meta use-case eligibility for our India-focused service, durable per-user state/store linking and payment remain open gates.
 
 - [x] Research official voice/media transport, onboarding, messaging rules and AI-provider restrictions.
 - [x] Record channel architecture, provider recommendation and acceptance checkpoints.
 - [ ] Resolve use-case eligibility and configure a test business sender.
-- [ ] Implement authenticated webhooks, media normalization, durable queues and sender isolation.
-- [ ] Connect voice interpretation, product choices and corrections to existing commerce controller.
+- [x] Implement authenticated webhooks, media normalization, durable queues and a single-sender allowlist (not production multi-user isolation).
+- [x] Connect voice interpretation, product choices and corrections to existing commerce controller; verify locally with test doubles.
 - [ ] Verify an actual WhatsApp recording through each store's live cart review and Pending, without purchase.
 - [ ] Verify multilingual outcomes, retry/restart safety and customer account isolation.
 - [ ] Separately implement authorized payment and provider-confirmed order evidence.
 
-Direct Meta Cloud API is the recommendation; Twilio Sandbox is an optional transport spike. Neither is currently configured. Do not resume iOS work by default or treat documentation as completed integration.
+Direct Meta Cloud API is implemented; Twilio Sandbox was not implemented. Meta credentials remain unconfigured. Do not resume iOS work by default or treat documentation as completed integration.
 
 ## Prior implementation milestone — browser automation and eventual paid-order completion
 

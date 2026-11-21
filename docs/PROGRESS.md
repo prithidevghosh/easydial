@@ -4,11 +4,22 @@ Updated 2026-11-21. Public repo: https://github.com/prithidevghosh/easydial.
 
 ## Current direction
 
-WhatsApp-first EasyDial is now the requested direction; iOS feature development is paused. Research recommends Meta Cloud API with OpenAI dictation/intent and the existing **two Playwright provider workers**, Blinkit and https://instamart.in/. WhatsApp is not implemented/configured/tested; see `WHATSAPP_FEASIBILITY.md` for policy eligibility, account isolation and implementation gates. Swiggy MCP has been removed at the user's request. Final goal is a paid, provider-confirmed order; this session explicitly forbids placing any order. Current working boundary is verified live cart/checkout preparation → local Checkout Pending.
+WhatsApp-first EasyDial is now the requested direction; iOS feature development is paused. Research recommends Meta Cloud API with OpenAI dictation/intent and the existing **two Playwright provider workers**, Blinkit and https://instamart.in/. The single-user WhatsApp channel is implemented and locally tested, but Meta/OpenAI credentials and actual message delivery remain unverified. See `WHATSAPP_SETUP.md` for setup and `WHATSAPP_FEASIBILITY.md` for remaining policy/production gates. Swiggy MCP has been removed at the user's request. Final goal is a paid, provider-confirmed order; this session explicitly forbids placing any order. Current working boundary is verified live cart/checkout preparation → local Checkout Pending.
 
 Read `plan.md`, `docs/BROWSER_VERIFICATION.md` and `docs/CREDENTIALS.md` before continuing. Earlier MCP/Firefox and fixture-only milestones remain in Git history; they are superseded.
 
-## Completed and tested
+## WhatsApp implementation (latest)
+
+- Separate webhook-only FastAPI service on loopback port 8001; signed POST validation, GET challenge and one configured test sender/account.
+- Durable SQLite inbox/session/outbox, duplicate rejection, serialized turns, uncertain-send and interrupted-work handling; no blind mutation retries.
+- Authenticated media retrieval, bounded FFmpeg OGG/Opus normalization, OpenAI transcription and structured grocery intent. No fake transcription/catalogue fallback.
+- Product lists, numeric/spoken choice interpretation, multi-item continuation, draft changes, complete bill/address summaries and local Pending; existing provider workers reused.
+- Private credential helper and readiness/status commands. No secrets printed or committed.
+- 43 local tests pass in total, including 13 WhatsApp tests and five Chrome DOM regressions. Ruff passes. WhatsApp coverage includes real OGG/Opus decoder checks.
+- Not yet live-tested: Meta transport, actual OpenAI voice/intent, WhatsApp-to-store journey. User requested assisted Meta registration; user is signed in; browser is at first-time Meta developer registration, awaiting their terms/contact/About-you steps. No Meta app or business account created by the agent yet.
+- Fixed responses are currently English; outbound speech, broader language evaluation, multi-user account linking and payment remain outstanding.
+
+## Completed and tested — previous browser milestone
 
 - Retained premium SwiftUI UI and live-only app; no demo catalogue or fake order flow.
 - Replaced MCP runtime, OAuth helper and dependency with Instamart.in browser automation.
@@ -34,7 +45,7 @@ Read `plan.md`, `docs/BROWSER_VERIFICATION.md` and `docs/CREDENTIALS.md` before 
 
 ## Next work
 
-0. Follow the WhatsApp acceptance gates in `WHATSAPP_FEASIBILITY.md`; first resolve use-case eligibility and establish real voice-message transport. Preserve the existing checkout/no-purchase boundary.
+0. Help the user finish Meta sign-in/app setup, save secrets with `tools/connect_whatsapp.py`, then start the isolated webhook service and configure the HTTPS callback using `WHATSAPP_SETUP.md`. Verify actual voice-note transport and live cart review without purchase. Public-launch eligibility remains unresolved.
 
 1. Add OpenAI API key locally, then verify actual dictation and correction journeys. Do not confuse successful typed commerce tests with voice success.
 2. Improve grounded product metadata and conservative exact-match comparison; current browser cards lack complete brand/formulation metadata.
