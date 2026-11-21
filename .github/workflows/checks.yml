@@ -1,0 +1,27 @@
+name: Checks
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install uv
+      - run: uv sync --locked
+      - run: uv run ruff check src tests
+      - run: uv run pytest -q
+  ios-build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build iOS simulator app
+        run: xcodebuild -project ios/EasyDial.xcodeproj -scheme EasyDial -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' build CODE_SIGNING_ALLOWED=NO
