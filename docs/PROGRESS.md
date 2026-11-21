@@ -379,3 +379,11 @@ The reported address-change error was a missing checkout address, not evidence o
 Cart reading now completes this address-only step when populated cart data lacks an address. It clicks only an exact Proceed control, matches the full onboarded address against the innermost address text, requires exactly one match, and reads the resulting cart again. Missing/duplicate matches stop safely; payment controls are never clicked. Existing post-read address validation remains in place.
 
 Live verification: 4 Diet Cokes + 1 popcorn, items ₹257, free delivery, handling ₹13, payable ₹270; full address matched the onboarding choice. No order or payment submitted. Standard suite: 177 passed; four additional Chrome regressions cover unique/missing/duplicate matches and refusal to click Pay now.
+
+## 2026-11-21 — Payment-entry address detour
+
+Live reproduction confirmed that Proceed To Pay can reopen Blinkit's saved-address picker even after a successful cart review. Selecting the exact onboarded address returns to the cart, requiring another Proceed To Pay click. The previous payment path waited only for the payment heading and timed out.
+
+Shared address selection now supports an already-open picker. Payment entry follows bounded screen transitions, selects only a unique full-address match, rereads the cart and verifies its signature, address and bill fingerprint before continuing. Repeated address prompts and the observed Blinkit error screen stop with an appropriate message; no payment/order submission controls are clicked.
+
+Validation: 177 standard tests and 26 Chrome DOM tests passed; Ruff and diff checks passed. Regression coverage includes the address-to-cart-to-payment transition, bill-change refusal, direct payment entry and store errors. One live attempt encountered Blinkit's own temporary error screen; the final complete options() run succeeded with UPI QR and Pay on delivery. No payment QR was generated and no order submitted.

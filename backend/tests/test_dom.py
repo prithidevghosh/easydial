@@ -465,3 +465,47 @@ async def test_blinkit_address_recovery_never_clicks_payment_button(page):
     with pytest.raises(DomainError, match="confirm your delivery address"):
         await worker.select_checkout_address(page)
     assert await page.evaluate("window.paid") is None
+
+
+@pytest.mark.parametrize("bill_changed", [False, True])
+async def test_blinkit_payment_address_detour_rechecks_bill(page, monkeypatch, bill_changed):
+    from easydial.controller import DomainError
+    from easydial.providers import payments
+    from easydial.providers.blinkit import BlinkitProvider
+
+    worker = BlinkitProvider("", "Test locality", "Flat 7, Test Road")
+    await page.set_content('''<div id="addresses">
+      <div class="AddressList__AddressItemWrapper-x" onclick="this.parentElement.remove();document.querySelector('#cart').hidden=false">
+        <div class="AddressList__AddressDetails-x">Flat 7, Test Road</div></div></div>
+      <div id="cart" hidden><button onclick="window.proceeded=true;document.body.innerHTML='Select Payment Method'">Proceed To Pay</button></div>''')
+    checked = []
+
+    async def read_cart(_page):
+        return {"test": "cart"}
+
+    def verify(_worker, _view, _review, cart):
+        checked.append(cart)
+        if bill_changed:
+            raise DomainError("The bill changed")
+
+    monkeypatch.setattr(worker, "read_cart", read_cart)
+    monkeypatch.setattr(payments, "verify_checkout_cart", verify)
+    if bill_changed:
+        with pytest.raises(DomainError, match="bill changed"):
+            await payments.continue_blinkit_address(worker, None, None, page)
+        assert await page.evaluate("window.proceeded") is None
+    else:
+        await payments.continue_blinkit_address(worker, None, None, page)
+        assert await page.evaluate("window.proceeded") is True
+    assert checked == [{"test": "cart"}]
+
+
+async def test_blinkit_payment_transition_handles_direct_entry_and_store_error(page):
+    from easydial.controller import DomainError
+    from easydial.providers.payments import continue_blinkit_address
+
+    await page.set_content('<div>Select Payment Method</div>')
+    await continue_blinkit_address(None, None, None, page)
+    await page.set_content('<div>Oops! something went wrong</div>')
+    with pytest.raises(DomainError, match="couldn't open payment"):
+        await continue_blinkit_address(None, None, None, page)

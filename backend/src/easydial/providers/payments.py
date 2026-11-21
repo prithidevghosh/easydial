@@ -41,20 +41,11 @@ LABELS = {
 async def open_options(worker, view, review, page):
     await worker.navigate(page, "milk")
     cart = await worker.read_cart(page)
-    worker.guard.check(view.id, cart_signature(cart))
-    desired = tuple(
-        sorted((normalized(x.offer.name), normalized(x.offer.pack_size), x.quantity) for x in view.lines)
-    )
-    if cart_signature(cart) != desired or normalized(
-        worker.verified_address or view.address_label
-    ) not in normalized(cart.get("address", "")):
-        raise DomainError("Your cart or address changed. Review it again.")
-    live = worker.verified_review(view, cart)
-    if fingerprint(view, live) != fingerprint(view, review):
-        raise DomainError("The bill changed. Review it again before choosing payment.")
+    verify_checkout_cart(worker, view, review, cart)
     label = "Proceed To Pay" if worker.provider == Provider.BLINKIT else "Proceed to Pay"
     await page.get_by_text(label, exact=True).click()
     if worker.provider == Provider.BLINKIT:
+        await continue_blinkit_address(worker, view, review, page)
         await page.get_by_text("Select Payment Method", exact=True).wait_for()
         for _ in range(40):
             frames = [
@@ -71,6 +62,43 @@ async def open_options(worker, view, review, page):
     await page.get_by_text("Payment Options", exact=True).wait_for()
     verify_instamart_payment_total(await page.locator("body").inner_text(), review.total_paise)
     return page
+
+
+def verify_checkout_cart(worker, view, review, cart):
+    worker.guard.check(view.id, cart_signature(cart))
+    desired = tuple(
+        sorted((normalized(x.offer.name), normalized(x.offer.pack_size), x.quantity) for x in view.lines)
+    )
+    if cart_signature(cart) != desired or normalized(
+        worker.verified_address or view.address_label
+    ) not in normalized(cart.get("address", "")):
+        raise DomainError("Your cart or address changed. Review it again.")
+    live = worker.verified_review(view, cart)
+    if fingerprint(view, live) != fingerprint(view, review):
+        raise DomainError("The bill changed. Review it again before choosing payment.")
+
+
+async def continue_blinkit_address(worker, view, review, page):
+    """Follow bounded address/cart/payment transitions without submitting an order."""
+    heading = page.get_by_text("Select Payment Method", exact=True)
+    rows = page.locator("div[class*='AddressList__AddressItemWrapper-']")
+    selected = False
+    for _ in range(40):
+        if await heading.is_visible():
+            return
+        if await page.get_by_text("Oops! something went wrong", exact=True).is_visible():
+            raise DomainError("Blinkit couldn't open payment right now. Your basket is saved; please try again shortly.")
+        if await rows.first.is_visible():
+            if selected:
+                raise DomainError("Blinkit couldn't confirm the delivery address. Please try again shortly.")
+            await worker.select_checkout_address(page)
+            # Address selection returns to the cart, and may recalculate the bill.
+            cart = await worker.read_cart(page)
+            verify_checkout_cart(worker, view, review, cart)
+            selected = True
+            await page.get_by_text("Proceed To Pay", exact=True).click()
+        await asyncio.sleep(0.25)
+    raise DomainError("Blinkit payment options did not load. Try again later.")
 
 
 def verify_instamart_payment_total(text, approved_paise):

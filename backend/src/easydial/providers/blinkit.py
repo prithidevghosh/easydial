@@ -206,11 +206,12 @@ class BlinkitProvider:
 
     async def select_checkout_address(self, page):
         """Apply only the address explicitly chosen at onboarding, never a default row."""
-        proceed = page.locator("div[class*='CheckoutStrip__CTAText']").get_by_text("Proceed", exact=True)
-        if await proceed.count() != 1 or not await proceed.is_visible():
-            raise DomainError("I couldn't confirm your delivery address. Please review your basket again.")
-        await proceed.click()
         rows = page.locator("div[class*='AddressList__AddressItemWrapper-']")
+        if not await rows.first.is_visible():
+            proceed = page.locator("div[class*='CheckoutStrip__CTAText']").get_by_text("Proceed", exact=True)
+            if await proceed.count() != 1 or not await proceed.is_visible():
+                raise DomainError("I couldn't confirm your delivery address. Please review your basket again.")
+            await proceed.click()
         await rows.first.wait_for(state="visible")
         matches = []
         for index in range(await rows.count()):
