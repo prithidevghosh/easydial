@@ -1,3 +1,11 @@
+# Instamart bill discrepancy investigation — 2026-11-21
+
+Read-only inspection of the authenticated website and its own cart response confirms the mismatch is upstream of WhatsApp formatting. Visible current fees are ₹85 + ₹12 + ₹23.60 + ₹35.70, with ₹156 To Pay. Cart response billBreakupDetails.subTotal and subtotalWithoutDiscounts are 156.3; bill.toPay is 156.0. No explicit rounding field was found. Handling fee has a struck-out prior price; the DOM correctly excludes it. No inferred adjustment added, no cart mutation or payment operation performed. Do not claim the discrepancy resolved.
+
+Latest two dependent outbox rows (98/99) were sent and marked read. Sent payloads are redacted, so receipt evidence alone cannot establish their exact content. Server restarted and operational after inspection. Blocked-bill Change basket/Save for later actions from prior commit remain installed.
+
+---
+
 # Blocked-bill next actions — 2026-11-21
 
 Added Change basket and Save for later WhatsApp buttons after a persistent bill mismatch. Both are version/review-bound, deterministic, and perform no provider or payment operation. Change basket prompts for additions/removals/changes by text or voice; Save for later confirms the existing saved draft without pausing or clearing it. No manual bill retry is delegated to the user. Checkout progress now says Checking your final total rather than prematurely claiming to find payment options. Payment stays blocked while charges differ. Existing delivery-receipt ordering keeps the buttons after the bill.
