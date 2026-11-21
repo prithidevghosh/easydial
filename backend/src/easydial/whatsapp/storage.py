@@ -43,6 +43,13 @@ class Inbox:
                 payload TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'queued',
                 remote_id TEXT, delivery TEXT);
         """)
+        # Older queues remain independent; new turn replies carry delivery dependencies.
+        columns = {row[1] for row in self.db.execute("PRAGMA table_info(outbox)")}
+        if "after_id" not in columns:
+            self.db.execute("ALTER TABLE outbox ADD COLUMN after_id INTEGER")
+        self.db.execute(
+            "CREATE TABLE IF NOT EXISTS delivery_receipts (remote_id TEXT PRIMARY KEY, status TEXT NOT NULL)"
+        )
         with self.db:
             # Idempotently migrate existing private customer snapshots without touching store carts.
             for row in self.db.execute("SELECT sender,state FROM customers").fetchall():
@@ -141,10 +148,13 @@ class Inbox:
                 "INSERT OR REPLACE INTO customers VALUES (?,?)", (row["sender"], json.dumps(state))
             )
             self.db.execute("UPDATE events SET status=?, payload='{}' WHERE id=?", (status, row["id"]))
-            self.db.executemany(
-                "INSERT INTO outbox(event_id,sender,payload) VALUES (?,?,?)",
-                [(row["id"], row["sender"], json.dumps(reply)) for reply in replies],
-            )
+            previous_id = None
+            for reply in replies:
+                inserted = self.db.execute(
+                    "INSERT INTO outbox(event_id,sender,payload,after_id) VALUES (?,?,?,?)",
+                    (row["id"], row["sender"], json.dumps(reply), previous_id),
+                )
+                previous_id = inserted.lastrowid
 
     def reserve_progress(self, row, text):
         with self.db:
@@ -160,7 +170,13 @@ class Inbox:
             return result.lastrowid
 
     def claim_reply(self):
-        row = self.db.execute("SELECT * FROM outbox WHERE status='queued' ORDER BY id LIMIT 1").fetchone()
+        row = self.db.execute("""
+            SELECT child.* FROM outbox child LEFT JOIN outbox parent ON parent.id=child.after_id
+            WHERE child.status='queued' AND (
+                child.after_id IS NULL OR parent.delivery IN ('delivered','read','failed')
+                OR parent.status IN ('expired','superseded'))
+            ORDER BY child.id LIMIT 1
+        """).fetchone()
         if row:
             with self.db:
                 self.db.execute("UPDATE outbox SET status='sending' WHERE id=?", (row["id"],))
@@ -169,17 +185,34 @@ class Inbox:
     def mark_reply(self, id, status, remote_id=None):
         with self.db:
             self.db.execute(
-                "UPDATE outbox SET status=?, remote_id=?, payload='{}' WHERE id=?", (status, remote_id, id)
+                "UPDATE outbox SET status=?, remote_id=?, payload='{}', "
+                "delivery=COALESCE((SELECT status FROM delivery_receipts WHERE remote_id=?), delivery) WHERE id=?",
+                (status, remote_id, remote_id, id),
             )
 
     def delivery(self, remote_id, status):
         if status not in {"sent", "delivered", "read", "failed"}:
             return
-        previous = self.db.execute("SELECT delivery FROM outbox WHERE remote_id=?", (remote_id,)).fetchone()
-        rank = {None: 0, "failed": 1, "sent": 2, "delivered": 3, "read": 4}
-        if previous and (rank[status] >= rank[previous[0]] or (status == "failed" and previous[0] == "sent")):
+        if not isinstance(remote_id, str) or not remote_id or len(remote_id) > 512:
+            return
+        previous = self.db.execute(
+            "SELECT status FROM delivery_receipts WHERE remote_id=?", (remote_id,)
+        ).fetchone()
+        prior = previous[0] if previous else None
+        rank = {None: 0, "sent": 1, "failed": 2, "delivered": 3, "read": 4}
+        if rank[status] >= rank[prior]:
             with self.db:
+                self.db.execute("INSERT OR REPLACE INTO delivery_receipts VALUES (?,?)", (remote_id, status))
                 self.db.execute("UPDATE outbox SET delivery=? WHERE remote_id=?", (status, remote_id))
+
+    def supersede_waiting_replies(self, sender):
+        """A fresh customer turn must not later receive a stale, held-back choice menu."""
+        with self.db:
+            self.db.execute(
+                "UPDATE outbox SET status='superseded',payload='{}' "
+                "WHERE sender=? AND status='queued' AND after_id IS NOT NULL",
+                (sender,),
+            )
 
     def window_open(self, sender):
         timestamp = self.db.execute("SELECT MAX(timestamp) FROM events WHERE sender=?", (sender,)).fetchone()[

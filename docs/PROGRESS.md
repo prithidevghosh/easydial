@@ -1,3 +1,11 @@
+# Delivery-confirmed WhatsApp ordering — 2026-11-21
+
+Sequential HTTP sends did not preserve customer-visible order: Meta accepted the second product image but delivered the later choice prompt first. New reply batches have durable `outbox.after_id` dependencies. Each message waits for its predecessor's delivered/read receipt, rather than HTTP acceptance or sent status. Definitive delivery failure releases the next message; uncertain sends remain held. Early status callbacks are persisted before remote IDs are attached; receipts do not regress and dependencies survive restart. Fresh valid customer turns supersede held-back older replies so stale choice menus do not appear later. No blind retries or arbitrary sleeps.
+
+Validation: 78 tests passed, 7 DOM tests skipped, Ruff passed. Four new delivery regressions cover slow images, early/reordered receipts, restart, supersession and failure/uncertainty. Live phone rendering still needs a fresh user search after restart. If Meta does not provide delivery receipts, dependent messages wait; product captions remain individually actionable and a new user message supersedes waiting replies. This is receipt-based sequencing, not a guarantee about every WhatsApp client's rendering internals.
+
+---
+
 # Compound intent and real-model eval — 2026-11-21
 
 Fixed explicit edits plus new-product discovery as a single WhatsApp turn; retained product selection, cart ownership and payment guards. A locally retained Thums Up transcript preserved the intended request, identifying an intent/execution issue rather than an ASR failure for that example. Added opt-in synthetic real-model evaluator and compound execution regressions. Baseline mini 9/16; revised mini 30/32; revised gpt-4.1 32/32 across 16 cases twice. Configured gpt-4.1 as the master; dictation unchanged. Standard suite 74 passed, 7 DOM skipped. Read `INTENT_EVALUATION.md` for scoring, limitations and Sarvam comparison requirements. These are development-set text evals, not a held-out audio benchmark or full live-store journey.
