@@ -451,3 +451,13 @@ Validation: all 30 opt-in Chrome DOM tests and 228 standard tests passed; lint a
 Customer passed phone/OTP request but verification failed with Playwright Error. The old exception handler retained only provider/stage/class, and closed the browser, so the exact failing operation cannot be reconstructed. Added diagnostics containing only StoreLogin frame names/line numbers and an allowlisted error category (e.g. ambiguous locator), never exception text, browser text, phone or OTP. Restarted the server and requested a fresh customer login in WhatsApp to identify the failing step. This is diagnostic instrumentation, not a claim that OTP verification is fixed.
 
 Validation: all 47 onboarding tests passed, including a new test that synthetic sensitive exception contents never appear in logs. Remaining work: reproduce with fresh customer OTP, fix the observed operation, add the matching DOM regression and validate address selection.
+
+## 2026-11-21 — Instamart OTP accepted; duplicate overlays broke address loading
+
+Fresh diagnostic reproduced `ambiguous_locator` at `addresses` on the generic modal-overlay visibility query, reached from verify_otp after authenticated account UI appeared. OTP acceptance succeeded; the subsequent address lookup exception was incorrectly presented as sign-in failure.
+
+Removed the generic overlay assumption from both address loading and selection. Only visible saved-address rows define the list and its indexes; hidden duplicate lists are ignored. When absent, a bounded loop opens the visible address bar and waits for rows, tolerating a closing auth dialog. Selection still revalidates the full list hash/address and waits for address rows to disappear before reading the confirmed location and saving the encrypted session. It does not wait for unrelated modal overlays to close.
+
+Added a Chrome regression covering OTP acceptance, simultaneous hidden/visible overlays, a hidden old address list, address opening, exact user selection and session saving end to end on a synthetic page. The regression retains unrelated overlays after selection to catch the second failure too. No real OTP or order was submitted by the agent. Live customer OTP/address completion remains the next verification step.
+
+Validation: 229 standard tests and all 31 opt-in Chrome DOM tests passed; lint/diff checks passed. Restarted WhatsApp server with the fix.

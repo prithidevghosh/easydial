@@ -184,6 +184,12 @@ class StoreLogin:
             await asyncio.sleep(0.5)
         return None
 
+    @staticmethod
+    def instamart_address_cards(page):
+        # Authentication and location dialogs can coexist, including hidden copies.
+        # Only the visible saved-address rows define the customer's choices.
+        return page.locator(".FObAQ > ._1gcSd").filter(visible=True)
+
     async def addresses(self, sender, provider):
         page, _ = await self.session(sender, provider).open()
         if provider == "blinkit":
@@ -203,11 +209,23 @@ class StoreLogin:
                     entries.append({"label": label.strip() + ": " + address,
                                     "address": address, "card_index": index})
         else:
-            if not await page.get_by_test_id("modal-overlay").is_visible():
-                await page.get_by_test_id("address-bar").click()
-            # Selectors are checked against authenticated address UI; no default choice.
-            cards = page.locator(".FObAQ > ._1gcSd")
-            await cards.first.wait_for(state="visible", timeout=8000)
+            cards = self.instamart_address_cards(page)
+            deadline = time.monotonic() + 20
+            while not await cards.count():
+                await BrowserSession.check_page(page)
+                if time.monotonic() >= deadline:
+                    raise DomainError("I couldn’t load your saved addresses from Instamart. Please try again shortly.")
+                bar = page.get_by_test_id("address-bar").filter(visible=True)
+                if await bar.count() == 1:
+                    try:
+                        await bar.click(timeout=750)
+                    except PlaywrightTimeoutError:
+                        pass
+                try:
+                    await cards.first.wait_for(state="visible", timeout=750)
+                except PlaywrightTimeoutError:
+                    pass
+            # Read address rows, not generic modal overlays shared by auth/location UI.
             entries = []
             for index, card in enumerate(await cards.all()):
                 details = card.locator("._2wcdd > div")
@@ -246,12 +264,12 @@ class StoreLogin:
             await card.wait_for(state="hidden")
             location = (await page.locator('div[class*="LocationBar__Subtitle"]').first.inner_text()).strip()
         else:
-            card = page.locator(".FObAQ > ._1gcSd").nth(matches[0]["card_index"])
+            card = self.instamart_address_cards(page).nth(matches[0]["card_index"])
             actual = (await card.locator("._2wcdd > div").nth(1).inner_text()).strip()
             if actual != address["address"]:
                 raise DomainError("That address changed. Please choose it again.")
             await card.click()
-            await page.get_by_test_id("modal-overlay").wait_for(state="hidden")
+            await self.instamart_address_cards(page).first.wait_for(state="hidden")
             location = (
                 await page.get_by_test_id("address-bar").get_by_test_id("address-line").inner_text()
             ).strip()

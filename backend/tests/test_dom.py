@@ -572,3 +572,38 @@ async def test_instamart_login_accepts_existing_phone_form_without_click(page):
     <button onclick="window.clicked=true">LOGIN</button>''')
     await StoreLogin.open_instamart_login(page)
     assert not await page.evaluate('Boolean(window.clicked)')
+
+
+async def test_instamart_otp_to_address_selection_ignores_duplicate_overlays(page):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from easydial.whatsapp.store_login import StoreLogin
+
+    await page.set_content('''<div data-testid="modal-overlay" style="display:none">Old auth dialog</div>
+    <div data-testid="modal-overlay">Location backdrop</div>
+    <div style="display:none" class="FObAQ"><div class="_1gcSd">
+      <div class="_2wcdd"><div>Hidden</div><div>Wrong address</div></div></div></div>
+    <input autocomplete="one-time-code" type="tel" maxlength="6" oninput="
+      document.querySelector('#account').style.display='block';this.style.display='none';">
+    <button id="account" data-testid="user-account-button" style="display:none">Account</button>
+    <button data-testid="address-bar" onclick="document.querySelector('#addresses').style.display='block'">
+      <span data-testid="address-line">Test locality</span></button>
+    <div id="addresses" class="FObAQ" style="display:none">
+      <div class="_1gcSd" onclick="document.querySelector('#addresses').style.display='none'">
+        <div class="_2wcdd"><div>Home</div><div>Flat 1, Test road</div></div></div>
+    </div>''')
+    session = SimpleNamespace(open=AsyncMock(return_value=(page, None)),
+                              check_page=AsyncMock(), save=AsyncMock())
+    accounts = SimpleNamespace(consented=lambda *args: True,
+                               session_path=lambda *args: 'test.enc', session_box=lambda *args: object())
+    adapter = StoreLogin(SimpleNamespace(), accounts)
+    adapter.sessions['alice', 'instamart'] = session
+    addresses = await adapter.verify_otp('alice', 'instamart', '123456')
+    assert len(addresses) == 1
+    assert addresses[0]['address'] == 'Flat 1, Test road'
+    selected = await adapter.select_address('alice', 'instamart', addresses[0])
+    assert selected['address'] == 'Flat 1, Test road'
+    assert selected['location'] == 'Test locality'
+    session.save.assert_awaited_once()
+    assert await page.get_by_test_id('modal-overlay').count() == 2
