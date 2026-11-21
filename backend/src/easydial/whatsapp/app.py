@@ -148,6 +148,19 @@ class Runtime:
                 raise DomainError("Please send a voice recording or text describing your groceries.")
             if not text or len(text) > 3000:
                 raise DomainError("Please send a shorter message describing your groceries.")
+            if self.onboarding and message["type"] == "audio":
+                from .onboarding import logout_requested
+
+                if logout_requested(text):
+                    replies = await self.onboarding.logout(row["sender"], row["id"], state)
+                    self.inbox.supersede_waiting_replies(row["sender"])
+                    state["last_timestamp"] = row["timestamp"]
+                    state["last_reply_event"] = row["id"]
+                    if progress:
+                        await progress.close()
+                        progress = None
+                    self.inbox.finish(row, state, replies)
+                    return True
             # A numeric/voice reply quoting an old search must not select from a newer list.
             context_id = message.get("context", {}).get("id")
             if context_id and not action_id:

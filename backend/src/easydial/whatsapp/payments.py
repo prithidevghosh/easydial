@@ -30,6 +30,14 @@ class PaymentRequests:
             self.inbox.db.execute("UPDATE cash_orders SET status='unknown' WHERE status='submitting'")
             self.inbox.db.execute("UPDATE payment_requests SET status='unknown' WHERE status='creating'")
 
+    def revoke_customer(self, sender):
+        """Expire EasyDial-hosted artifacts; never claim to cancel merchant requests/orders."""
+        with self.inbox.db:
+            self.inbox.db.execute(
+                "UPDATE payment_requests SET status='revoked',artifact=NULL,expires_at=0 WHERE sender=?",
+                (sender,),
+            )
+
     def existing(self, sender, order_id):
         cash = self.inbox.db.execute(
             "SELECT * FROM cash_orders WHERE sender=? AND order_id=?", (sender, order_id)

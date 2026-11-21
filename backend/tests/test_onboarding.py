@@ -399,3 +399,96 @@ async def test_restart_preserves_phone_prompt_and_recorded_consent(tmp_path):
     await turn(r, '9888888888')
     assert sum(c[0] == 'request' for c in r.onboarding.adapter.calls) == 1
     r.inbox.close()
+
+
+@pytest.mark.parametrize("text", ["Can you please log me out?", "मुझे लॉग आउट कर दो", "logout", "log out", "Please log me out", "sign out", "I want to logout", "logout kr do", "mujhe logout kar do", "लॉग आउट कर दो"])
+def test_explicit_logout_intents(text):
+    from easydial.whatsapp.onboarding import logout_requested
+    assert logout_requested(text)
+
+
+@pytest.mark.parametrize("text", ["don't logout", "logout mat karna", "how do I logout?", "what happens if I log out", "log out nahi", "order milk"])
+def test_ambiguous_or_negated_logout_does_not_revoke(text):
+    from easydial.whatsapp.onboarding import logout_requested
+    assert not logout_requested(text)
+
+
+async def test_logout_clears_only_customer_sessions_draft_and_payment_artifacts(tmp_path):
+    from pathlib import Path
+    from unittest.mock import AsyncMock
+
+    r = runtime(tmp_path)
+    alice, bob = "919999999999", "918888888888"
+    await connect(r, alice)
+    await connect(r, bob, phone="8888888888")
+    a = r.onboarding.accounts
+    a.consent(alice, "blinkit", "second-store", "accepted")
+    a.save_connection(alice, "blinkit", {"address": "alice home", "location": "alice locality"})
+    for sender, provider in [(alice, "instamart"), (alice, "blinkit"), (bob, "instamart")]:
+        a.session_box(sender, provider).write(a.session_path(sender, provider), {"cookies": []})
+    state = r.inbox.load(alice)
+    old_id = state["view"]["id"]
+    state["view"]["lines"] = [{"draft": "must be cleared before further shopping"}]
+    state["payment_menu"] = {"id": "old-payment-choice"}
+    state["cart_checkpoint"] = {"old": True}
+    with r.inbox.db:
+        r.inbox.db.execute("UPDATE customers SET state=? WHERE sender=?", (json.dumps(state), alice))
+        r.inbox.db.execute("INSERT INTO payment_requests VALUES (?,?,?,?,?,?,?,?,?)", ("request", alice, old_id, "bill", "ready", "token-hash", "{}", 0, 9999999999))
+    r.customer_chats.close_customer = AsyncMock()
+    replies = await turn(r, "please log me out", alice)
+    assert "logged out" in replies[0]["interactive"]["body"]["text"]
+    r.customer_chats.close_customer.assert_awaited_with(alice, save=False)
+    assert not a.connections(alice)
+    assert a.connections(bob)
+    for provider in ("blinkit", "instamart"):
+        assert not Path(a.session_path(alice, provider)).exists()
+        assert not a.consented(alice, provider)
+    assert Path(a.session_path(bob, "instamart")).exists()
+    fresh = r.inbox.load(alice)
+    assert fresh["view"]["id"] != old_id
+    assert not fresh["view"]["lines"] and not fresh.get("payment_menu") and not fresh.get("cart_checkpoint")
+    with pytest.raises(DomainError):
+        r.payments.qr_artifact(alice, "request")
+    with pytest.raises(DomainError, match="Connect a store"):
+        await r.customer_chats.get(alice)
+    for text, action in [("UPI QR", "payment:old"), ("Place order", "cash:old"), ("order milk", None)]:
+        reply = await turn(r, text, alice, action=action)
+        assert reply  # Onboarding intercepts: no AI or merchant access.
+    await connect(r, alice)
+    assert a.connections(alice) and a.consented(alice, "instamart")
+    r.inbox.close()
+
+
+async def test_voice_logout_runs_before_shopping_agent(tmp_path):
+    from unittest.mock import AsyncMock
+
+    r = runtime(tmp_path)
+    await connect(r)
+    client = SimpleNamespace(audio=SimpleNamespace(transcriptions=SimpleNamespace(create=AsyncMock(return_value=SimpleNamespace(text="logout kar do")))))
+    chat = SimpleNamespace(master=SimpleNamespace(require_client=lambda: client), settings=r.settings, workers=SimpleNamespace())
+    r.customer_chats.get = AsyncMock(return_value=chat)
+    r.customer_chats.close_customer = AsyncMock()
+    msg = message("logout-audio", type="audio", audio={"id": "test-audio"})
+    r.inbox.enqueue(msg)
+    await r.process()
+    assert not r.onboarding.accounts.connections(msg["from"])
+    replies = [json.loads(x[0]) for x in r.inbox.db.execute("SELECT payload FROM outbox WHERE event_id=?", (msg["id"],))]
+    assert any("logged out" in x.get("interactive", {}).get("body", {}).get("text", "") for x in replies)
+    r.inbox.close()
+
+
+async def test_logout_during_otp_is_idempotent_and_survives_restart(tmp_path):
+    r = runtime(tmp_path)
+    await consent(r)
+    await turn(r, "9999999999")
+    assert r.onboarding.accounts.state("919999999999")["stage"] == "otp"
+    await turn(r, "logout")
+    await turn(r, "logout")
+    a = r.onboarding.accounts
+    assert not a.connections("919999999999")
+    assert not a.consented("919999999999", "instamart")
+    r.onboarding = Onboarding(a, r.onboarding.adapter, r.customer_chats, r.payments)
+    await turn(r, "123456")
+    assert not any(call[0] == "verify" for call in r.onboarding.adapter.calls)
+    assert a.state("919999999999")["stage"] == "store"
+    r.inbox.close()

@@ -382,3 +382,10 @@ See docs/STORE_SWITCHING.md.
 ## Customer onboarding and isolation — 2026-11-21
 
 See [onboarding implementation plan](docs/ONBOARDING_IMPLEMENTATION.md) and [operator/customer guide](docs/CUSTOMER_ONBOARDING.md). Shared WhatsApp QR, immutable versioned consent before login, encrypted credentials/queue, sender-scoped merchant contexts and explicit saved-address selection are implemented as a controlled single-process pilot. Live OTP/address completion and AWS production gates remain tracked separately; do not mark them complete from unit tests.
+
+### Customer logout acceptance — implemented
+- [x] Explicit logout text or transcribed voice revokes all of that customer's connected store sessions.
+- [x] Clear encrypted cookies, pending OTP setup, active browser contexts and shopping/payment approvals.
+- [x] Block shopping and stale order actions until fresh consent/login/address selection.
+- [x] Preserve other customers and existing merchant orders; retain historical attempt audit records.
+- [x] Regression-test isolation, negation, voice, repeated logout, restart and login after logout.

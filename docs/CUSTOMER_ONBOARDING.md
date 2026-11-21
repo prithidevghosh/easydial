@@ -74,3 +74,11 @@ Observed live without requesting OTP: Instamart phone/login controls; Blinkit lo
 ## Latest verification checkpoint
 
 Blinkit customer OTP, saved-address selection and subsequent shopping have now been exercised through WhatsApp. Follow-up fixes handle delayed location UI, duplicate saved-address entries, store/phone-specific rate limits and preserving pre-login prompts across restarts. Current complete test coverage: 177 standard tests plus 19 opt-in Chrome DOM tests passed separately. Instamart customer OTP completion, multiple simultaneous customers and AWS release gates remain separate live acceptance work. See PROGRESS.md for incident evidence and the sequential product-selection change.
+
+## Logout
+
+Send `logout`, `log out`, `sign out`, or `please log me out`. Explicit voice commands (after transcription) and common Hinglish forms such as `logout kar do` are supported. Negated commands and questions do not trigger logout.
+
+Logout applies to both connected stores for that WhatsApp customer. It records consent withdrawal, deletes their encrypted merchant session files and account connections/claims, cancels any in-progress OTP login, and closes their browser contexts without saving cookies. It clears the shopping draft, product choices, cart checkpoint and payment approval/menu by creating a fresh conversation session. EasyDial-hosted payment artifacts are revoked; old order-attempt records remain for audit and duplicate-order protection. Already-placed orders are not cancelled, and an already-issued merchant QR cannot be remotely revoked by deleting EasyDial's copy.
+
+The next shopping request or stale payment button is intercepted by onboarding. Select a store, give consent and complete phone/OTP/address setup again before shopping. Other customers' sessions and the shared encryption root key are unaffected. No real pilot customer is logged out as a deployment test.

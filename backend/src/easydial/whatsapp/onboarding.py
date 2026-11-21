@@ -4,8 +4,10 @@ import logging
 import math
 import re
 import time
+from uuid import uuid4
 
 from ..controller import DomainError
+from ..models import SessionView
 from .accounts import CONSENT_TEXT
 from .conversation import text_message
 
@@ -41,6 +43,20 @@ def content(message):
     return "", None
 
 
+def logout_requested(text):
+    """Explicit commands only: questions and negated speech must not revoke access."""
+    text = re.sub(r"[.!?]+$", "", text.casefold().strip())
+    if re.search(r"\b(?:not|don't|dont|never|nahi|nhi|mat)\b|नहीं|मत", text):
+        return False
+    return bool(re.fullmatch(
+        r"(?:please |can you please |can you |could you |i want to |i would like to |mujhe |मुझे )?"
+        r"(?:log(?: me)?\s*out|sign(?: me)?\s*out|लॉग\s*आउट)"
+        r"(?: me)?(?: of (?:my |the )?account| from (?:my |the )?account)?"
+        r"(?: please| now| kar do| kr do| kardo| krdo| karna hai| krna h| कर दो| कर दीजिए)?",
+        text,
+    ))
+
+
 class Onboarding:
     def __init__(self, accounts, adapter, chats, payments, max_customers=100):
         self.accounts, self.adapter, self.chats, self.payments = accounts, adapter, chats, payments
@@ -70,10 +86,31 @@ class Onboarding:
     async def cancel(self, sender, provider=None):
         await self.adapter.cancel(sender, provider)
 
+    async def logout(self, sender, event_id, shopping_state):
+        # Revoke access before awaiting browser cleanup; no active draft or stale
+        # payment button may survive logout, even with a pending merchant order.
+        for provider in ("blinkit", "instamart"):
+            self.accounts.consent(sender, provider, event_id, "withdrawn")
+            self.accounts.forget(sender, provider)
+        self.payments.revoke_customer(sender)
+        shopping_state.clear()
+        shopping_state.update({
+            "view": SessionView(id=uuid4().hex, mode="live", address_label="").model_dump(mode="json"),
+            "offers": {}, "choices": [], "paused": False, "last_timestamp": 0,
+        })
+        replies = self.menu(sender, "You're logged out. Saved logins removed. Existing orders stay active. Choose a store to log in again.")
+        try:
+            await self.cancel(sender)
+        finally:
+            await self.chats.close_customer(sender, save=False)
+        return replies
+
     async def handle(self, row, message, shopping_state):
         sender, event_id = row["sender"], row["id"]
         text, action = content(message)
         low = text.casefold().strip()
+        if logout_requested(text):
+            return await self.logout(sender, event_id, shopping_state)
         state = self.accounts.state(sender)
         connections = self.accounts.connections(sender)
         if not state:
@@ -94,7 +131,7 @@ class Onboarding:
                     f"{provider.title()} disconnected. Saved login removed and permission withdrawn. Existing orders are not cancelled. Send Connect to link a store again."
                 )
             ]
-        command = low in {"start", "connect", "connect store", "reconnect", "change address"}
+        command = low in {"start", "login", "log in", "sign in", "connect", "connect store", "reconnect", "change address"}
         if command or not state:
             if shopping_state["view"]["lines"] or self.payments.existing(
                 sender, shopping_state["view"]["id"]
