@@ -129,3 +129,6 @@ No VNC daemon runs by default. For a supervised inspection, use SSM to start `x1
 - [CloudFormation VPC origin resource](https://docs.aws.amazon.com/AWSCloudFormation/latest/TemplateReference/aws-resource-cloudfront-vpcorigin.html)
 - [EC2 Session Manager access](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/connect-with-systems-manager-session-manager.html)
 - [AWS CLI browser login for console/federated identities](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-sign-in.html)
+
+## Controlled Blinkit comparison
+The exact deployment container returned HTTP 200 on the developer Mac network and HTTP 403 on AWS. See [Blinkit AWS access investigation](BLINKIT_AWS_ACCESS.md) for evidence, reproduction and an unsent access-review request. The specific network rule (IP/hosting/geography) is unknown. An Indian region may suit latency/data locality, but must not be treated as a workaround for the explicit denial.

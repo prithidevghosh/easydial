@@ -600,3 +600,8 @@ Validation: 239 standard tests passed; 31 opt-in DOM tests skipped. Lint/diff ch
 - Backup upload, restart and isolated temporary-directory restore passed SQLite integrity. Daily backup timer enabled. EC2 reboot and separate-volume restore still untested.
 - User asked to change Meta webhook manually; gave correct callback and existing token instructions. Fresh real message/callback cutover not yet observed.
 - Live cloud merchant blocker: Blinkit anonymous homepage returns 403/access denied in headed Chrome; Instamart homepage 200 but login remains unverified. Do not claim local/cloud shopping parity. No live order, payment or OTP request made.
+
+## Blinkit cloud access diagnosis
+- Compared fresh anonymous headed Chrome locally, the exact Linux deployment image locally, and the same image on AWS. Both local variants returned 200; AWS returned Cloudflare 403 with an explicit block page. No CAPTCHA iframe or location selector on that blocked response.
+- Added a read-only diagnostic tool and docs/BLINKIT_AWS_ACCESS.md with the IP/Ray evidence and an unsent support request. No order/login actions, spoofing, proxying or IP rotation.
+- Network/egress restriction is strongly implicated; the specific reason, including geography, is not established. Merchant-approved access remains necessary for cloud ordering acceptance.
