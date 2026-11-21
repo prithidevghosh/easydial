@@ -581,3 +581,11 @@ Validation: 239 standard tests passed; 31 opt-in DOM tests skipped. Lint/diff ch
 - Failed cart clearing retains the draft and provides a direct Clear basket retry button, bypassing the generic existing-attempt response.
 - Paused, uncommitted Instamart diagnostic work is preserved in .state/deferred-instamart-work/changes.patch plus test_browser_modes.py; it is excluded from this cancellation deployment.
 - Validation: 269 backend tests passed, 40 opt-in browser tests skipped; five live interpreter cases passed; Ruff/diff checks passed. No live cart or order was cancelled during tests.
+
+## Clear-basket live recovery
+- Inspected the authenticated Blinkit basket: its single product/pack/quantity matched the saved checkpoint and the ownership guard passed. Ran the requested removal in a fresh customer-scoped browser and verified the actual store basket became empty.
+- The earlier runtime failure was not reproducible in that fresh session; its underlying exception was not retained. Do not claim a specific selector failure was proven.
+- Simplified clearing to navigate directly to the store cart entry, without a product search or delivery-address selection. Blinkit decrement-to-zero reads likewise skip address resolution. Ownership/signature and post-removal empty-cart verification remain mandatory.
+- With the server stopped, reran the clear action against the now-empty store and persisted the empty EasyDial draft using an explicitly labelled maintenance revision. No synthetic user message or WhatsApp reply was created. Old QR access/automatic checks were stopped; prior attempt records retained.
+- Added regression coverage for direct cart entry/no address resolution and retained the cart contract tests. No order was placed or merchant order cancellation claimed.
+- Validation: 270 backend tests passed, 40 opt-in browser tests skipped; Ruff/diff checks passed. Live store empty-cart readback and local draft persistence both succeeded.

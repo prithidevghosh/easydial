@@ -2,6 +2,7 @@
 
 from contextlib import asynccontextmanager
 from copy import deepcopy
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -25,7 +26,7 @@ class ContractBlinkit(BlinkitProvider):
     async def navigate(self, page, query):
         pass
 
-    async def read_cart(self, page):
+    async def read_cart(self, page, *, resolve_address=True):
         return deepcopy(self.cart)
 
     async def set_quantity(self, page, line, desired):
@@ -65,7 +66,8 @@ def basket():
     )
 
 
-async def test_owned_cart_quantity_and_clear():
+async def test_owned_cart_quantity_and_clear(monkeypatch):
+    monkeypatch.setattr("easydial.providers.blinkit.goto_with_retry", AsyncMock())
     worker, session = ContractBlinkit(), basket()
     review = await worker.review(session)
     assert review.total_paise == 9300 and review.item_subtotal_paise == 6600

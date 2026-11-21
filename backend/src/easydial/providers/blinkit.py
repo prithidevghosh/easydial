@@ -239,7 +239,7 @@ class BlinkitProvider:
 
     async def set_quantity(self, page, line, desired):
         # Existing items must remain removable even if search inventory stops returning them.
-        before_cart = await self.read_cart(page)
+        before_cart = await self.read_cart(page, resolve_address=desired != 0)
         existing = [
             x
             for x in before_cart["items"]
@@ -465,8 +465,17 @@ class BlinkitProvider:
 
     async def clear(self, session_id: str):
         async with self.lock, self.browser_page() as (page, context):
-            await self.navigate(page, "milk")
-            before = cart_signature(await self.read_cart(page))
+            # Removing an owned cart does not need search inventory or delivery
+            # address selection. Those checks belong to shopping/checkout.
+            await goto_with_retry(
+                page, "https://blinkit.com/" if self.provider == Provider.BLINKIT else "https://instamart.in/cart",
+                wait_until="domcontentloaded",
+            )
+
+            async def read():
+                return await self.read_cart(page, resolve_address=False) if self.provider == Provider.BLINKIT else await self.read_cart(page)
+
+            before = cart_signature(await read())
             self.guard.check(session_id, before)
             if before and not self.previous_lines:
                 raise DomainError(
@@ -475,7 +484,7 @@ class BlinkitProvider:
             self.guard.before_write(())
             for line in self.previous_lines:
                 await self.set_quantity(page, line, 0)
-            after = cart_signature(await self.read_cart(page))
+            after = cart_signature(await read())
             self.guard.accepted(after)
             await self.browser.save()
             if after:
