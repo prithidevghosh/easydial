@@ -1,0 +1,343 @@
+{
+  "model": "gpt-4.1-mini",
+  "passed": 9,
+  "total": 16,
+  "cases": [
+    {
+      "id": "reported_switch_empty",
+      "repeat": 0,
+      "errors": [
+        "action",
+        "product",
+        "quantity",
+        "unexpected_selection"
+      ],
+      "intent": {
+        "action": "select",
+        "queries": [],
+        "edits": [],
+        "offer_id": "curd",
+        "quantity": 1,
+        "clarification": "आप केवल Nandini Curd 500 g लेना चाहते हैं? कृपया पुष्टि करें।"
+      },
+      "seconds": 1.67
+    },
+    {
+      "id": "reported_switch_full",
+      "repeat": 0,
+      "errors": [
+        "action",
+        "product",
+        "quantity"
+      ],
+      "intent": {
+        "action": "edit",
+        "queries": [],
+        "edits": [
+          {
+            "kind": "remove",
+            "line_id": "milk",
+            "quantity": 2
+          },
+          {
+            "kind": "remove",
+            "line_id": "curd",
+            "quantity": 2
+          }
+        ],
+        "offer_id": null,
+        "quantity": null,
+        "clarification": "Aap sabhi items hataana chahte hain, thik hai?"
+      },
+      "seconds": 1.71
+    },
+    {
+      "id": "hindi_curd",
+      "repeat": 0,
+      "errors": [
+        "action",
+        "product",
+        "quantity",
+        "unexpected_selection"
+      ],
+      "intent": {
+        "action": "select",
+        "queries": [],
+        "edits": [],
+        "offer_id": "curd",
+        "quantity": null,
+        "clarification": ""
+      },
+      "seconds": 1.42
+    },
+    {
+      "id": "devanagari_switch",
+      "repeat": 0,
+      "errors": [
+        "action",
+        "product",
+        "quantity"
+      ],
+      "intent": {
+        "action": "edit",
+        "queries": [],
+        "edits": [
+          {
+            "kind": "remove",
+            "line_id": "milk",
+            "quantity": 2
+          },
+          {
+            "kind": "remove",
+            "line_id": "curd",
+            "quantity": 2
+          }
+        ],
+        "offer_id": null,
+        "quantity": null,
+        "clarification": "आपके लिए सिर्फ एक थम्स अप की कितनी पैक चाहिए?"
+      },
+      "seconds": 1.05
+    },
+    {
+      "id": "mixed_change",
+      "repeat": 0,
+      "errors": [
+        "action"
+      ],
+      "intent": {
+        "action": "edit",
+        "queries": [
+          {
+            "query": "bread",
+            "quantity": 1,
+            "replaces_line_id": null
+          }
+        ],
+        "edits": [
+          {
+            "kind": "remove",
+            "line_id": "milk",
+            "quantity": 2
+          }
+        ],
+        "offer_id": null,
+        "quantity": null,
+        "clarification": ""
+      },
+      "seconds": 1.03
+    },
+    {
+      "id": "keep_existing",
+      "repeat": 0,
+      "errors": [],
+      "intent": {
+        "action": "search",
+        "queries": [
+          {
+            "query": "Thums Up",
+            "quantity": 1,
+            "replaces_line_id": null
+          }
+        ],
+        "edits": [],
+        "offer_id": null,
+        "quantity": null,
+        "clarification": "दही तो पहले से है, अब थम्स अप का एक पैक खोजूं?"
+      },
+      "seconds": 1.19
+    },
+    {
+      "id": "compare_not_cancel",
+      "repeat": 0,
+      "errors": [],
+      "intent": {
+        "action": "search",
+        "queries": [
+          {
+            "query": "milk",
+            "quantity": 1,
+            "replaces_line_id": null
+          }
+        ],
+        "edits": [],
+        "offer_id": null,
+        "quantity": null,
+        "clarification": "अमूल ताज़ा दूध के लिए कौन सा पैक साइज और ब्रांड आपको चाहिए?"
+      },
+      "seconds": 1.06
+    },
+    {
+      "id": "quantity_correction",
+      "repeat": 0,
+      "errors": [],
+      "intent": {
+        "action": "edit",
+        "queries": [],
+        "edits": [
+          {
+            "kind": "set_quantity",
+            "line_id": "milk",
+            "quantity": 3
+          }
+        ],
+        "offer_id": null,
+        "quantity": null,
+        "clarification": ""
+      },
+      "seconds": 1.19
+    },
+    {
+      "id": "negated_removal",
+      "repeat": 0,
+      "errors": [],
+      "intent": {
+        "action": "search",
+        "queries": [
+          {
+            "query": "bread",
+            "quantity": 1,
+            "replaces_line_id": null
+          }
+        ],
+        "edits": [],
+        "offer_id": null,
+        "quantity": null,
+        "clarification": "आप दूध हटाना नहीं चाहते, और ब्रेड के लिए खोज करूँ?"
+      },
+      "seconds": 0.9
+    },
+    {
+      "id": "clear_only",
+      "repeat": 0,
+      "errors": [],
+      "intent": {
+        "action": "edit",
+        "queries": [],
+        "edits": [
+          {
+            "kind": "remove",
+            "line_id": "milk",
+            "quantity": 2
+          },
+          {
+            "kind": "remove",
+            "line_id": "curd",
+            "quantity": 2
+          }
+        ],
+        "offer_id": null,
+        "quantity": null,
+        "clarification": ""
+      },
+      "seconds": 1.11
+    },
+    {
+      "id": "reject_options",
+      "repeat": 0,
+      "errors": [],
+      "intent": {
+        "action": "search",
+        "queries": [
+          {
+            "query": "Thums Up",
+            "quantity": 1,
+            "replaces_line_id": null
+          }
+        ],
+        "edits": [],
+        "offer_id": null,
+        "quantity": null,
+        "clarification": ""
+      },
+      "seconds": 1.29
+    },
+    {
+      "id": "ambiguous_yes",
+      "repeat": 0,
+      "errors": [
+        "action",
+        "unexpected_selection"
+      ],
+      "intent": {
+        "action": "select",
+        "queries": [],
+        "edits": [],
+        "offer_id": "curd",
+        "quantity": null,
+        "clarification": ""
+      },
+      "seconds": 0.8
+    },
+    {
+      "id": "ambiguous_unit",
+      "repeat": 0,
+      "errors": [],
+      "intent": {
+        "action": "search",
+        "queries": [
+          {
+            "query": "doodh 1 litre",
+            "quantity": 1,
+            "replaces_line_id": null
+          }
+        ],
+        "edits": [],
+        "offer_id": null,
+        "quantity": null,
+        "clarification": ""
+      },
+      "seconds": 1.02
+    },
+    {
+      "id": "replace_one",
+      "repeat": 0,
+      "errors": [
+        "action"
+      ],
+      "intent": {
+        "action": "clarify",
+        "queries": [
+          {
+            "query": "Thums Up",
+            "quantity": 1,
+            "replaces_line_id": "curd"
+          }
+        ],
+        "edits": [],
+        "offer_id": null,
+        "quantity": null,
+        "clarification": "Kya main dahi ki jagah Thums Up dikhau?"
+      },
+      "seconds": 2.32
+    },
+    {
+      "id": "stop",
+      "repeat": 0,
+      "errors": [],
+      "intent": {
+        "action": "stop",
+        "queries": [],
+        "edits": [],
+        "offer_id": null,
+        "quantity": null,
+        "clarification": ""
+      },
+      "seconds": 0.74
+    },
+    {
+      "id": "no_automatic_payment",
+      "repeat": 0,
+      "errors": [],
+      "intent": {
+        "action": "review",
+        "queries": [],
+        "edits": [],
+        "offer_id": null,
+        "quantity": null,
+        "clarification": "क्या आप वर्तमान कार्ट के साथ ऑर्डर की पुष्टि करना चाहेंगे?"
+      },
+      "seconds": 1.02
+    }
+  ]
+}

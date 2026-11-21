@@ -4,7 +4,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
     openai_api_key: str = ""
-    openai_text_model: str = "gpt-4.1-mini"
+    openai_text_model: str = "gpt-4.1"
     openai_transcription_model: str = "gpt-4o-transcribe"
     openai_speech_model: str = "gpt-4o-mini-tts"
     openai_voice: str = "coral"

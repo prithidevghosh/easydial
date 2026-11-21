@@ -28,7 +28,7 @@ Do not replace a filled `.env` with the example. The helpers preserve unrelated 
 
 ```dotenv
 OPENAI_API_KEY="your-secret-key"
-OPENAI_TEXT_MODEL=gpt-4.1-mini
+OPENAI_TEXT_MODEL=gpt-4.1
 OPENAI_TRANSCRIPTION_MODEL=gpt-4o-transcribe
 OPENAI_SPEECH_MODEL=gpt-4o-mini-tts
 OPENAI_VOICE=coral

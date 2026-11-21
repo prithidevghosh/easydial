@@ -65,16 +65,34 @@ class ShoppingChat:
         client = self.master.require_client()
         result = await client.responses.parse(
             model=self.settings.openai_text_model,
-            instructions=INSTRUCTIONS
+            instructions=INSTRUCTIONS.replace(
+                "If the request needs both edits and discovery, clarify which to do first rather than silently dropping part.",
+                "For explicit edits plus discovery, return action search with both edits and queries. Never drop either part.",
+            )
             + """
 This is the WhatsApp channel. Additional actions: select, basket, checkout.
 Select only a specific offer from DISPLAYED_CHOICES when the user unambiguously chooses it;
 use offer_id exactly, and quantity null to preserve the suggested pack count. Understand spoken
 option numbers in Indian languages. Never select an arbitrary cheapest/first match when ambiguous.
+A generic product request ("ek dahi ka packet") is a fresh search even if a similar item is displayed;
+select requires its option number or an explicit choice of that exact brand/variant. "haan" alone
+is clarify, even if only one option is displayed. Never fill in an unstated choice.
 Basket means show the draft. Review means sync the store cart and read its bill (no purchase).
 Checkout ONLY means an explicit request to continue AFTER a reviewed bill; it is local Pending,
 never a purchase. A bare 'yes' is ambiguous: clarify, never infer a checkout or product selection.
-Search/comparison does not select or mutate products. Preserve brand, formulation and pack size.
+A search alone never changes basket lines; explicit accompanying edits may change the draft.
+Preserve brand, formulation and pack size. Normalize obvious brand misspellings: thumsp/thumsup -> Thums Up.
+Handle the entire latest request, including negation, rejection and the positive request after it.
+"yeh sab kuch nhi lena, thumsp kr do ek bass" means search for ONE Thums Up.
+If CURRENT_BASKET is nonempty and the user rejects everything, include remove edits for its exact IDs
+alongside that search. If the basket is empty, only search. Rejecting DISPLAYED_CHOICES alone never
+removes basket items. "milk hatao aur bread dikhao" means search bread plus remove the milk line.
+A specific replacement uses replaces_line_id instead of a remove edit for that same line.
+Never return edit alone when a new product is also requested. Never replace the whole basket for "also"/"bhi".
+"dahi rehne do, ek Thums Up bhi chahiye" preserves dahi: search the additional drink with NO edits.
+Treat keep/rakhna/rehne do in an additive request as preservation, not removal. If genuinely uncertain
+whether "rehne do" means keep or cancel, ask rather than removing. Explicit "hata do" means remove.
+If a target is genuinely ambiguous, clarify; otherwise complete both parts without asking the user to repeat.
 Adding a different product keeps every existing basket line. Do not infer replacement or store
 switching from a request for another product. Only explicit replacement sets replaces_line_id.
 The selectable options for an existing basket belong to its store; other-store prices are comparison only.
@@ -103,7 +121,7 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
                     ],
                     "has_reviewed_bill": session.view.review is not None,
                     "validation_feedback": (
-                        "Your previous interpretation referenced a nonexistent basket line. "
+                        "Your previous interpretation had invalid targets or inconsistent action fields. "
                         "Reinterpret the current request: new products require search, "
                         "and ambiguous changes require clarify. Do not invent line IDs."
                         if repair
@@ -125,13 +143,29 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
         intent = result.output_parsed
         line_ids = {line.id for line in session.view.lines}
         invalid_target = (
-            intent.action == "edit"
-            and (not intent.edits or any(edit.line_id not in line_ids for edit in intent.edits))
+            intent.action in {"edit", "search"}
+            and (
+                (intent.action == "edit" and not intent.edits)
+                or any(edit.line_id not in line_ids for edit in intent.edits)
+                or len({edit.line_id for edit in intent.edits}) != len(intent.edits)
+                or any(
+                    q.replaces_line_id in {e.line_id for e in intent.edits}
+                    for q in intent.queries
+                    if q.replaces_line_id
+                )
+            )
         ) or (
             intent.action == "search"
             and any(q.replaces_line_id and q.replaces_line_id not in line_ids for q in intent.queries)
         )
-        if invalid_target:
+        invalid_shape = (
+            (bool(intent.queries) and intent.action != "search")
+            or (bool(intent.edits) and intent.action not in {"search", "edit"})
+            or (intent.action == "search" and not 1 <= len(intent.queries) <= 3)
+            or len(intent.edits) > 10
+            or (intent.action == "select" and intent.offer_id not in state["choices"])
+        )
+        if invalid_target or invalid_shape:
             if not repair:
                 return await self.interpret(text, session, state, repair=True)
             return ChatIntent(
@@ -229,7 +263,7 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
         if (
             customer
             and getattr(self, "payments", None)
-            and intent.action in {"edit", "select", "review", "checkout", "payment"}
+            and (intent.action in {"edit", "select", "review", "checkout", "payment"} or intent.edits)
             and self.payments.existing(customer, session.view.id)
         ):
             raise DomainError(
@@ -254,9 +288,15 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
                 for q in intent.queries
             ):
                 raise DomainError("Which basket item should I replace?")
+            # Validate the whole compound request before any discovery or draft mutation.
+            line_ids = {line.id for line in session.view.lines}
+            if len(intent.edits) > 10 or any(e.line_id not in line_ids for e in intent.edits):
+                raise DomainError("Which basket item would you like to change?")
             batches = await asyncio.gather(
                 *(self.workers.search(q.query, session.view.address_label) for q in intent.queries)
             )
+            for edit in intent.edits:
+                session.edit(EditRequest(**edit.model_dump(), expected_version=session.view.version))
             results = []
             choices = []
             basket_store = session.view.synced_provider or (
@@ -609,6 +649,8 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
 
     @staticmethod
     def basket_messages(session):
+        if not session.view.lines:
+            return [text_message("Your basket is empty. What would you like instead?")]
         return [
             text_message(basket_text(session)),
             {

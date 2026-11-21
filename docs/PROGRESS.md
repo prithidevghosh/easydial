@@ -1,3 +1,9 @@
+# Compound intent and real-model eval — 2026-11-21
+
+Fixed explicit edits plus new-product discovery as a single WhatsApp turn; retained product selection, cart ownership and payment guards. A locally retained Thums Up transcript preserved the intended request, identifying an intent/execution issue rather than an ASR failure for that example. Added opt-in synthetic real-model evaluator and compound execution regressions. Baseline mini 9/16; revised mini 30/32; revised gpt-4.1 32/32 across 16 cases twice. Configured gpt-4.1 as the master; dictation unchanged. Standard suite 74 passed, 7 DOM skipped. Read `INTENT_EVALUATION.md` for scoring, limitations and Sarvam comparison requirements. These are development-set text evals, not a held-out audio benchmark or full live-store journey.
+
+---
+
 # Product-choice message UX — 2026-11-21
 
 Per the user’s correction, product cards come first and the choice menu comes last. Each card includes its selection number/instruction; products with photos are not repeated in a second full text list. Removed premature “Adding to your basket” wording during search. Store diagnostics remain in structured private search results; customer output shows only a brief incomplete-comparison note or retry guidance. No customer browser troubleshooting instructions are emitted by search. Meta may deliver media out of order despite sequential sends, so each card is independently actionable.
