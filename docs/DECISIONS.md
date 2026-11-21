@@ -121,3 +121,5 @@ Read actual provider payment categories and let the customer choose. Generate Bl
 2026-11-21: Store preferences are structured execution constraints, not reply prose. Explicit one-product switches stage replacement selection, verify source cart clearing, then change the draft. Preserve the old basket until a destination is selected; never silently fall back or review the source while a move is pending. See STORE_SWITCHING.md.
 
 2026-11-21: Basket summaries must identify the provider from selected offers alongside contents. A question naming possible stores is not a switch request. Keep one next-action prompt rather than repeating it in summary and buttons.
+
+2026-11-21: Blinkit bill parsing reads only the amount column and excludes struck/hidden amounts. Savings badges are not payable components. Require a single remaining amount; never derive a missing subtotal by subtracting fees from the total. Live reported ₹123 bill reconciled after reading discounted ₹50 subtotal.

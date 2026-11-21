@@ -1,3 +1,11 @@
+# Blinkit discounted subtotal parsing — 2026-11-21
+
+The reported ₹123 bill was correct. Live inspection found the Items total amount column contained a struck-out ₹55 and current ₹50, while its label column included a Saved ₹5 badge. The old reader captured `₹55 ₹50` and marked subtotal unverified. Updated visible-DOM bill extraction to scope to the amount column, exclude struck/hidden nodes (including ancestor styling), and accept one unambiguous amount or explicit free/waived text. Multiple current amounts remain unverified; no subtraction-based inferred subtotal or relaxed payment guard.
+
+Read-only live revalidation returned ₹50 + ₹35 delivery + ₹13 handling + ₹25 small-cart = ₹123, reconciled=true and payment choice allowed=true. No cart changes, order placement or payment. Validation: 141 standard tests passed (10 opt-in DOM skipped); all 10 DOM tests passed separately, including the exact discounted subtotal structure, savings badge, hidden amounts, free fee and ambiguous values. Ruff passed.
+
+---
+
 # Basket contents and store answer — 2026-11-21
 
 The retained request asked both what was in the cart and whether it belonged to Instamart or Blinkit. The intent correctly returned basket, but the fixed basket formatter omitted provider. Summaries now derive the store from the actual selected offers and include it in the heading; removed the duplicate modification question from the item summary while retaining the Review basket action. Added the exact question to model evals and an execution regression. Validation: 141 standard tests passed (8 opt-in DOM skipped), 28/28 real-model intent evals passed, Ruff passed. No live cart mutation.

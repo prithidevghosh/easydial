@@ -47,7 +47,28 @@ CART = r"""(drawer) => {
         })),
         bill: [...drawer.querySelectorAll("div[class*='BillCard__BillItemContainer']")].map(row => {
             const parts = row.innerText.split('\n').map(x => x.trim()).filter(Boolean);
-            return parts.length >= 2 ? {label: parts[0], value: parts[parts.length - 1]} : null;
+            if (parts.length < 2) return null;
+            // Scope to the amount column: the label column can contain "Saved ₹5".
+            const scope = row.querySelector("div[class*='BillCard__BillItemRight']") || row;
+            const walker = document.createTreeWalker(scope, NodeFilter.SHOW_TEXT);
+            const current = [];
+            while (walker.nextNode()) {
+                let node = walker.currentNode.parentElement, excluded = false;
+                while (node && scope.contains(node)) {
+                    const style = getComputedStyle(node);
+                    if (style.textDecorationLine.includes('line-through') ||
+                        ['DEL', 'S'].includes(node.tagName) || style.display === 'none' ||
+                        style.visibility === 'hidden') { excluded = true; break; }
+                    node = node.parentElement;
+                }
+                if (!excluded) current.push(walker.currentNode.textContent);
+            }
+            const text = current.join(' ').replace(/\s+/g, ' ').trim();
+            const prices = text.match(/[-−]?\s*₹\s*[\d,]+(?:\.\d+)?/g) || [];
+            const free = /\b(?:free|waived|included)\b/i.test(text);
+            const value = prices.length === 1 && !free ? prices[0].trim()
+                : prices.length === 0 && free ? 'FREE' : 'Unverified';
+            return {label: parts[0], value};
         }).filter(Boolean),
         address: drawer.querySelector("div[class*='ListStrip__SubHeading']")?.innerText,
         total: drawer.querySelector("div[class*='CheckoutStrip__NetPriceText']")?.innerText
