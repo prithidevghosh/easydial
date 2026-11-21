@@ -69,3 +69,17 @@ def test_public_health_rejects_unconfigured_service(monkeypatch):
                         lambda *args, **kwargs: io.BytesIO(b'{"status":"setup_required"}'))
     with pytest.raises(RuntimeError, match='public HTTPS health failed'):
         DEPLOY['verify_public_health']('https://example.cloudfront.net')
+
+
+def test_proxy_credentials_export_real_secret_and_reach_runtime():
+    import json
+
+    settings = Settings(_env_file=None, blinkit_proxy_username='test-in-rotate',
+                        blinkit_proxy_password='private-proxy-password')
+    data = DEPLOY['runtime_credentials'](settings, ENV['ALLOWED'])
+    data.update({key: 'required-test-value' for key in ENV['REQUIRED']})
+    serialized = json.loads(json.dumps(data))
+    rendered = ENV['render'](serialized)
+    assert "BLINKIT_PROXY_USERNAME='test-in-rotate'" in rendered
+    assert "BLINKIT_PROXY_PASSWORD='private-proxy-password'" in rendered
+    assert '**********' not in rendered

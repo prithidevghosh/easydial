@@ -50,6 +50,15 @@ def verify_public_health(origin):
     raise RuntimeError('Release ran but public HTTPS health failed; inspect CloudFront and origin')
 
 
+def runtime_credentials(settings, allowed):
+    data = {}
+    for key in allowed:
+        if hasattr(settings, key.lower()):
+            value = getattr(settings, key.lower())
+            data[key] = value.get_secret_value() if hasattr(value, "get_secret_value") else value
+    return data
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('action', choices=['identity', 'provision', 'upload-secrets', 'publish', 'release', 'status'])
@@ -90,8 +99,7 @@ def main():
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         settings = Settings(_env_file=ROOT / 'backend/.env')
-        data = {key: getattr(settings, key.lower()) for key in module.ALLOWED
-                if hasattr(settings, key.lower())}
+        data = runtime_credentials(settings, module.ALLOWED)
         module.render(data)  # Validate before any cloud write; output remains private.
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'runtime.json'
