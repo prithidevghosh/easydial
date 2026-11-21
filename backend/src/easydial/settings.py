@@ -1,3 +1,4 @@
+from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -12,6 +13,8 @@ class Settings(BaseSettings):
     browser_headless: bool = False
     blinkit_browser_headless: bool | None = None
     browser_channel: str = "chrome"
+    blinkit_proxy_username: str = ""
+    blinkit_proxy_password: SecretStr = SecretStr("")
     instamart_browser_profile: str = ""
     instamart_verified_location: str = ""
     instamart_verified_address: str = ""

@@ -4,7 +4,10 @@ import asyncio
 from pathlib import Path
 
 from local_settings import ENV, save_settings
-from playwright.async_api import async_playwright
+
+from easydial.providers.browser import BrowserSession
+from easydial.providers.proxy import configure_blinkit_proxy
+from easydial.settings import Settings
 
 
 async def main():
@@ -14,10 +17,14 @@ async def main():
     state_path = state_dir / "blinkit.json"
     print("Log in on Blinkit's own page, then select your saved full delivery address.")
     print("Do not add products or place an order during this setup step.")
-    async with async_playwright() as pw:
-        profile = state_dir / "blinkit-profile"
-        context = await pw.chromium.launch_persistent_context(str(profile), channel="chrome", headless=False)
-        page = await context.new_page()
+    profile = state_dir / "blinkit-profile"
+    browser = BrowserSession(str(profile), str(state_path))
+    configure_blinkit_proxy(browser, Settings(_env_file=ENV))
+    # Explicit reconnect starts a fresh journey.
+    if browser.proxy:
+        browser.proxy.loaded = True
+    try:
+        page, context = await browser.open()
         await page.goto("https://blinkit.com", wait_until="domcontentloaded")
         await asyncio.to_thread(input, "After logging in and selecting the address, press Enter here: ")
         location = await page.locator("div[class*='LocationBar__Subtitle']").first.inner_text(timeout=10000)
@@ -29,8 +36,7 @@ async def main():
         ).strip()
         if not address or not location.strip():
             raise ValueError("An explicit full address is required")
-        await context.storage_state(path=state_path)
-        state_path.chmod(0o600)
+        await browser.save()
         save_settings(
             ENV,
             {
@@ -41,7 +47,8 @@ async def main():
                 "BLINKIT_VERIFIED_ADDRESS": address,
             },
         )
-        await context.close()
+    finally:
+        await browser.close()
     print("Blinkit session and address saved locally. Use the same physical address for Swiggy.")
     print("Set LIVE_ADDRESS_LABEL in .env if you have not connected Swiggy, then restart the backend.")
 

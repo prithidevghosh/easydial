@@ -77,3 +77,42 @@ Remaining work:
 - Payment, payment-status reconciliation, order IDs, receipts and confirmed paid-order state are not implemented or tested. Local Pending is never an order.
 - Test more products, cities, stock changes, quantity caps, expired login, variants, reloads and external cart edits. Single-product tests do not establish universal site coverage.
 - No guarantee against future automation blocks. No stealth, CAPTCHA bypass, fingerprint spoofing, proxy rotation or retry loop around an explicit block is implemented.
+
+## Blinkit India proxy journeys
+
+Set `BLINKIT_PROXY_USERNAME` (base Webshare username or its `-in-rotate` form) and
+`BLINKIT_PROXY_PASSWORD` in the backend's private `.env`. Both must be provided;
+leaving both empty preserves direct browsing. Instamart remains independent.
+
+Blinkit uses `http://p.webshare.io:80` with `<base>-in-<numeric-session-id>` at
+Chrome launch. `ipv4.webshare.io` reports the exit IP; that IP is not a directly
+connectable proxy endpoint. The rotating suffix is deliberately replaced with a
+sticky session so page assets and subsequent actions use the same session.
+
+A journey here is the connected Blinkit session, from login through shopping and
+checkout. The session ID and first exit IP survive browser restarts/customer
+switches in a private sidecar next to the browser state (encrypted for customer
+sessions), or inside the operator profile. Credentials are never stored there.
+Explicit reconnect starts a new journey. Existing basket resets do not rotate IP.
+
+Before each browser `open()` returns to a provider operation, a separate page
+checks the exit IP through the same browser proxy. A changed IP or failed check
+closes the browser and stops the operation, without falling back to a direct
+connection. This is an operation-boundary check, not a guarantee that Webshare
+cannot change the IP during an in-flight request. Configure Webshare's dashboard
+Sticky duration to cover the journey (supported range: 1 minute to 24 hours).
+An expired/lost sticky IP requires reconnecting, not automatic rotation.
+
+Run `uv run python tools/check_blinkit_proxy.py` from `backend` for an isolated,
+headed, read-only check of the proxy, Blinkit phone-login UI, repeated IP checks,
+and browser restart continuity. It never submits a phone number or OTP.
+
+References: https://apidocs.webshare.io/proxy-connection and
+https://help.webshare.io/en/articles/16310718-endpoint-generator-rotating-residential
+
+Local verification (2026-11-22): the first live proxy probe failed before Blinkit;
+a subsequent isolated run passed the proxy check, Blinkit HTTP 200, visible phone
+login form, repeat-IP check, and persisted-session browser restart. OTP submission,
+authenticated shopping/checkout and cloud-host acceptance were not tested in this
+check. Backend regression suite: 283 passed, 40 skipped; changed-file Ruff checks
+passed. Proxy availability can still fail; callers stop on that failure.

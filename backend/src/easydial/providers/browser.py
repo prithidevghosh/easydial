@@ -13,6 +13,7 @@ class BrowserSession:
         self.headless, self.channel = False, "chrome"
         self.runtime = self.context = self.page = self.browser = None
         self.secret_box = None
+        self.proxy = None
         self.allow_empty_state = False
 
     @property
@@ -24,17 +25,22 @@ class BrowserSession:
 
     async def open(self):
         if self.context and self.page and not self.page.is_closed():
+            await self._verify_proxy()
             return self.page, self.context
         await self.close()
         self.runtime = await async_playwright().start()
         try:
+            options = {}
+            if self.proxy:
+                self.proxy.load(self)
+                options["proxy"] = self.proxy.options
             if self.profile:
                 self.context = await self.runtime.chromium.launch_persistent_context(
-                    self.profile, channel=self.channel, headless=self.headless
+                    self.profile, channel=self.channel, headless=self.headless, **options
                 )
             else:
                 self.browser = await self.runtime.chromium.launch(
-                    channel=self.channel, headless=self.headless
+                    channel=self.channel, headless=self.headless, **options
                 )
                 state = self.storage_state
                 if self.secret_box:
@@ -48,12 +54,28 @@ class BrowserSession:
                 self.context = await self.browser.new_context(storage_state=state or None)
             self.page = self.context.pages[0] if self.context.pages else await self.context.new_page()
             self.page.set_default_timeout(8000)
+            await self._verify_proxy()
             return self.page, self.context
+        except DomainError:
+            await self.close()
+            raise
         except Exception:
             await self.close()
             raise DomainError(
                 "Close the store's setup browser, then retry. Chrome must be installed.", 503
             ) from None
+
+    async def _verify_proxy(self):
+        if not self.proxy:
+            return
+        try:
+            await self.proxy.verify(self)
+        except DomainError:
+            await self.close()
+            raise
+        except Exception:
+            await self.close()
+            raise DomainError("Blinkit's India proxy could not be verified. Please retry later.", 503) from None
 
     @staticmethod
     async def check_page(page):
@@ -66,6 +88,8 @@ class BrowserSession:
             )
 
     async def save(self):
+        if self.proxy:
+            self.proxy.save(self)
         if self.storage_state and self.context:
             if self.secret_box:
                 self.secret_box.write(self.storage_state, await self.context.storage_state(indexed_db=True))

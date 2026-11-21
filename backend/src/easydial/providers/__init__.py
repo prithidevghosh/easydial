@@ -5,6 +5,7 @@ from ..models import Provider, SearchResult, SessionView
 from ..settings import Settings
 from .blinkit import BlinkitProvider, normalized
 from .instamart import InstamartProvider
+from .proxy import configure_blinkit_proxy
 from .semantic_ranking import SemanticProductRanker
 
 
@@ -33,6 +34,8 @@ class ProviderWorkers:
                 else settings.browser_headless
             )
             worker.browser.channel = settings.browser_channel
+            if worker.provider == Provider.BLINKIT:
+                configure_blinkit_proxy(worker.browser, settings)
 
     def _worker(self, provider):
         if hasattr(self, "allowed_providers") and provider not in self.allowed_providers:

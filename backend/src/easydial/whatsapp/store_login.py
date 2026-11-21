@@ -15,6 +15,7 @@ from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 from ..controller import DomainError
 from ..providers.blinkit import normalized
 from ..providers.browser import BrowserSession, goto_with_retry
+from ..providers.proxy import configure_blinkit_proxy
 
 
 class LoginStillPending(DomainError):
@@ -70,6 +71,8 @@ class StoreLogin:
             raise DomainError("Sign-in is busy right now. Please try again in a few minutes.")
         # Always start a fresh context for a new consent/login. Never import a previous account.
         browser = BrowserSession()
+        if provider == "blinkit":
+            configure_blinkit_proxy(browser, self.settings)
         browser.channel = self.settings.browser_channel
         browser.headless = (
             self.settings.blinkit_browser_headless
