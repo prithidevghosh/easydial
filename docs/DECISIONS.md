@@ -1,10 +1,10 @@
 # Decisions and rationale
 
-Updated: 2026-11-21. User requirements are binding for this phase; recommendations below await product decisions and validation. This log records conclusions, alternatives and evidence, not private internal reasoning.
+Updated: 2026-11-21. Implementation was authorized after the initial research. This log records conclusions, alternatives and evidence, not private internal reasoning. Later decisions supersede earlier phase restrictions.
 
 | ID | Decision or recommendation | Status | Rationale / revisit condition |
 | --- | --- | --- | --- |
-| D01 | Research only; no app build | User requirement | Implementation begins only after a later user instruction |
+| D01 | Research only; no app build | Historical; superseded by D14 | Initial research restriction ended with explicit build authorization |
 | D02 | Preserve OpenAI master and two provider roles | User requirement; design proposed | Provider-specific behaviour can be isolated while master owns dialogue |
 | D03 | Instamart-first demonstrable journey | Recommended | Stronger documented contract; verify actual account tools and callback |
 | D04 | Blinkit is experimental, not a reliable drop-in checkout backend | Research conclusion | Static gaps in search schema, session isolation and payment verification; revisit after fixes and live testing |
@@ -17,6 +17,13 @@ Updated: 2026-11-21. User requirements are binding for this phase; recommendatio
 | D11 | Use deterministic basket versioning and checkout gates | Recommended | A fluent agent can still act on stale state or duplicate a purchase |
 | D12 | Calling remains deferred | User requirement | Microphone journey and commerce access should be validated first |
 | D13 | Maintain separate Markdown handoff documents | User requirement; completed initial set | Future work should update progress and the decision log |
+| D14 | Begin building, using extensive plan.md as the execution checklist | User authorized 2026-11-21 | Maintain milestone acceptance checks and actual verification evidence |
+| D15 | Native SwiftUI iOS app and Python/FastAPI backend | Accepted build direction | Matches iOS target and existing Blinkit Python ecosystem |
+| D16 | Both provider workers remain in scope | Accepted clarification | Fix/rebuild Blinkit gaps; comparison is technically feasible, policy interpretation remains unresolved |
+| D17 | Explicit sample commerce mode while live access is unavailable | Implemented development boundary | Enables UI/controller verification without fabricated live claims; no live spending endpoint |
+| D18 | Configurable OpenAI baseline models | Implemented, API calls unverified | gpt-4.1-mini, gpt-4o-transcribe, gpt-4o-mini-tts are documented baseline candidates; actual account/Indic performance requires testing |
+| D19 | Public GitHub repository with focused commits | User requirement | https://github.com/prithidevghosh/easydial; secrets and local agent/browser state excluded |
+| D20 | Premium, soothing, low-friction iOS design | User requirement | Large voice control, deliberate spacing/type and progressive interaction; validate against actual users |
 
 ## Alternatives considered
 
