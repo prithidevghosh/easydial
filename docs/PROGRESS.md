@@ -503,3 +503,11 @@ Added a typed pre-submission payment-entry error and one bounded automatic retry
 Regression cases cover transient success, persistent failure stopping after two entries and a changed-bill error with no retry. Existing cash tests cover explicit confirmation, failure before reservation and no duplicate submission after uncertainty. No live order/payment was created during debugging.
 
 Validation: 237 standard tests passed; 31 opt-in DOM tests skipped (selectors unchanged). Lint/diff checks passed. Server restarted with bounded payment-entry recovery.
+
+## 2026-11-21 — Repeat payment requests reconcile unresolved attempts
+
+Customer's COD submission attempt remains pending after history polling. Read-only live inspection found the same ten history IDs as the pre-submit baseline, no new order candidates and no parser issues. Cash controls still load for the saved basket. This establishes absence of current confirmation, not definitive merchant rejection; no duplicate submission was performed and no attempt record was erased.
+
+Repeat review/checkout/payment intents now invoke merchant reconciliation directly instead of returning the generic duplicate-attempt blocker. Existing duplicate-order guards remain for mutations and irreversible submission. A regression verifies that a repeat checkout with an unresolved attempt reads status and calls neither COD submission nor payment creation. The unresolved COD outcome itself is not claimed fixed; a safe retry needs definitive failure evidence or an explicit separately designed duplicate-risk recovery flow.
+
+Validation: 238 standard tests passed; 31 opt-in DOM tests skipped. Lint/diff checks passed. Server restarted with automatic reconciliation on repeat payment intent.

@@ -479,3 +479,20 @@ async def test_no_attempt_and_empty_basket_asks_for_products(tmp_path):
     assert replies[0]['text']['body'] == 'Your basket is empty. What would you like to order?'
     assert not state['view']['review']
     runtime.inbox.close()
+
+
+async def test_repeat_payment_request_reconciles_existing_attempt_without_resubmitting(tmp_path):
+    from unittest.mock import AsyncMock, Mock
+
+    runtime = make_runtime(tmp_path)
+    state = await reviewed(runtime)
+    runtime.payments.existing = Mock(return_value={'status': 'pending'})
+    runtime.payments.monitor.check = AsyncMock(return_value={'status': 'pending'})
+    runtime.payments.place_cash = AsyncMock(side_effect=AssertionError('Duplicate submission'))
+    runtime.payments.create = AsyncMock(side_effect=AssertionError('Duplicate payment'))
+    _, replies = await runtime.chat.handle('checkout', state, customer='alice')
+    runtime.payments.monitor.check.assert_awaited_once()
+    assert not any('already exists' in x.get('text', {}).get('body', '') for x in replies)
+    runtime.payments.place_cash.assert_not_awaited()
+    runtime.payments.create.assert_not_awaited()
+    runtime.inbox.close()

@@ -563,6 +563,11 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
                 result = await payments.monitor.check(customer, session.view.id, self.workers)
                 return state, status_messages(result, session.view)
             return await self.review_before_payment(state, progress, customer)
+        if customer and payments and intent.action in {"review", "checkout", "payment"} and payments.existing(customer, session.view.id):
+            if progress:
+                progress.update("Checking your previous order attempt…")
+            result = await payments.monitor.check(customer, session.view.id, self.workers)
+            return state, status_messages(result, session.view)
         if (
             customer
             and getattr(self, "payments", None)
