@@ -1,3 +1,5 @@
+> Current post-payment implementation (2026-11-21): see [POST_PAYMENT.md](POST_PAYMENT.md). Cash requires explicit final Place order and now verifies matching merchant history. QR shows Check status; a payment claim triggers history verification and is never proof by itself. No fresh live order/payment has been tested. Earlier limitations below are historical where superseded.
+
 # Current payment policy — 2026-11-21
 
 This section supersedes the earlier broad-method policy below.

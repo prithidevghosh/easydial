@@ -353,3 +353,16 @@ The project is complete only when an intended user can speak a supported-languag
 | 2026-11-21 | Live-only request | Removed runtime samples; real provider cart review and Pending checkout implemented; 26 contract/unit tests pass | Authenticate and verify both providers |
 | 2026-11-21 | Visual correction | Full-width white-on-blue primary actions; refined home, composer and supporting text; simulator checks | Credentialed basket screenshots and device usability |
 | 2026-11-21 | Remote verification | GitHub run 44872856799 passes backend and iOS build at 06ef361 | Account login is the remaining live-validation prerequisite |
+
+## 2026-11-21 — Post-payment verification milestone
+
+- [x] Persist baseline history and approved order before COD/QR attempt.
+- [x] Final COD submission once, then bounded merchant-history verification.
+- [x] QR payment claim / Check status -> read-only verification, not assumed success.
+- [x] New order/amount/address/items/method/time matching; paid evidence required for QR.
+- [x] Pending + Check status after timeout, never automatic reorder or false failure.
+- [x] Read-only live history checks and automated regression tests.
+- [ ] User-authorized fresh cash and paid-QR end-to-end acceptance. No order/payment submitted during development checks.
+- [ ] Ongoing delivery/refund updates and new-order lifecycle after completion.
+
+Handoff: docs/POST_PAYMENT.md is the implementation contract and evidence record.

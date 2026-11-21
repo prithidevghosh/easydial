@@ -57,10 +57,12 @@ class Runtime:
             if not self.inbox.window_open(row["sender"]):
                 self.inbox.finish(row, state, [], "expired")
                 return True
-            if self.inbox.interrupted(row["sender"]):
+            if self.inbox.interrupted(row["sender"]) and not self.payments.existing(
+                row["sender"], state["view"]["id"]
+            ):
                 raise DomainError(
                     "The previous request was interrupted. I haven't repeated it. "
-                    "Please check your store cart before asking to review again; no order was placed."
+                    "Please ask to review your basket again."
                 )
             if row["timestamp"] < state.get("last_timestamp", 0):
                 raise DomainError("An older message arrived late. Please repeat your latest request.")
@@ -127,11 +129,23 @@ class Runtime:
             status = "failed"
             replies = [
                 text_message(
-                    "I couldn't finish that request. The store cart may have changed, but no order was placed. "
+                    "I couldn't finish that request. The store cart may have changed. "
                     "Ask to review your basket, or contact support."
                 )
             ]
         finally:
+            if status in {"failed", "rejected"} and self.payments.existing(
+                row["sender"], state["view"]["id"]
+            ):
+                from ..models import SessionView
+                from .order_tracking import status_button
+
+                replies = [
+                    text_message(
+                        "An order or payment attempt already exists. Check its status before trying again."
+                    ),
+                    status_button(SessionView.model_validate(state["view"])),
+                ]
             if progress:
                 await progress.close()
         self.inbox.finish(row, state, replies, status)

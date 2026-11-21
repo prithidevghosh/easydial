@@ -199,3 +199,9 @@ class ProviderWorkers:
 
         worker = self.workers[list(Provider).index(review.provider)]
         return await asyncio.wait_for(submit_cash(worker, view, review, before_submit), timeout=90)
+
+    async def order_history(self, view, exclude_ids=None):
+        from .order_history import read_history
+
+        worker = self.workers[list(Provider).index(view.review.provider)]
+        return await asyncio.wait_for(read_history(worker, view, exclude_ids), timeout=45)

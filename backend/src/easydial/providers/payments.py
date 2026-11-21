@@ -220,14 +220,5 @@ async def submit_cash(worker, view, review, before_submit):
         button = await cash_control(worker, view, review, page)
         before_submit()  # Commits the once-only reservation before the irreversible click.
         await button.click()
-        # A click is not proof of a confirmed order. Only explicit success plus
-        # a merchant order identifier can produce a success response.
-        for _ in range(20):
-            text = await page.locator("body").inner_text()
-            order = re.search(r"\bOrder\s*(?:ID|No\.?|Number|#)\s*[:#]?\s*([A-Za-z0-9-]{6,40})", text, re.I)
-            if order and re.search(
-                r"order (?:is )?(?:placed|confirmed)|order placed successfully", text, re.I
-            ):
-                return {"status": "confirmed", "order_id": order[1]}
-            await asyncio.sleep(0.5)
-        return {"status": "unknown"}
+        # History reconciliation outside the browser lock establishes success.
+        return {"status": "pending"}

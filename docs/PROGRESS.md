@@ -1,3 +1,11 @@
+# Durable post-payment verification — 2026-11-21
+
+Built sender/order-scoped history baselines and immutable approved snapshots. Cash submission now checks merchant history automatically; QR links include Check status, and payment-completion claims trigger read-only verification. Poll at most ten times, three seconds apart, within a 30-second read budget. Missing/ambiguous/unpaid/unreadable history remains pending with a button; never retry submission or infer payment from a message. Match new IDs, timestamp, provider, amount, address and items. Instamart uses exact catalog IDs because its history omits pack text. Old status buttons remain usable for the same order after review expiry.
+
+Validation: 134 standard tests passed (8 opt-in DOM tests skipped), then all 8 DOM tests passed separately; Ruff passed. Live read-only history parsed ten records from each store; fixed Instamart millisecond timestamps. No order or payment submitted. Final real cash/paid-QR acceptance remains outstanding. See POST_PAYMENT.md for evidence, matching rules, tests and limitations.
+
+---
+
 # Restricted payments and explicit COD submission — 2026-11-21
 
 Implemented Instamart pay on delivery only; Blinkit pay on delivery when eligible plus UPI QR. Filter current menus and reject historical disallowed selections. Cash selection verifies the merchant screen, then requires a separate versioned, review-bound, five-minute Place order button with amount and provider. Only that explicit action reaches submission. Private cash_orders table reserves customer/order before final click, prevents duplicate submissions and retains unknown attempts after timeout/restart. Successful replies require merchant confirmation text and order identifier; an unverified click is never reported as a confirmed order.

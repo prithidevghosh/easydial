@@ -73,6 +73,10 @@ def make_runtime(tmp_path):
     async def payment_options(view, review):
         return [{"id": "upi", "title": "UPI", "note": ""}, {"id": "cards", "title": "Cards", "note": ""}]
 
+    async def order_history(*args):
+        return {"ids": [], "orders": []}
+
+    workers.order_history = order_history
     workers.payment_options = payment_options
     runtime = Runtime(config, Inbox(config.whatsapp_database), FakeTransport(), chat)
     return runtime

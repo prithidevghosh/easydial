@@ -94,10 +94,20 @@ async def test_uncertain_generation_is_not_retried_and_is_durable(tmp_path):
         raise TimeoutError("response lost after generation")
 
     with pytest.raises(TimeoutError):
-        await runtime.payments.create("alice", view, view.review, SimpleNamespace(generate_upi=fail))
+        await runtime.payments.create(
+            "alice",
+            view,
+            view.review,
+            SimpleNamespace(generate_upi=fail, order_history=runtime.chat.workers.order_history),
+        )
     assert runtime.payments.existing("alice", view.id)["status"] == "unknown"
     with pytest.raises(DomainError, match="already exists"):
-        await runtime.payments.create("alice", view, view.review, SimpleNamespace(generate_upi=fail))
+        await runtime.payments.create(
+            "alice",
+            view,
+            view.review,
+            SimpleNamespace(generate_upi=fail, order_history=runtime.chat.workers.order_history),
+        )
     runtime.inbox.close()
 
 
@@ -144,6 +154,12 @@ async def test_cash_requires_separate_explicit_button_and_only_submits_once(tmp_
 
     runtime.chat.workers.payment_options = methods
     runtime.chat.workers.prepare_cash = prepare
+    from tests.test_order_tracking import merchant_order
+
+    async def history(view, baseline=None):
+        return {"ids": [], "orders": [merchant_order(view)] if "submit" in calls else []}
+
+    runtime.chat.workers.order_history = history
     runtime.chat.workers.submit_cash = submit
     state, replies = await runtime.chat.handle("checkout", state, customer="alice")
     action = replies[-1]["interactive"]["action"]["sections"][0]["rows"][0]["id"]
@@ -174,10 +190,14 @@ async def test_cash_timeout_after_submission_is_durable_and_not_retried(tmp_path
         calls.append(1)
         raise TimeoutError("ambiguous")
 
-    workers = SimpleNamespace(submit_cash=submit)
-    with pytest.raises(DomainError, match="accepted your order"):
-        await runtime.payments.place_cash("alice", view, view.review, workers)
-    assert runtime.payments.existing("alice", view.id)["status"] == "unknown"
+    workers = SimpleNamespace(submit_cash=submit, order_history=runtime.chat.workers.order_history)
+
+    async def pending(*args):
+        return {"status": "pending"}
+
+    runtime.payments.monitor.check = pending
+    assert (await runtime.payments.place_cash("alice", view, view.review, workers))["status"] == "pending"
+    assert runtime.payments.existing("alice", view.id)["status"] == "pending"
     with pytest.raises(DomainError):
         await runtime.payments.place_cash("alice", view, view.review, workers)
     assert len(calls) == 1
@@ -193,7 +213,12 @@ async def test_cash_preflight_failure_does_not_reserve_order(tmp_path):
         raise DomainError("Cash unavailable")
 
     with pytest.raises(DomainError):
-        await runtime.payments.place_cash("alice", view, view.review, SimpleNamespace(submit_cash=fail))
+        await runtime.payments.place_cash(
+            "alice",
+            view,
+            view.review,
+            SimpleNamespace(submit_cash=fail, order_history=runtime.chat.workers.order_history),
+        )
     assert runtime.payments.existing("alice", view.id) is None
     runtime.inbox.close()
 

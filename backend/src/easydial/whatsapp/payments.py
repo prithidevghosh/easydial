@@ -13,6 +13,9 @@ from ..controller import DomainError
 
 class PaymentRequests:
     def __init__(self, inbox, public_url):
+        from .order_tracking import OrderMonitor
+
+        self.monitor = OrderMonitor(inbox)
         self.inbox = inbox
         self.public_url = public_url.rstrip("/")
         self.inbox.db.execute("""CREATE TABLE IF NOT EXISTS payment_requests (
@@ -53,6 +56,7 @@ class PaymentRequests:
             raise DomainError(
                 "A payment request already exists. Check its status in the store before creating another."
             )
+        await self.monitor.capture(sender, view, "upi", workers)
         request_id, token = secrets.token_hex(16), secrets.token_urlsafe(32)
         with self.inbox.db:
             self.inbox.db.execute(
@@ -70,6 +74,7 @@ class PaymentRequests:
                 ),
             )
         try:
+            self.monitor.activate(sender, view.id)
             artifact = await workers.generate_upi(view, review)
             artifact["provider"] = review.provider.value
             # Snapshot the complete approved bill without the customer's address or account details.
@@ -96,6 +101,7 @@ class PaymentRequests:
     async def place_cash(self, sender, view, review, workers):
         if self.existing(sender, view.id):
             raise DomainError("An order or payment attempt already exists. I won’t submit it twice.")
+        await self.monitor.capture(sender, view, "cash", workers)
         reserved = False
 
         def reserve():
@@ -105,6 +111,7 @@ class PaymentRequests:
                     "INSERT INTO cash_orders VALUES (?,?,?,?,?,?)",
                     (sender, view.id, "submitting", fingerprint(view, review), None, int(time.time())),
                 )
+            self.monitor.activate(sender, view.id)
             reserved = True
 
         try:
@@ -118,18 +125,17 @@ class PaymentRequests:
                         "UPDATE cash_orders SET status='unknown' WHERE sender=? AND order_id=?",
                         (sender, view.id),
                     )
-                if isinstance(error, Exception):
-                    raise DomainError(
-                        "I couldn’t confirm whether the store accepted your order. Check its Orders page; I won’t submit it twice."
-                    ) from None
-            raise
-        confirmed = result.get("status") == "confirmed" and bool(result.get("order_id"))
+                if not isinstance(error, Exception):
+                    raise
+            else:
+                raise
+        result = await self.monitor.check(sender, view.id, workers)
         with self.inbox.db:
             self.inbox.db.execute(
                 "UPDATE cash_orders SET status=?,merchant_order_id=? WHERE sender=? AND order_id=?",
-                ("confirmed" if confirmed else "unknown", result.get("order_id"), sender, view.id),
+                (result["status"], result.get("order", {}).get("order_id"), sender, view.id),
             )
-        return result if confirmed else {"status": "unknown"}
+        return result
 
     def lookup(self, token):
         if not 20 <= len(token) <= 100:

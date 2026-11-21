@@ -18,7 +18,17 @@ from . import reconciliation
 
 class ChatIntent(BaseModel):
     action: Literal[
-        "search", "edit", "select", "review", "checkout", "basket", "clarify", "stop", "payment", "restore"
+        "search",
+        "edit",
+        "select",
+        "review",
+        "checkout",
+        "basket",
+        "clarify",
+        "stop",
+        "payment",
+        "restore",
+        "status",
     ]
     queries: list[RequestedProduct]
     edits: list[IntentEdit]
@@ -112,6 +122,8 @@ Return action clarify, empty queries/edits, and null selection fields. Never sug
 Clear multilingual requests and obvious brand spellings are not automatically unclear.
 Broken speech such as "हरके के मूव कीजिए" is ambiguous: clarify briefly in English, never delete items.
 Never guess a removal from an unclear transcript, and never infer a completed payment from agreement.
+Use status for requests to check an order/payment or claims of payment completion in any language
+(e.g. payment ho gaya, paise de diye). This only checks merchant history; it never proves payment.
 RECENT_SELECTION preserves the last selected line and its numbered menu, even after active choices clear.
 "first wla nhi, ap second wla choose kro" after selecting option 1 means select option 2 from
 RECENT_CHOICES and set replaces_line_id to RECENT_SELECTION.line_id. Preserve its quantity unless changed.
@@ -366,6 +378,31 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
         self.restore_legacy_choices(session, state)
         selected_method = None
         normalized = text.strip().casefold()
+        from .order_tracking import status_button, status_messages
+
+        payments = getattr(self, "payments", None)
+        checking = normalized in {
+            "paid",
+            "payment done",
+            "check payment",
+            "check status",
+            "order status",
+            "i paid",
+            "payment completed",
+        }
+        if (action_id and action_id.startswith("status:")) or checking:
+            if action_id and action_id.split(":", 2)[-1] != session.view.id:
+                raise DomainError("That button belongs to another basket. Ask to check your current order.")
+            if not customer or not payments or not payments.existing(customer, session.view.id):
+                return state, [
+                    text_message(
+                        "No order or payment has been started for this basket. Review your basket first."
+                    )
+                ]
+            if progress:
+                progress.update("Checking your order with the store…")
+            result = await payments.monitor.check(customer, session.view.id, self.workers)
+            return state, status_messages(result, session.view)
         if state["paused"]:
             if normalized not in {"start", "resume", "hi", "hello"}:
                 return state, []
@@ -472,6 +509,17 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
             )
         else:
             intent = await self.interpret(text, session, state)
+        if intent.action == "status":
+            if customer and payments and payments.existing(customer, session.view.id):
+                if progress:
+                    progress.update("Checking your order with the store…")
+                result = await payments.monitor.check(customer, session.view.id, self.workers)
+                return state, status_messages(result, session.view)
+            return state, [
+                text_message(
+                    "No order or payment has been started for this basket. Review your basket first."
+                )
+            ]
         if (
             customer
             and getattr(self, "payments", None)
@@ -836,6 +884,7 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
                         f"Open your UPI link: {prepared['url']}\nIt expires in a few minutes. Approve only in your UPI app."
                     )
                 )
+                replies.append(status_button(session.view))
             elif selected_method["id"] == "cash":
                 await self.workers.prepare_cash(session.view, fresh)
                 pending = {
@@ -884,13 +933,7 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
                 state["cash_confirmation"] = None
                 state["payment_menu"] = None
                 session.view.payment_preparation = {"status": "cash_" + result["status"], **result}
-                replies.append(
-                    text_message(
-                        f"Order confirmed: {result['order_id']}. Pay {money(fresh.total_paise)} cash on delivery."
-                        if result["status"] == "confirmed"
-                        else "I couldn’t confirm whether the store accepted your order. Please check its Orders page before trying again; I won’t submit it twice."
-                    )
-                )
+                replies.extend(status_messages(result, session.view))
             else:
                 raise DomainError("Please choose pay on delivery or an available UPI QR option.")
         elif intent.action == "basket":
@@ -901,7 +944,7 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
             session.changed()
             replies.append(
                 text_message(
-                    "Paused. No order was placed. Your existing store cart may remain. "
+                    "Paused. Existing orders or payment requests are not cancelled. "
                     "Send START when you want to continue."
                 )
             )
