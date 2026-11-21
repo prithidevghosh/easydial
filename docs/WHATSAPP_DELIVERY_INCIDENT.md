@@ -19,3 +19,11 @@ Follow-up: the operator reproduced the same permission error using Meta API Setu
 ## Current status
 
 Later incoming customer turns received delivered/read replies and completed Blinkit OTP onboarding. The 131005 incident is no longer blocking the live pilot. The precise Meta-side permission correction was not independently established; do not claim that a system-user token was proven to fix it. Do not retain or publish debugger URLs containing tokens.
+
+## 2026-11-21 22:00 IST — Expired public tunnel DNS
+
+Symptom: Meta's outgoing test send worked; user-originated WhatsApp texts produced no response. Backend health was 200, last inbound persisted event was 21:26:59 IST, and the latest outbound messages were sent/read. Configured temporary Cloudflare hostname no longer resolved, despite cloudflared still running. Restarting only the backend cannot fix a dead public hostname.
+
+Restarted the quick tunnel, updated WHATSAPP_PUBLIC_URL privately, restarted backend, and verified public health plus signed empty webhook POST both return 200. Entered the new callback URL in Meta Configuration; messages remained subscribed. Meta clears its masked verify token on URL edits, so asked the operator to enter the existing WHATSAPP_VERIFY_TOKEN and save, then send a real WhatsApp message. At this checkpoint, Meta save and end-to-end incoming message delivery are still pending user action.
+
+Production requirement: stable HTTPS hostname / named tunnel or deployed backend. Quick-tunnel hostnames are temporary and may need replacement; a live local health endpoint alone does not prove Meta can reach the webhook. Never put verify tokens, app secrets or access tokens into incident notes or chat.
