@@ -211,3 +211,100 @@ async def test_paid_claim_and_old_status_button_only_read_history(tmp_path):
     await runtime.chat.handle("paid", state, customer="bob")
     assert calls == [("alice", view.id)] * 2
     runtime.inbox.close()
+
+
+@pytest.mark.parametrize(
+    "card_title,detail_title,expected",
+    [
+        ("Order update", "Arriving in 9 minutes", "confirmed"),
+        ("Order update", "Delivered", "delivered"),
+        ("Arriving in 9 minutes", "Order cancelled", "cancelled"),
+        ("Order cancelled", "Arriving in 9 minutes", "cancelled"),
+    ],
+)
+def test_blinkit_detail_status_and_terminal_cancellation(card_title, detail_title, expected):
+    from easydial.providers.order_history import parse_blinkit
+
+    card = {
+        "identity": {"id": "new-order"},
+        "items": [{"data": {"title": {"text": card_title}, "subtitle": {"text": "21 Nov, 7:40 pm"}}}],
+    }
+    result = parse_blinkit(
+        card,
+        f"""Order summary
+{detail_title}
+1 item in this order
+Britannia Milk Bikis Milky Sandwich Creme Biscuits
+188 g x 1
+₹50
+Bill details
+MRP
+₹55
+Product discount
+-₹5
+Item total
+₹50
+Handling charge
++₹13
+Small cart fee
++₹25
+Delivery charges
++₹35
+Bill total
+₹123
+Order details
+Order id
+TEST-ORDER
+Payment
+Paid Online
+Deliver to
+Test home""",
+    )
+    assert result["status"] == expected
+    assert result["total_paise"] == 12300
+    assert result["items"][0]["pack"] == "188 g"
+    assert result["payment_status"] == "paid"
+
+
+async def test_matching_paid_order_stops_on_first_check(tmp_path):
+    runtime = make_runtime(tmp_path)
+    view = SessionView.model_validate((await reviewed(runtime))["view"])
+    monitor = runtime.payments.monitor
+    worker = SimpleNamespace(order_history=empty_history)
+    await monitor.capture("alice", view, "upi", worker)
+    monitor.activate("alice", view.id)
+    calls = 0
+
+    async def history(*args):
+        nonlocal calls
+        calls += 1
+        return {"orders": [merchant_order(view, method="online", payment_status="paid")]}
+
+    async def unexpected_sleep(seconds):
+        pytest.fail("Confirmed orders must not be polled again")
+
+    worker.order_history = history
+    assert (await monitor.check("alice", view.id, worker, sleep=unexpected_sleep))["status"] == "confirmed"
+    assert calls == 1
+    assert monitor.get("alice", view.id)["checks"] == 1
+    runtime.inbox.close()
+
+
+async def test_pending_retains_safe_rejection_diagnostics(tmp_path):
+    runtime = make_runtime(tmp_path)
+    view = SessionView.model_validate((await reviewed(runtime))["view"])
+    monitor = runtime.payments.monitor
+    worker = SimpleNamespace(order_history=empty_history)
+    await monitor.capture("alice", view, "upi", worker)
+    monitor.activate("alice", view.id)
+
+    async def history(*args):
+        return {"orders": [merchant_order(view, placed_at=None)], "issues": ["unreadable_history_link"]}
+
+    worker.order_history = history
+    result = await monitor.check("alice", view.id, worker, sleep=no_sleep)
+    assert result["reason"] == "no_matching_order"
+    assert result["rejected_fields"] == ["placed_at"]
+    assert result["history_issues"] == ["unreadable_history_link"]
+    assert "order" not in result
+    runtime.inbox.close()

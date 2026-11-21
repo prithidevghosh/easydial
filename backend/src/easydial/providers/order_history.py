@@ -121,6 +121,19 @@ def parse_blinkit(card, text):
     method_text = after("Payment").casefold()
     method = "cash" if "cash" in method_text else "online" if method_text == "paid online" else None
     title = head.get("title", {}).get("text", "")
+    # The detail page can have a newer status than the history card that opened it.
+    # Only use the status immediately under Order summary, not unrelated page text.
+    detail_title = after("Order summary")
+    detail_status = order_status(detail_title)
+    card_status = order_status(title)
+    # Cancellation/failure is terminal; never overwrite it with an earlier ETA.
+    if card_status in {"cancelled", "failed"}:
+        status = card_status
+    elif detail_status != "pending":
+        status = detail_status
+        title = detail_title
+    else:
+        status = card_status
     return {
         "order_id": after("Order id"),
         "history_id": card["identity"]["id"],
@@ -131,7 +144,7 @@ def parse_blinkit(card, text):
         "address": after("Deliver to"),
         "method": method,
         "payment_status": "paid" if method_text == "paid online" else "pending",
-        "status": order_status(title),
+        "status": status,
         "eta": title if "arriving in" in title.lower() else None,
     }
 
@@ -171,6 +184,7 @@ async def read_history(worker, view, exclude_ids=None):
         cards = [s["data"] for s in payload["response"]["snippets"] if s.get("data", {}).get("identity")]
         ids = [c["identity"]["id"] for c in cards]
         results = []
+        issues = []
         if exclude_ids is not None:
             for card in cards:
                 if card["identity"]["id"] in exclude_ids:
@@ -181,12 +195,19 @@ async def read_history(worker, view, exclude_ids=None):
                 cart = params.get("cart_id", [""])[0]
                 order = params.get("order_id", [""])[0]
                 if not cart.isdigit() or not order.isdigit():
+                    issues.append("unreadable_history_link")
                     continue
                 await page.goto(
                     f"https://blinkit.com/account/orders/{cart}/{order}", wait_until="domcontentloaded"
                 )
                 await page.get_by_text("Order details", exact=True).wait_for()
-                parsed = parse_blinkit(card, await page.locator("body").inner_text())
+                try:
+                    parsed = parse_blinkit(card, await page.locator("body").inner_text())
+                except (KeyError, ValueError, TypeError, IndexError):
+                    issues.append("unreadable_order_details")
+                    continue
                 if parsed:
                     results.append(parsed)
-        return {"ids": ids, "orders": results}
+                else:
+                    issues.append("missing_order_items")
+        return {"ids": ids, "orders": results, "issues": sorted(set(issues))}

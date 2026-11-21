@@ -1,3 +1,13 @@
+# Order confirmation investigation — 2026-11-21
+
+User reported an order visibly arriving while the WhatsApp monitor exhausted its checks. The saved UPI attempt contains seven reads and only a pending result: no parsed order or rejection reason was retained. User then manually cancelled the order and requested no live check; no merchant navigation, order submission, or payment was performed for this investigation. The earlier failure's exact rejected field cannot be recovered from that record or the screenshot (which omits payment/date/address details).
+
+Hardened Blinkit parsing to read the status immediately below Order summary, as shown in the supplied screenshot, rather than relying exclusively on the history-card title. Cancellation/failure takes precedence over an older arriving status. All identity, baseline, timestamp, amount, basket, address and paid-state checks remain mandatory. Added private field-name-only rejection diagnostics, parse issue codes and exception class (no exception message/personal values), so the next unmatched order is diagnosable. These diagnostics are not sent to WhatsApp. Validation: 149 tests passed, 10 opt-in DOM tests skipped; Ruff passed. Server restarted with these changes.
+
+Regression coverage includes the visible ₹123 receipt structure with synthetic/redacted order details, current detail status overriding an unknown card status, cancellation precedence, immediate stop after first verified paid match and safe pending diagnostics. This is a hardening fix, not evidence that the exact live failure has been reproduced/resolved. Next validation: a future user-authorized purchase must confirm on first matching history read; if pending, inspect the new reason fields before changing matching rules. Do not use the cancelled order to claim prior payment success or initiate a replacement purchase.
+
+---
+
 # Inline WhatsApp payment QR — 2026-11-21
 
 Blinkit UPI now queues a payment_qr artifact reference instead of a payment webpage link. The sender-scoped, unexpired verified merchant PNG is uploaded through Meta media and sent as an image with amount and "Please complete your payment using the QR above." Check status follows through the existing delivery dependency. No redrawing or payment regeneration. Expired/finished artifacts are not sent; QR rejection never falls back to a caption implying the image arrived. Existing legacy payment pages remain compatible but are no longer advertised in the new reply.

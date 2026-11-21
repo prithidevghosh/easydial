@@ -9,19 +9,19 @@ from ..models import SessionView
 from ..providers.blinkit import normalized
 
 
-def matches(order, view, method, baseline, started_at):
+def mismatch_reason(order, view, method, baseline, started_at):
     if not order.get("order_id") or order.get("history_id", order["order_id"]) in baseline:
-        return False
+        return "identity"
     if order.get("provider") != view.review.provider.value:
-        return False
+        return "provider"
     placed = order.get("placed_at")
     if not isinstance(placed, (float, int)) or not started_at - 60 <= placed <= time.time() + 60:
-        return False
+        return "placed_at"
     if order.get("total_paise") != view.review.total_paise:
-        return False
+        return "total"
     expected_address = normalized(view.review.address_label)
     if not expected_address or expected_address not in normalized(order.get("address", "")):
-        return False
+        return "address"
     if order["provider"] == "instamart":
         # Merchant catalog IDs identify the purchased variant when history omits pack text.
         expected = sorted(
@@ -40,8 +40,14 @@ def matches(order, view, method, baseline, started_at):
             for x in order.get("items", [])
         )
     if not expected or actual != expected:
-        return False
-    return order.get("method") in ({"cash"} if method == "cash" else {"upi", "online"})
+        return "items"
+    if order.get("method") not in ({"cash"} if method == "cash" else {"upi", "online"}):
+        return "payment_method"
+    return None
+
+
+def matches(order, view, method, baseline, started_at):
+    return mismatch_reason(order, view, method, baseline, started_at) is None
 
 
 class OrderMonitor:
@@ -102,11 +108,22 @@ class OrderMonitor:
                 history = await asyncio.wait_for(
                     workers.order_history(view, baseline), timeout=max(0.01, deadline - time.monotonic())
                 )
-                candidates = [
-                    o
-                    for o in history["orders"]
-                    if matches(o, view, row["method"], baseline, row["started_at"])
-                ]
+                candidates = []
+                rejected = set()
+                for order in history["orders"]:
+                    reason = mismatch_reason(order, view, row["method"], baseline, row["started_at"])
+                    if reason:
+                        rejected.add(reason)
+                    else:
+                        candidates.append(order)
+                result = {
+                    "status": "pending",
+                    "reason": "no_matching_order",
+                    "rejected_fields": sorted(rejected),
+                    "history_issues": history.get("issues", []),
+                }
+                if len(candidates) > 1:
+                    result["reason"] = "ambiguous_matches"
                 if len(candidates) == 1:
                     order = candidates[0]
                     if order.get("status") in {"failed", "cancelled"}:
@@ -116,10 +133,14 @@ class OrderMonitor:
                     ):
                         result = {"status": "confirmed", "order": order}
                     else:
-                        result = {"status": "pending", "order": order}
-            except Exception:
+                        result = {"status": "pending", "order": order, "reason": "awaiting_store_or_payment"}
+            except Exception as exc:
                 # A blocked browser, timeout, or unreadable history is not a failed payment.
-                result = {"status": "pending"}
+                result = {
+                    "status": "pending",
+                    "reason": "history_read_error",
+                    "error_type": type(exc).__name__,
+                }
             with self.db:
                 self.db.execute(
                     "UPDATE order_checks SET status=?,result=?,checks=checks+1 WHERE sender=? AND order_id=?",
