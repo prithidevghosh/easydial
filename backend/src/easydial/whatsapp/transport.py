@@ -12,6 +12,7 @@ from urllib.parse import urlparse
 import httpx
 
 from ..controller import DomainError
+from .presentation import prepare_outbound, qr_caption
 
 log = logging.getLogger(__name__)
 
@@ -26,6 +27,7 @@ class MetaTransport:
         self.headers = {"Authorization": f"Bearer {settings.whatsapp_access_token}"}
 
     async def send(self, sender, payload, *, image_fallback=True):
+        payload = prepare_outbound(payload)
         response = await self.http.post(
             f"{self.base}/{self.settings.whatsapp_phone_number_id}/messages",
             headers=self.headers,
@@ -89,7 +91,7 @@ class MetaTransport:
                 "type": "image",
                 "image": {
                     "id": media_id,
-                    "caption": f"Blinkit · ₹{artifact['total_paise'] / 100:.2f}\nPlease complete your payment using the QR above. It expires in a few minutes.",
+                    "caption": qr_caption(artifact['total_paise']),
                 },
             },
             image_fallback=False,

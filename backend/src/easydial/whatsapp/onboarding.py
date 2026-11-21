@@ -12,25 +12,14 @@ from ..controller import DomainError
 from ..models import SessionView
 from .accounts import CONSENT_TEXT
 from .conversation import text_message
+from .presentation import onboarding_card, plain, text_messages
 from .store_login import LoginRateLimited, LoginStillPending, LoginSubmissionRejected
 
 log = logging.getLogger(__name__)
 
 
-def button_message(body, nonce, options):
-    return {
-        "type": "interactive",
-        "interactive": {
-            "type": "button",
-            "body": {"text": body},
-            "action": {
-                "buttons": [
-                    {"type": "reply", "reply": {"id": f"onboard:{nonce}:{key}", "title": title}}
-                    for key, title in options
-                ]
-            },
-        },
-    }
+def button_message(body, nonce, options, *, heading=None, footer=None):
+    return onboarding_card(body, nonce, options, heading=heading, footer=footer)
 
 
 def content(message):
@@ -93,9 +82,9 @@ class Onboarding:
             if state["stage"] not in {"ready", "store", "consent", "phone"}:
                 self.accounts.begin(row["sender"], "store")
 
-    def menu(self, sender, intro="Welcome to EasyDial. Which store would you like to connect?"):
+    def menu(self, sender, intro="Send a voice note. We’ll help with the groceries.\n\nFirst, choose a store to connect."):
         state = self.accounts.begin(sender)
-        return [button_message(intro, state["nonce"], [("blinkit", "Blinkit"), ("instamart", "Instamart")])]
+        return [button_message(intro, state["nonce"], [("blinkit", "Blinkit"), ("instamart", "Instamart")], heading="Welcome to EasyDial 👋" if intro.startswith("Send a voice note.") else "Connect a store")]
 
     async def cancel(self, sender, provider=None):
         await self.adapter.cancel(sender, provider)
@@ -245,9 +234,10 @@ class Onboarding:
             state = self.accounts.begin(sender, "consent", provider=provider)
             return [
                 button_message(
-                    CONSENT_TEXT.format(store=provider.title()),
+                    CONSENT_TEXT.format(store=provider.title()).replace("We encrypt", "\n\nWe encrypt").replace("You can disconnect", "\n\nYou can disconnect"),
                     state["nonce"],
                     [("agree", "I agree"), ("decline", "Not now")],
+                    heading=f"🔐 Connect {provider.title()}",
                 )
             ]
         provider = state["provider"]
@@ -271,7 +261,7 @@ class Onboarding:
             self.accounts.begin(sender, "phone", provider=provider)
             return [
                 text_message(
-                    f"What is the 10-digit Indian mobile number for your {provider.title()} account? Send Cancel to stop."
+                    f"*Connect {provider.title()} · Phone number*\n\nWhat is the 10-digit Indian mobile number for your account?\n\nSend Cancel to stop."
                 )
             ]
         if not self.accounts.consented(sender, provider):
@@ -334,7 +324,7 @@ class Onboarding:
                 self.accounts.begin(sender, "otp", provider=provider, phone=phone)
                 return [
                     text_message(
-                        f"Enter the OTP sent by {provider.title()}. It is used only for this login. Send Cancel to stop."
+                        f"*Connect {provider.title()} · Verification*\n\nEnter the OTP sent by {provider.title()}. It is used only for this login.\n\nSend Cancel to stop."
                     )
                 ]
             if stage == "otp":
@@ -430,8 +420,8 @@ class Onboarding:
     def address_menu(self, state):
         # A text list keeps full addresses intact; opaque buttons bind to one attempt.
         addresses = state["addresses"]
-        lines = "\n".join(f"{i}. {a['label']}" for i, a in enumerate(addresses, 1))
-        return [text_message("Choose your delivery address. Reply with its number:\n" + lines)]
+        lines = "\n\n".join(f"*{i}.* {plain(a['label'])}" for i, a in enumerate(addresses, 1))
+        return text_messages("📍 *Choose your delivery address*\n\n" + lines + "\n\nReply with the address number.")
 
     async def complete(self, sender, provider, address):
         data = await self.adapter.select_address(sender, provider, address)
@@ -441,6 +431,6 @@ class Onboarding:
         self.accounts.begin(sender, "ready")
         return [
             text_message(
-                f"{provider.title()} connected.\nDelivery: {data['address']}\nSend a voice note or type what you need. Send Connect to add another store, or Disconnect {provider} to remove access."
+                f"✅ *{provider.title()} connected*\n\n*Deliver to*\n{plain(data['address'])}\n\nSend a voice note or type what you need.\n\nSend Connect to add another store, or Disconnect {provider} to remove access."
             )
         ]

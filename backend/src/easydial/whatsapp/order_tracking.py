@@ -193,55 +193,40 @@ class OrderMonitor:
 
 
 def status_messages(result, view):
-    from .conversation import money, text_message
+    from .presentation import card, money, plain, text_message, text_messages
 
     order = result.get("order", {})
     if result["status"] == "not_found":
-        return [{
-            "type": "interactive",
-            "interactive": {
-                "type": "button",
-                "body": {"text": "No matching order appeared after 3 checks. You can retry payment or check again."},
-                "action": {"buttons": [
-                    {"type": "reply", "reply": {"id": f"retry_payment:{view.version}:{view.id}", "title": "Retry payment"}},
-                    {"type": "reply", "reply": {"id": f"status:{view.version}:{view.id}", "title": "Check status"}},
-                ]},
-            },
-        }]
+        return [card(
+            "No matching order appeared after 3 checks. You can retry payment or check again.",
+            heading="Order not confirmed", buttons=[
+                (f"retry_payment:{view.version}:{view.id}", "Retry payment"),
+                (f"status:{view.version}:{view.id}", "Check status")])]
     if result.get("stale"):
-        return [text_message("I couldn’t refresh delivery status from the store. Tap Check status to retry. Don’t pay or order again."), status_button(view)]
+        return [text_message("*Status unavailable*\n\nI couldn’t refresh delivery status from the store. Don’t pay or order again."), status_button(view)]
     if result["status"] == "confirmed":
         delivered = order.get("status") == "delivered"
         payment = ("" if delivered else "Pay cash on delivery.") if order["method"] == "cash" else "Payment verified."
-        eta = f" ETA: {order['eta']}." if order.get("eta") and not delivered and not result.get("stale") else ""
         label = "Order delivered" if delivered else "Order confirmed"
-        items = "; ".join(f"{x.quantity} × {x.offer.name} ({x.offer.pack_size})" for x in view.lines)
-        return [
-            text_message(
-                f"{items}\n{label}: {order['order_id']} · {money(order['total_paise'])}. {payment}{eta}"
-            )
-        ]
-    text = (
-        "The store shows this order as cancelled or failed. Don’t pay again until any payment or refund is checked."
-        if result["status"] == "failed"
-        else "I couldn’t verify your order yet. Don’t pay or order again—I’ll check when you tap below."
+        icon = "📦" if delivered else "✅"
+        items = "\n".join(f"• {x.quantity} × {plain(x.offer.name)} · {plain(x.offer.pack_size)}" for x in view.lines)
+        body = f"{icon} *{label}*\n\nOrder ID: {plain(order['order_id'])}\n*Total · {money(order['total_paise'])}*"
+        if payment:
+            body += "\n" + payment
+        if order.get("eta") and not delivered:
+            body += "\n" + plain(order['eta'])
+        body += "\n\n" + items
+        return text_messages(body)
+    body = (
+        "*Order update*\n\nThe store shows this order as cancelled or failed. Don’t pay again until any payment or refund is checked."
+        if result["status"] == "failed" else
+        "*Awaiting confirmation*\n\nI couldn’t verify your order yet. Don’t pay or order again. Tap below for a fresh check."
     )
-    return [text_message(text), status_button(view)]
+    return [text_message(body), status_button(view)]
 
 
 def status_button(view):
-    return {
-        "type": "interactive",
-        "interactive": {
-            "type": "button",
-            "body": {"text": "Check your order’s latest status."},
-            "action": {
-                "buttons": [
-                    {
-                        "type": "reply",
-                        "reply": {"id": f"status:{view.version}:{view.id}", "title": "Check status"},
-                    }
-                ]
-            },
-        },
-    }
+    from .presentation import card
+
+    return card("Check the latest update directly with your store.",
+                buttons=[(f"status:{view.version}:{view.id}", "Check status")])

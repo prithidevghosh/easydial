@@ -466,7 +466,7 @@ async def test_no_payment_attempt_advances_basket_to_bill_and_button(tmp_path, u
     runtime.payments.place_cash = AsyncMock(side_effect=AssertionError('Must not order'))
     state, replies = await runtime.chat.handle(utterance, state, customer='alice')
     assert state['view']['review']
-    assert any('TOTAL PAYABLE' in x.get('text', {}).get('body', '') for x in replies)
+    assert any('Total payable' in x.get('text', {}).get('body', '') for x in replies)
     titles = [b['reply']['title'] for x in replies for b in x.get('interactive', {}).get('action', {}).get('buttons', [])]
     assert 'Choose payment' in titles
     assert not runtime.payments.existing('alice', state['view']['id'])

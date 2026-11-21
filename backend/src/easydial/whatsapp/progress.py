@@ -3,15 +3,17 @@
 import asyncio
 from contextlib import suppress
 
+from .presentation import progress_copy
+
 
 class TurnProgress:
     def __init__(self, inbox, transport, row, stage, delay=5):
         self.inbox, self.transport, self.row = inbox, transport, row
-        self.stage, self.delay = stage, delay
+        self.stage, self.delay = progress_copy(stage), delay
         self.task = None
 
     def update(self, stage):
-        self.stage = stage
+        self.stage = progress_copy(stage)
 
     def start(self):
         self.task = asyncio.create_task(self.run())

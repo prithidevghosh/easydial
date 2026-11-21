@@ -177,7 +177,8 @@ async def test_cash_requires_separate_explicit_button_and_only_submits_once(tmp_
     assert calls == ["prepare"]
     state, replies = await runtime.chat.handle("Place order", state, submit_action, customer="alice")
     assert calls == ["prepare", "submit"]
-    assert "Order confirmed: merchant12345" in replies[0]["text"]["body"]
+    assert "Order confirmed" in replies[0]["text"]["body"]
+    assert "Order ID: merchant12345" in replies[0]["text"]["body"]
     with pytest.raises(DomainError):
         await runtime.chat.handle("Place order", state, submit_action, customer="alice")
     assert calls.count("submit") == 1

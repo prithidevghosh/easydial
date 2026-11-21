@@ -7,13 +7,12 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
-from ..billing import breakdown, can_choose_payment, fingerprint, table
+from ..billing import breakdown, can_choose_payment, fingerprint
 from ..controller import DomainError, Session, exact_comparison
 from ..master import INSTRUCTIONS
 from ..models import BasketLine, EditRequest, IntentEdit, Offer, Provider, RequestedProduct, SessionView, now
 from ..providers.cart_guard import CartConflict
-from ..providers.images import product_image_url
-from . import reconciliation
+from . import presentation, reconciliation
 
 
 class ChatIntent(BaseModel):
@@ -55,22 +54,15 @@ class RemovalCheck(BaseModel):
 
 
 def text_message(text):
-    return {"type": "text", "text": {"body": text}}
+    return presentation.text_message(text)
 
 
 def money(paise):
-    return "not verified" if paise is None else f"₹{paise / 100:.2f}"
+    return presentation.money(paise)
 
 
 def basket_text(session):
-    if not session.view.lines:
-        return "Your basket is empty."
-    stores = ", ".join(sorted({line.offer.provider.value.title() for line in session.view.lines}))
-    return f"Your {stores} basket:\n" + "\n".join(
-        f"• {line.quantity} × {line.offer.name} ({line.offer.pack_size or 'pack unspecified'}) — "
-        f"{money(line.subtotal)}"
-        for line in session.view.lines
-    )
+    return presentation.basket_text(session)
 
 
 class ShoppingChat:
@@ -209,7 +201,7 @@ Without an explicit store switch, existing-basket choices remain in its store; o
 are comparison only. Never claim a store was changed in clarification.
 Stop pauses this chat; do not interpret 'don't place an order yet, compare milk' as opt-out.
 Return empty queries/edits unless needed, null offer_id/quantity unless selecting.
-Use short, everyday language: one short sentence where possible. Avoid technical words and repeated disclaimers.
+Use warm, concise business English: one or two short sentences, one clear next step. No greetings on every turn, excessive apologies, hype, decorative Unicode fonts, tables or invented buttons. Use normal sentence case. Avoid technical words and repeated disclaimers. Product and bill formatting is handled by the app; do not recreate it in clarification.
 All customer-facing replies and clarifications MUST be in English, even for Hindi/Hinglish or other input. Never claim any completed action or price
 in clarification. Grocery shopping and connected-account management are supported; redirect other topics briefly.
 Interpret only the current request. CURRENT_BASKET is authoritative; an empty list means no items.
@@ -1235,7 +1227,7 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
                         "interactive": {
                             "type": "button",
                             "body": {
-                                "text": f"Place this {money(fresh.total_paise)} order with {fresh.provider.value.title()}? Pay cash on delivery. Tapping Place order submits the order."
+                                "text": f"*{fresh.provider.value.title()} · {money(fresh.total_paise)}*\n\nPay cash on delivery.\n\nTap Place order to submit this order, or change your basket."
                             },
                             "action": {
                                 "buttons": [
@@ -1313,36 +1305,7 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
 
     @staticmethod
     def payment_choices(session, menu):
-        return {
-            "type": "interactive",
-            "interactive": {
-                "type": "list",
-                "body": {"text": f"{money(session.view.review.total_paise)} · Choose a payment method."},
-                "action": {
-                    "button": "Payment options",
-                    "sections": [
-                        {
-                            "title": "From your store",
-                            "rows": [
-                                {
-                                    "id": f"payment:{session.view.version}:{menu['id']}_{item['id']}",
-                                    "title": item["title"][:24],
-                                    "description": (
-                                        item.get("note")
-                                        or (
-                                            "Generate a UPI QR"
-                                            if item["id"] == "upi"
-                                            else "Continue securely on the store"
-                                        )
-                                    )[:72],
-                                }
-                                for item in menu["methods"]
-                            ],
-                        }
-                    ],
-                },
-            },
-        }
+        return presentation.payment_choices(session, menu)
 
     async def resolve_bill(self, session, review, progress=None):
         """Bounded read-only recovery; never repeat cart writes or infer missing charges."""
@@ -1361,144 +1324,12 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
 
     @staticmethod
     def review_messages(session):
-        review = session.view.review
-        items = "\n".join(
-            f"• {line.quantity} × {line.offer.name} ({line.offer.pack_size})" for line in session.view.lines
-        )
-        reconciled = can_choose_payment(review)
-        next_step = (
-            "Tap Choose payment to continue, or tell me what to change."
-            if reconciled
-            else "Your basket is saved. Choose what you’d like to do below."
-        )
-        replies = [
-            text_message(
-                f"{review.provider.value.title()} — live cart review\n{items}\n\n"
-                f"{table(review)}\n\nDelivery: {review.address_label}\n"
-                f"{next_step}"
-            )
-        ]
-        if can_choose_payment(review):
-            replies.append(
-                {
-                    "type": "interactive",
-                    "interactive": {
-                        "type": "button",
-                        "body": {"text": "How would you like to pay?"},
-                        "action": {
-                            "buttons": [
-                                {
-                                    "type": "reply",
-                                    "reply": {
-                                        "id": f"checkout:{session.view.version}:{review.id}",
-                                        "title": "Choose payment",
-                                    },
-                                }
-                            ]
-                        },
-                    },
-                }
-            )
-        else:
-            replies.append(
-                {
-                    "type": "interactive",
-                    "interactive": {
-                        "type": "button",
-                        "body": {"text": "Would you like to change your basket or save it for later?"},
-                        "action": {
-                            "buttons": [
-                                {
-                                    "type": "reply",
-                                    "reply": {
-                                        "id": f"change_basket:{session.view.version}:{review.id}",
-                                        "title": "Change basket",
-                                    },
-                                },
-                                {
-                                    "type": "reply",
-                                    "reply": {
-                                        "id": f"save_basket:{session.view.version}:{review.id}",
-                                        "title": "Save for later",
-                                    },
-                                },
-                            ]
-                        },
-                    },
-                }
-            )
-        return replies
+        return presentation.review_messages(session)
 
     @staticmethod
     def choice_messages(session, choices, partial=False):
-        rows, descriptions, photos = [], [], []
-        for i, id in enumerate(choices, 1):
-            offer = session.offers[id]
-            title = f"{i}. {offer.provider.value.title()}"
-            detail = f"{offer.name[:100]} · {offer.pack_size or 'unknown pack'} · {money(offer.price_paise)}"
-            image_url = product_image_url(offer.image_url)
-            if image_url and len(photos) < 2:
-                photos.append(
-                    {
-                        "type": "image",
-                        "image": {
-                            "link": image_url,
-                            "caption": f"{title} · {offer.name} · {offer.pack_size} · {money(offer.price_paise)} · In stock · {offer.suggested_quantity} pack(s). Reply {i} to choose."[
-                                :1024
-                            ],
-                        },
-                    }
-                )
-            else:
-                descriptions.append(
-                    f"{title}: {detail} · In stock · {offer.suggested_quantity} pack(s). Reply {i} to choose."
-                )
-            rows.append(
-                {"id": f"pick:{session.view.version}:{id}", "title": title[:24], "description": detail[:72]}
-            )
-        return (
-            photos
-            + ([text_message("\n".join(descriptions))] if descriptions else [])
-            + [
-                {
-                    "type": "interactive",
-                    "interactive": {
-                        "type": "list",
-                        "body": {
-                            "text": "Which product would you like? Tap below or reply with its number. Delivery and fees come at review."
-                            + (" I couldn’t compare all stores this time." if partial else "")
-                        },
-                        "action": {
-                            "button": "Choose a product",
-                            "sections": [{"title": "Live results", "rows": rows}],
-                        },
-                    },
-                },
-            ]
-        )
+        return presentation.choice_messages(session, choices, partial)
 
     @staticmethod
     def basket_messages(session):
-        if not session.view.lines:
-            return [text_message("Your basket is empty. What would you like instead?")]
-        return [
-            text_message(basket_text(session)),
-            {
-                "type": "interactive",
-                "interactive": {
-                    "type": "button",
-                    "body": {"text": "Change anything, or review your basket?"},
-                    "action": {
-                        "buttons": [
-                            {
-                                "type": "reply",
-                                "reply": {
-                                    "id": f"review:{session.view.version}:current",
-                                    "title": "Review basket",
-                                },
-                            }
-                        ]
-                    },
-                },
-            },
-        ]
+        return presentation.basket_messages(session)

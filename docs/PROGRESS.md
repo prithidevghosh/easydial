@@ -605,3 +605,13 @@ Validation: 239 standard tests passed; 31 opt-in DOM tests skipped. Lint/diff ch
 - Compared fresh anonymous headed Chrome locally, the exact Linux deployment image locally, and the same image on AWS. Both local variants returned 200; AWS returned Cloudflare 403 with an explicit block page. No CAPTCHA iframe or location selector on that blocked response.
 - Added a read-only diagnostic tool and docs/BLINKIT_AWS_ACCESS.md with the IP/Ray evidence and an unsent support request. No order/login actions, spoofing, proxying or IP rotation.
 - Network/egress restriction is strongly implicated; the specific reason, including geography, is not established. Merchant-approved access remains necessary for cloud ordering acceptance.
+
+
+## WhatsApp outbound design refresh — 2026-11-22
+- Added one presentation module for native WhatsApp cards, captions, baskets, bills and progress. Uses real WhatsApp bold/headers/footers and restrained contextual emojis; no custom-font Unicode or unsupported Markdown tables.
+- Product image captions now separate name, pack/store, unit price, availability and requested quantity total. Mixed image/text results preserve their numbered order and have exactly one selection prompt at the end. Product names replace store-only list titles.
+- Basket and bill layouts use item blocks, explicit subtotal vs final payable amount, a narrow monospace charge table and full delivery addresses. Long baskets, receipts and address lists split without omitting content or moving the action prompt ahead of details. Existing bill reconciliation/payment guards remain unchanged.
+- Consent paragraphs preserve the versioned wording and opaque action tokens. Phone/OTP/address/connected messages have distinct layouts. Payment methods, explicit COD confirmation, exact-QR captions, confirmed/delivered states and recovery cards follow the same style.
+- Transport formatting copies payloads, leaves action IDs intact and disables automatic text URL previews. Existing image fallback, QR no-fallback, uncertain-send and delivery-receipt ordering are preserved.
+- Added docs/WHATSAPP_MESSAGING.md with copy previews, layout rules, API constraints and implementation boundaries.
+- Verification: 297 backend tests passed, 40 opt-in browser tests skipped; Ruff passed. Eight added presentation regressions cover ordering, factual quantity totals, API limits, merchant-label formatting, full long baskets/addresses/bills, consent preservation and immutable transport styling. No live customer message/order/payment sent for this change.

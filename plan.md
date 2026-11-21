@@ -406,3 +406,15 @@ See [onboarding implementation plan](docs/ONBOARDING_IMPLEMENTATION.md) and [ope
 Operational details and remaining acceptance gates: [AWS deployment handoff](docs/AWS_DEPLOYMENT.md).
 
 Cloud merchant acceptance blocked: Blinkit returned HTTP 403/access denied in headed Chrome. Instamart homepage works; login not verified. See AWS handoff before claiming deployment parity.
+
+
+## WhatsApp outbound design — 2026-11-22
+- [x] Define native type hierarchy, restrained emojis and concise English tone.
+- [x] Redesign onboarding, progress, product cards, basket, bill, payment and status formats.
+- [x] Keep all product details before the final choice prompt, including mixed image/text results.
+- [x] Preserve real prices, quantities, fees, consent, action IDs and payment/order guardrails.
+- [x] Handle API length limits and long item/address lists without losing details.
+- [x] Regression suite: 297 passed; 40 opt-in browser tests skipped.
+- [ ] Check final rendered appearance in a live iOS/Android WhatsApp chat after deployment.
+
+Style guide and examples: [WhatsApp messaging system](docs/WHATSAPP_MESSAGING.md).

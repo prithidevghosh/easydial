@@ -77,7 +77,7 @@ async def test_fast_turn_has_no_progress_message_and_slow_turn_has_one(tmp_path)
     await asyncio.sleep(0.03)
     await slow.close()
     assert len(runtime.transport.sent) == 1
-    assert runtime.transport.sent[0][1]["text"]["body"] == "Finding matching products…"
+    assert runtime.transport.sent[0][1]["text"]["body"] == "Finding the best matches for you…"
     retry = TurnProgress(runtime.inbox, runtime.transport, row, "Checking…", delay=0.01)
     retry.start()
     await asyncio.sleep(0.03)
@@ -204,7 +204,7 @@ async def test_search_keeps_provider_diagnostics_out_of_customer_messages(tmp_pa
     assert replies[-1]["type"] == "interactive"
     assert "browser" not in output and "challenge" not in output
     assert "Adding to" not in output
-    assert "compare all stores" in output
+    assert "Some stores were unavailable" in output
     assert state["view"]["results"][0]["message"] == failure.message
     good.offers = []
     _, replies = await runtime.chat.handle("milk", runtime.chat.initial())
@@ -228,7 +228,7 @@ async def test_basket_answers_contents_and_store_without_duplicate_prompt(tmp_pa
         "What is in the cart right now and is it from Instamart or Blinkit?", state
     )
     body = replies[0]["text"]["body"]
-    assert body.startswith("Your Instamart basket:")
+    assert body.startswith("🛒 *Your Instamart basket*")
     assert "Amul Taaza Toned Milk" in body and "500 ml" in body
     assert "Want to change anything?" not in body
     assert replies[-1]["interactive"]["action"]["buttons"][0]["reply"]["title"] == "Review basket"
