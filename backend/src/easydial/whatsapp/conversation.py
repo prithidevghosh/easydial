@@ -416,6 +416,8 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
                 ]
             if progress:
                 progress.update("Checking your order with the store…")
+            if normalized in {"paid", "payment done", "i paid", "payment completed"}:
+                await asyncio.sleep(5)
             result = await payments.monitor.check(customer, session.view.id, self.workers)
             return state, status_messages(result, session.view)
         if state["paused"]:

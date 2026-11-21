@@ -1,5 +1,6 @@
 """Durable, once-only request generation; no charge authorization or order submission."""
 
+import asyncio
 import hashlib
 import json
 import secrets
@@ -26,13 +27,25 @@ class PaymentRequests:
             sender TEXT NOT NULL, order_id TEXT NOT NULL, status TEXT NOT NULL,
             fingerprint TEXT NOT NULL, merchant_order_id TEXT, created_at INTEGER,
             PRIMARY KEY(sender,order_id))""")
+        self.inbox.db.execute("""CREATE TABLE IF NOT EXISTS automatic_order_checks (
+            sender TEXT NOT NULL, order_id TEXT NOT NULL, due_at REAL NOT NULL,
+            attempts INTEGER NOT NULL DEFAULT 0, done INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY(sender,order_id))""")
         with self.inbox.db:
             self.inbox.db.execute("UPDATE cash_orders SET status='unknown' WHERE status='submitting'")
             self.inbox.db.execute("UPDATE payment_requests SET status='unknown' WHERE status='creating'")
 
+    def schedule_check(self, sender, order_id):
+        with self.inbox.db:
+            self.inbox.db.execute(
+                "INSERT OR IGNORE INTO automatic_order_checks(sender,order_id,due_at) VALUES (?,?,?)",
+                (sender, order_id, time.time() + 5),
+            )
+
     def revoke_customer(self, sender):
         """Expire EasyDial-hosted artifacts; never claim to cancel merchant requests/orders."""
         with self.inbox.db:
+            self.inbox.db.execute("UPDATE automatic_order_checks SET done=1 WHERE sender=?", (sender,))
             self.inbox.db.execute(
                 "UPDATE payment_requests SET status='revoked',artifact=NULL,expires_at=0 WHERE sender=?",
                 (sender,),
@@ -121,6 +134,7 @@ class PaymentRequests:
                 )
             self.monitor.activate(sender, view.id)
             reserved = True
+            self.schedule_check(sender, view.id)
 
         try:
             result = await workers.submit_cash(view, review, reserve)
@@ -137,6 +151,7 @@ class PaymentRequests:
                     raise
             else:
                 raise
+        await asyncio.sleep(5)
         result = await self.monitor.check(sender, view.id, workers)
         with self.inbox.db:
             self.inbox.db.execute(

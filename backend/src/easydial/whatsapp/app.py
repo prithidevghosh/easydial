@@ -223,6 +223,8 @@ class Runtime:
                 try:
                     artifact = self.payments.qr_artifact(row["sender"], payload["request_id"])
                     remote_id = await self.transport.send_payment_qr(row["sender"], artifact)
+                    request = self.inbox.db.execute("SELECT order_id FROM payment_requests WHERE id=? AND sender=?", (payload["request_id"], row["sender"])).fetchone()
+                    self.payments.schedule_check(row["sender"], request["order_id"])
                 except DomainError as error:
                     remote_id = await self.transport.send(row["sender"], text_message(error.message))
             else:
@@ -232,6 +234,50 @@ class Runtime:
             # A timeout can occur after Meta accepted a message. Do not duplicate it blindly.
             log.warning("WhatsApp reply uncertain (%s); inspect local status", type(error).__name__)
             self.inbox.mark_reply(row["id"], "uncertain")
+        return True
+
+    async def check_due_order(self):
+        from ..models import SessionView
+        from .order_tracking import status_messages
+
+        job = self.inbox.db.execute(
+            "SELECT * FROM automatic_order_checks WHERE done=0 AND due_at<=? ORDER BY due_at LIMIT 1",
+            (time.time(),),
+        ).fetchone()
+        if not job:
+            return False
+        sender, order_id = job["sender"], job["order_id"]
+        attempt = self.payments.monitor.get(sender, order_id)
+        state = self.inbox.load(sender)
+        allowed = bool(state and state["view"]["id"] == order_id and not state.get("paused") and self.inbox.window_open(sender))
+        if self.onboarding:
+            connections = self.onboarding.accounts.connections(sender)
+            provider = json.loads(attempt["snapshot"])["review"]["provider"] if attempt else ""
+            allowed = allowed and provider in connections and self.onboarding.accounts.consented(sender, provider)
+        if not allowed or not attempt or attempt["status"] != "pending":
+            with self.inbox.db:
+                self.inbox.db.execute("UPDATE automatic_order_checks SET done=1 WHERE sender=? AND order_id=?", (sender, order_id))
+            return True
+        try:
+            chat = await self.customer_chats.get(sender) if self.customer_chats else self.chat
+            result = await self.payments.monitor.check(sender, order_id, chat.workers, max_checks=1)
+        except Exception:
+            result = {"status": "pending"}
+        final = result["status"] != "pending"
+        exhausted = job["attempts"] + 1 >= 10
+        with self.inbox.db:
+            self.inbox.db.execute(
+                "UPDATE automatic_order_checks SET attempts=attempts+1,due_at=?,done=? WHERE sender=? AND order_id=?",
+                (time.time() + 3, int(final or exhausted), sender, order_id),
+            )
+            # Silent pending polls; send one verified outcome, never a guessed success.
+            if final:
+                view = SessionView.model_validate_json(attempt["snapshot"])
+                for payload in status_messages(result, view):
+                    self.inbox.db.execute(
+                        "INSERT INTO outbox(event_id,sender,payload) VALUES (?,?,?)",
+                        ("auto-status:" + order_id, sender, json.dumps(payload)),
+                    )
         return True
 
     async def run(self):
@@ -244,6 +290,8 @@ class Runtime:
                 if await self.send_one():
                     continue
                 if await self.process():
+                    continue
+                if await self.check_due_order():
                     continue
             except Exception as error:
                 log.error("WhatsApp worker paused (%s)", type(error).__name__)

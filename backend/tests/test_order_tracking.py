@@ -403,3 +403,49 @@ async def test_confirmed_order_refreshes_delivery_without_reusing_eta(tmp_path, 
         assert "couldn’t refresh delivery status" in message
         assert monitor.get("alice", view.id)["status"] == "confirmed"
     runtime.inbox.close()
+
+
+@pytest.mark.parametrize("outcome", ["confirmed", "pending", "logout"])
+async def test_automatic_check_is_delayed_durable_and_notifies_once(tmp_path, outcome):
+    import json
+
+    from easydial.whatsapp.payments import PaymentRequests
+
+    runtime = make_runtime(tmp_path)
+    state = await reviewed(runtime)
+    view = SessionView.model_validate(state["view"])
+    runtime.inbox.enqueue({"id": "setup", "from": "alice", "timestamp": int(time.time()), "type": "text", "text": {"body": "hi"}})
+    row = runtime.inbox.claim()
+    runtime.inbox.finish(row, state, [])
+    worker = runtime.chat.workers
+    worker.order_history = empty_history
+    await runtime.payments.monitor.capture("alice", view, "cash", worker)
+    runtime.payments.monitor.activate("alice", view.id)
+    runtime.payments.schedule_check("alice", view.id)
+    job = runtime.inbox.db.execute("SELECT * FROM automatic_order_checks").fetchone()
+    assert job["due_at"] >= time.time() + 4
+    assert not await runtime.check_due_order()
+    runtime.payments = PaymentRequests(runtime.inbox, "https://example.test")
+    calls = 0
+
+    async def history(*args):
+        nonlocal calls
+        calls += 1
+        return {"orders": [merchant_order(view)] if outcome == "confirmed" else []}
+
+    worker.order_history = history
+    if outcome == "logout":
+        runtime.payments.revoke_customer("alice")
+    with runtime.inbox.db:
+        runtime.inbox.db.execute("UPDATE automatic_order_checks SET due_at=0")
+    await runtime.check_due_order()
+    messages = [json.loads(r[0]) for r in runtime.inbox.db.execute("SELECT payload FROM outbox WHERE event_id LIKE 'auto-status:%'")]
+    assert calls == (0 if outcome == "logout" else 1)
+    assert len(messages) == (1 if outcome == "confirmed" else 0)
+    assert not await runtime.check_due_order()
+    if outcome == "pending":
+        with runtime.inbox.db:
+            runtime.inbox.db.execute("UPDATE automatic_order_checks SET attempts=9,due_at=0")
+        await runtime.check_due_order()
+        assert runtime.inbox.db.execute("SELECT done FROM automatic_order_checks").fetchone()[0] == 1
+    runtime.inbox.close()

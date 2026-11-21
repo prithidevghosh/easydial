@@ -116,19 +116,17 @@ class OrderMonitor:
         # Keep verified purchase evidence, but never present a cached ETA as current.
         return {**saved, "stale": True, "order": {**saved["order"], "eta": None}}
 
-    async def check(self, sender, order_id, workers, *, sleep=asyncio.sleep):
+    async def check(self, sender, order_id, workers, *, sleep=asyncio.sleep, max_checks=10):
         row = self.get(sender, order_id)
         if not row or row["status"] == "prepared":
             return {"status": "pending", "reason": "no_verified_attempt"}
-        if row["status"] == "failed":
-            return json.loads(row["result"])
-        if row["status"] == "confirmed":
+        if row["status"] in {"confirmed", "failed"}:
             return await self.refresh_confirmed(row, workers)
         view = SessionView.model_validate_json(row["snapshot"])
         baseline = json.loads(row["baseline"])
         result = {"status": "pending"}
         deadline = time.monotonic() + 30
-        for attempt in range(10):
+        for attempt in range(max_checks):
             previous = result
             result = {"status": "pending"}
             try:
@@ -179,7 +177,7 @@ class OrderMonitor:
                 return result
             if time.monotonic() + 3 >= deadline:
                 break
-            if attempt < 9:
+            if attempt < max_checks - 1:
                 await sleep(3)
         return result
 
@@ -188,20 +186,19 @@ def status_messages(result, view):
     from .conversation import money, text_message
 
     order = result.get("order", {})
+    if result.get("stale"):
+        return [text_message("I couldn’t refresh delivery status from the store. Tap Check status to retry. Don’t pay or order again."), status_button(view)]
     if result["status"] == "confirmed":
         delivered = order.get("status") == "delivered"
         payment = ("" if delivered else "Pay cash on delivery.") if order["method"] == "cash" else "Payment verified."
         eta = f" ETA: {order['eta']}." if order.get("eta") and not delivered and not result.get("stale") else ""
         label = "Order delivered" if delivered else "Order confirmed"
-        if result.get("stale"):
-            label = "Previously verified order"
-            eta = " I couldn’t refresh delivery status. Tap Check status to retry."
         items = "; ".join(f"{x.quantity} × {x.offer.name} ({x.offer.pack_size})" for x in view.lines)
         return [
             text_message(
                 f"{items}\n{label}: {order['order_id']} · {money(order['total_paise'])}. {payment}{eta}"
             )
-        ] + ([status_button(view)] if result.get("stale") else [])
+        ]
     text = (
         "The store shows this order as cancelled or failed. Don’t pay again until any payment or refund is checked."
         if result["status"] == "failed"
