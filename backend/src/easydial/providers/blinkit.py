@@ -10,6 +10,7 @@ from .browser import BrowserSession, click_and_settle
 from .cart_guard import CartConflict, CartGuard
 from .images import product_image_url
 from .money import paise
+from .relevance import matches_query
 
 
 def parse_card(raw: dict, address: str) -> Offer | None:
@@ -106,7 +107,15 @@ class BlinkitProvider:
         # The search layout has no LocationBar. Verify locality on the homepage first.
         await page.goto("https://blinkit.com/", wait_until="domcontentloaded", timeout=20000)
         await self.browser.check_page(page)
-        location = await page.locator("div[class*='LocationBar__Subtitle']").first.inner_text()
+        subtitle = page.locator("div[class*='LocationBar__Subtitle']").first
+        location = await subtitle.inner_text()
+        # Fresh contexts briefly render a default locality before restoring the
+        # saved one. Wait for the expected value; never accept a different one.
+        for _ in range(20):
+            if normalized(self.verified_location) == normalized(location):
+                break
+            await asyncio.sleep(0.25)
+            location = await subtitle.inner_text()
         if normalized(self.verified_location) != normalized(location):
             raise DomainError(
                 "Blinkit's selected delivery location changed. Reconnect with the intended address."
@@ -139,11 +148,9 @@ class BlinkitProvider:
                 raw = await card.evaluate(blinkit_dom.CARD)
                 raw["quantity"] = await card.evaluate(blinkit_dom.QUANTITY)
                 parsed = parse_card(raw, address)
-                if parsed and parsed.id not in {offer.id for offer in offers}:
+                if parsed and matches_query(query, parsed.name, parsed.pack_size) and parsed.id not in {offer.id for offer in offers}:
                     offers.append(parsed)
                     self.known[parsed.product_id] = query
-            if not offers:
-                raise ValueError("Blinkit cards could not be verified")
             return SearchResult(
                 provider=Provider.BLINKIT,
                 query=query,

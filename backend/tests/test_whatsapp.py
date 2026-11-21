@@ -427,17 +427,20 @@ async def test_multi_product_request_keeps_remaining_choices_in_selected_store(t
     async def both(*args):
         return intent(
             "search",
-            queries=[RequestedProduct(query=q, quantity=1, replaces_line_id=None) for q in ("milk", "bread")],
+            queries=[RequestedProduct(query=q, quantity=4 if q == "milk" else 1, replaces_line_id=None) for q in ("milk", "bread")],
         )
 
     runtime.chat.interpret = both
-    state, _ = await runtime.chat.handle("milk and bread", runtime.chat.initial())
+    state, _ = await runtime.chat.handle("4 milk and bread", runtime.chat.initial())
+    assert all("milk" in id for id in state["choices"])
+    assert [r["query"] for r in state["view"]["results"]] == ["milk", "milk"]
     state, replies = await runtime.chat.handle("1", state)
     assert state["choices"] and all("bread" in id and "blinkit" in id for id in state["choices"])
     menu = next(p for p in replies if p.get("interactive", {}).get("type") == "list")
     action = menu["interactive"]["action"]["sections"][0]["rows"][0]["id"]
     state, _ = await runtime.chat.handle("bread", state, action)
     assert len(state["view"]["lines"]) == 2 and not state["choices"]
+    assert [line["quantity"] for line in state["view"]["lines"]] == [4, 1]
     runtime.inbox.close()
 
 
@@ -502,4 +505,36 @@ async def test_old_mixed_store_choice_recovers_without_removing_basket(tmp_path)
     assert state["view"]["lines"] == before
     assert all(state["offers"][i]["provider"] == "instamart" for i in state["choices"])
     assert "existing basket is kept" in replies[0]["text"]["body"]
+    runtime.inbox.close()
+
+
+async def test_compound_request_partial_failure_keeps_missing_quantity_visible(tmp_path):
+    from easydial.models import SearchResult
+
+    runtime = make_runtime(tmp_path)
+    original_search = runtime.chat.workers.search
+
+    async def both(*args):
+        return intent('search', queries=[
+            RequestedProduct(query='milk', quantity=4, replaces_line_id=None),
+            RequestedProduct(query='bread', quantity=1, replaces_line_id=None),
+        ])
+
+    async def partial(query, address, provider=None):
+        if query == 'milk':
+            return [SearchResult(provider=Provider.BLINKIT, query=query, status='error', message='loading')]
+        return await original_search(query, address)
+
+    runtime.chat.interpret = both
+    runtime.chat.workers.search = partial
+    state, replies = await runtime.chat.handle('4 milk and bread', runtime.chat.initial())
+    assert state['unresolved_requests'] == [{'query': 'milk', 'quantity': 4}]
+    assert '4 × milk' in json.dumps(replies, ensure_ascii=False)
+    assert not state['choices']
+    assert state['request_queue'][0]['query'] == 'bread'
+    state, replies = await runtime.chat.handle('skip item', state)
+    assert state['choices']
+    state, replies = await runtime.chat.handle('1', state)
+    assert len(state['view']['lines']) == 1
+    assert not state['request_queue']
     runtime.inbox.close()

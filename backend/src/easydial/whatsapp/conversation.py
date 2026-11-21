@@ -184,6 +184,7 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
             input=json.dumps(
                 {
                     "request": text,
+                    "UNRESOLVED_REQUESTS": state.get("unresolved_requests", []),
                     "CURRENT_BASKET": [
                         {
                             "line_id": line.id,
@@ -383,7 +384,7 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
             "offer_id": line.offer.id,
         }
 
-    async def handle(self, text, state, action_id=None, progress=None, customer=None):
+    async def handle(self, text, state, action_id=None, progress=None, customer=None, _intent=None):
         session = Session(
             view=SessionView.model_validate(state["view"]),
             offers={id: Offer.model_validate(value) for id, value in state["offers"].items()},
@@ -433,11 +434,34 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
             )
             if chosen:
                 action_id = f"payment:{session.view.version}:{menu['id']}_{chosen['id']}"
-        if action_id:
+        queued_search = _intent is not None
+        if not action_id and normalized in {"retry item", "skip item"} and state.get("active_request"):
+            action_id = f"{'retry_search' if normalized == 'retry item' else 'skip_search'}:{session.view.version}:current"
+        if _intent is not None:
+            intent = _intent
+        elif action_id:
             parts = action_id.split(":", 2)
             if len(parts) != 3 or parts[1] != str(session.view.version):
                 raise DomainError("That choice is old. Ask to see your basket or search again.")
-            if parts[0] in {"change_basket", "save_basket"}:
+            if parts[0] in {"retry_search", "skip_search"}:
+                if not state.get("active_request"):
+                    raise DomainError("That request is already handled. Tell me what you need next.")
+                if parts[0] == "retry_search":
+                    request = state["active_request"]
+                else:
+                    pending = state.get("request_queue", [])
+                    request = pending.pop(0) if pending else None
+                    state["active_request"] = None
+                    state["unresolved_requests"] = []
+                    state["choices"] = []
+                    if request is None:
+                        session.changed()
+                        state["view"] = session.view.model_dump(mode="json")
+                        return state, self.basket_messages(session)
+                intent = ChatIntent(action="search", **{**kwargs,
+                    "queries": [RequestedProduct.model_validate(request)]})
+                queued_search = True
+            elif parts[0] in {"change_basket", "save_basket"}:
                 if not session.view.review or parts[2] != session.view.review.id:
                     raise DomainError("That choice is old. Ask to see your basket.")
                 if parts[0] == "change_basket":
@@ -450,7 +474,7 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
                 return state, [
                     text_message("Your basket is saved. Message me whenever you’re ready to continue.")
                 ]
-            if parts[0] == "pick":
+            elif parts[0] == "pick":
                 intent = ChatIntent(action="select", **{**kwargs, "offer_id": parts[2]})
             elif parts[0] == "place_cod":
                 pending = state.get("cash_confirmation")
@@ -582,6 +606,13 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
                 for q in intent.queries
             ):
                 raise DomainError("Which basket item should I replace?")
+            all_queries = list(intent.queries)
+            if not queued_search:
+                if len(intent.queries) > 1:
+                    replies.append(text_message("We'll choose one item at a time: " + "; ".join(
+                        f"{q.quantity} × {q.query}" for q in intent.queries
+                    ) + "."))
+            intent = intent.model_copy(update={"queries": intent.queries[:1]})
             # Validate the whole compound request before any discovery or draft mutation.
             line_ids = {line.id for line in session.view.lines}
             if len(intent.edits) > 10 or any(e.line_id not in line_ids for e in intent.edits):
@@ -598,7 +629,7 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
             )
             if intent.switch_store and not target_store:
                 raise DomainError("Which store would you like to switch to?")
-            if switching and (len(session.view.lines) != 1 or len(intent.queries) != 1):
+            if switching and (len(session.view.lines) != 1 or len(all_queries) != 1):
                 raise DomainError(
                     "I can move one selected product between stores at a time. Which product should the new basket contain?"
                 )
@@ -614,6 +645,9 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
                     for q in intent.queries
                 )
             )
+            if not queued_search:
+                state["request_queue"] = [q.model_dump(mode="json") for q in all_queries[1:]]
+            state["active_request"] = intent.queries[0].model_dump(mode="json")
             if not switching:
                 for edit in intent.edits:
                     session.edit(EditRequest(**edit.model_dump(), expected_version=session.view.version))
@@ -650,6 +684,21 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
                         and o.price_paise is not None
                         and (basket_store is None or o.provider == basket_store)
                     )
+            state["unresolved_requests"] = [
+                {"query": q.query, "quantity": q.quantity}
+                for q, batch in zip(intent.queries, batches)
+                if not any(o.id in choices for r in batch for o in r.offers)
+            ]
+            if len(intent.queries) > 1:
+                replies.append(text_message("Looking for: " + "; ".join(
+                    f"{q.quantity} × {q.query}" for q in intent.queries
+                ) + "."))
+            if state["unresolved_requests"]:
+                missing = "; ".join(f"{q['quantity']} × {q['query']}" for q in state["unresolved_requests"])
+                replies.append(text_message(
+                    f"I couldn’t find verified options for {missing}. These are still pending. "
+                    "You can ask me to retry them or try another brand."
+                ))
             state["recent_selection"] = None
             state["choices"] = list(dict.fromkeys(choices))[:10]
             session.view.results = results
@@ -681,6 +730,13 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
             # Search replies describe actual results, never unexecuted model promises.
             if state["choices"]:
                 replies.append(product_messages[-1])
+            else:
+                replies.append({"type": "interactive", "interactive": {
+                    "type": "button", "body": {"text": "Try this item again, or skip it?"},
+                    "action": {"buttons": [
+                        {"type": "reply", "reply": {"id": f"{action}:{session.view.version}:current", "title": title}}
+                        for action, title in [("retry_search", "Retry item"), ("skip_search", "Skip item")]
+                    ]}}})
         elif intent.action == "select":
             recent_ids = self.recent_choices(session, state)
             if intent.offer_id not in state["choices"] + recent_ids:
@@ -810,7 +866,14 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
                 if item.provider == offer.provider
             }
             state["choices"] = [id for id in state["choices"] if id in remaining_ids]
+            state["active_request"] = None
+            state["unresolved_requests"] = []
             replies.extend(self.basket_messages(session))
+            if state.get("unresolved_requests"):
+                missing = "; ".join(f"{q['quantity']} × {q['query']}" for q in state["unresolved_requests"])
+                replies.insert(len(replies) - 1, text_message(
+                    f"Still not added: {missing}. Ask me to search for them again."
+                ))
             if state["choices"]:
                 replies.extend(self.choice_messages(session, state["choices"]))
         elif intent.action == "edit":
@@ -1067,6 +1130,16 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
             | {line.offer.id for line in session.view.lines}
         )
         state["offers"] = {id: o.model_dump(mode="json") for id, o in session.offers.items() if id in keep}
+        if intent.action == "select" and not state["choices"] and state.get("request_queue"):
+            next_request = RequestedProduct.model_validate(state["request_queue"].pop(0))
+            next_intent = ChatIntent(action="search", **{**kwargs, "queries": [next_request],
+                                                        "target_provider": offer.provider})
+            state, next_replies = await self.handle(
+                next_request.query, state, progress=progress, customer=customer, _intent=next_intent
+            )
+            replies = [r for r in replies if r.get("type") != "interactive"]
+            replies.append(text_message(f"Next: {next_request.quantity} × {next_request.query}."))
+            replies.extend(next_replies)
         return state, replies
 
     @staticmethod

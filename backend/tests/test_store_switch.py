@@ -73,7 +73,7 @@ async def test_unavailable_destination_never_falls_back_or_removes_source(tmp_pa
     state, replies = await runtime.chat.handle("move to Blinkit", state)
     assert state["choices"] == []
     assert state["view"]["lines"] == before
-    assert "Instamart basket is unchanged" in replies[-1]["text"]["body"]
+    assert any("Instamart basket is unchanged" in r.get("text", {}).get("body", "") for r in replies)
     runtime.inbox.close()
 
 

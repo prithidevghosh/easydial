@@ -333,3 +333,41 @@ The WhatsApp-only local server has been smoke-tested on port 8001 and reports `s
 Only one process owns each Chrome profile. Stop the backend before opening setup helpers. `.env` and `.state` contain private credentials/address data. Never print or commit them. Use the live smoke tool only with empty test carts and explicit cart-edit authorization. A restart loses in-memory ownership; do not automatically adopt an existing basket.
 
 Both sites can change DOM or return temporary failures. An error is not evidence of out-of-stock. A payment button or Pending UI is not proof of a paid order. No bot-detection bypass was added.
+
+## 2026-11-21 — Blinkit onboarding location timing fix
+
+The fresh Blinkit page renders Login before its location input. The onboarding adapter previously checked location visibility once immediately after DOMContentLoaded, skipped the delayed gate, and timed out. A simple wait for either Login or location was insufficient in a live check.
+
+StoreLogin.open_blinkit_login now observes both gate and phone-entry state in a bounded loop. It fills a temporary Koramangala Bengaluru locality, selects the visible result, waits for the gate to close, and opens Login. Repeated actions are limited to opening the login dialog; phone/OTP submissions are outside this loop. Temporary locality is never saved as a verified delivery address. Unexpected onboarding failures log provider, stage and exception class only, never sensitive exception text.
+
+Verified the patched helper on a fresh live Blinkit context through phone entry without submitting a phone, requesting OTP, or placing an order. Added Chrome regressions for delayed rendering, an already location-ready page, and Login rendering before the location gate. Full customer OTP/address selection still requires the user's next WhatsApp attempt. Meta delivery is now reaching onboarding; prior 131005 incident is no longer the active reported blocker.
+
+### Blinkit saved-address selection correction
+
+Customer completed OTP successfully but address selection failed. The reader matched both AddressDetailsWrapper and AddressDetails and chose the longest text (including Home), then matched that combined rendered text against DOM descendant text. This produced the duplicated Home label and failed selection. Read only the innermost address text; retain its row index; re-read and uniquely validate address identity before selecting the freshly resolved row. Check exact innermost text again before clicking. Never use a substring to choose between similar addresses. Added a Chrome regression covering nested labels, overlapping address strings, successful session-save invocation, and rejection of an address changed since presentation. That regression and 16 onboarding tests pass. The failed login context was already closed by existing error handling, so the customer must reconnect once to test live selection; no OTP was replayed.
+
+### Login rate limit scoped to merchant phone
+
+Changed the three-attempt/15-minute guard from WhatsApp sender to a keyed HMAC of provider plus normalized Indian login phone. A different phone or store gets its own budget; the same phone cannot evade the limit by using another WhatsApp chat. Counter rows never contain the raw login phone. Existing rows without a phone hash are retained but cannot be attributed and are excluded from the new account-specific limit; this is a one-time migration reset, not a deletion of history. The reply shows actual remaining rounded-up minutes. Attempts are still reserved before external work to avoid replaying uncertain OTP submissions; pre-submit failure accounting is a remaining refinement. Seventeen onboarding tests pass, including cross-phone, cross-store, cross-chat, phone normalization, legacy migration, and remaining-time assertions.
+
+### Preserve pre-login prompts across server restarts
+
+Previously all onboarding stages except store/ready were reset to store on startup, including the phone prompt after recorded consent. This caused a phone reply after maintenance to receive a repeated text-only store prompt. Preserve consent and phone stages (including their existing expiry); reset only stages that require a lost browser challenge. Store-stage invalid replies now return Blinkit/Instamart buttons with an explanation that store selection comes first. Never infer a store or start login from a bare number without the required selection/consent. Nineteen onboarding tests pass, including phone-prompt restart recovery and action-button recovery.
+
+### Duplicate saved-address entries no longer block onboarding
+
+The remaining failure came from hashing only street-address text and rejecting the whole list when duplicate hashes existed. Replaced that identity with a hash of the ordered visible address-list snapshot plus row index for both providers. Each displayed choice remains distinct even with identical labels and street text. A changed or reordered snapshot fails validation before clicking; exact street text is rechecked immediately before selection. Instamart now also uses the verified row index rather than substring matching.
+
+Read-only verification using the existing operator Blinkit inspection profile returned 14 entries, 14 unique choices, and one duplicate street-address occurrence. No address selection, OTP request, cart action or order occurred during that live inspection. All 38 onboarding and Chrome DOM tests pass, including identical entries on both providers, choosing the second duplicate, and rejecting a reordered list. Customer OTP-to-address confirmation still awaits live retry. Earlier claims were too broad: prior tests lacked the actual duplicate-address shape, and the exception handler discarded the authenticated context.
+
+## 2026-11-21 — Sequential multi-product requests and search relevance
+
+Incident evidence: saved shopping transcript was exactly "Order four Diet Cokes and one popcorn." Saved results contained Diet Coke (error: selected-location mismatch) and popcorn (success including unrelated recommendation cards). The original voice transcription did preserve both items. A live interpreter check also returned Diet Coke quantity 4 and popcorn quantity 1 for English and Hinglish examples.
+
+Changes:
+- Search one requested item at a time. Persist remaining RequestedProduct objects, including quantity and replacement IDs, in the customer state. After selecting the first item, search the next at the selected store. Do not mix choices from different requested items into one menu.
+- Show the full request summary, then current-item options. Failed current items expose Retry item / Skip item buttons and block automatic advancement. Preserve failed item quantity in user-visible text and model context.
+- Filter browser search cards conservatively against query terms and pack text, retaining brand/variant terms (Diet Coke cannot become Sprite Zero or regular Coke; popcorn cannot become Crax puffs). Small alias mapping supports dahi/curd and Coke plural. This may omit legitimate matches with unfamiliar synonyms; it must not invent substitutions.
+- Blinkit's homepage can briefly show a placeholder/default locality while restoring saved state. Wait up to five seconds for the expected location; continue rejecting a persistent mismatch.
+
+Validation: 177 standard tests pass (19 opt-in DOM tests skipped in that run), Ruff passes. New tests cover unrelated cards, variants, partial failure, retry/skip flow, one-item-at-a-time search, and quantity preservation across selection (4 then 1). Existing payment invalidation and atomic failure tests remain passing. No customer basket was changed by the repair, no OTP requested, and no order/payment submitted. Customer-selected Crax remains until the user requests a change; never silently replace an already-selected item.

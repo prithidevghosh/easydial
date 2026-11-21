@@ -10,6 +10,7 @@ from .blinkit import BlinkitProvider, cart_signature, normalized
 from .browser import click_and_settle
 from .images import product_image_url
 from .money import paise
+from .relevance import matches_query
 
 
 class InstamartProvider(BlinkitProvider):
@@ -47,11 +48,9 @@ class InstamartProvider(BlinkitProvider):
             offers = []
             for i in range(min(await cards.count(), 30)):
                 offer = parse_card(await cards.nth(i).evaluate(instamart_dom.CARD), address)
-                if offer and offer.id not in {x.id for x in offers}:
+                if offer and matches_query(query, offer.name, offer.pack_size) and offer.id not in {x.id for x in offers}:
                     offers.append(offer)
                     self.known[offer.product_id] = query
-            if not offers:
-                raise DomainError("Instamart's product cards could not be verified.")
             return SearchResult(
                 provider=Provider.INSTAMART,
                 query=query,

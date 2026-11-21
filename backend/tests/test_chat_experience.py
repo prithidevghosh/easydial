@@ -208,7 +208,7 @@ async def test_search_keeps_provider_diagnostics_out_of_customer_messages(tmp_pa
     assert state["view"]["results"][0]["message"] == failure.message
     good.offers = []
     _, replies = await runtime.chat.handle("milk", runtime.chat.initial())
-    assert "try again shortly" in replies[0]["text"]["body"]
+    assert "try again shortly" in json.dumps(replies)
     assert "browser" not in json.dumps(replies)
     runtime.inbox.close()
 
