@@ -425,3 +425,43 @@ async def test_onboarding_duplicate_addresses_are_selectable_and_reordering_reje
     with pytest.raises(DomainError, match='address changed'):
         await adapter.select_address('alice', provider, choices[1])
     assert session.save.await_count == 1
+
+@pytest.mark.parametrize("matches", [0, 1, 2])
+async def test_blinkit_checkout_selects_only_unique_onboarded_address(page, matches):
+    from easydial.controller import DomainError
+    from easydial.providers.blinkit import BlinkitProvider
+
+    worker = BlinkitProvider("", "Test locality", "Flat 7, Test Road")
+    cards = [
+        '<div class="AddressList__AddressItemWrapper-x"><div class="AddressList__AddressDetails-x">Other Road</div></div>'
+    ]
+    cards += [
+        '<div class="AddressList__AddressItemWrapper-x"><div class="AddressList__AddressDetails-x">Home<div class="AddressList__AddressDetails-x">Flat 7, Test Road</div></div></div>'
+    ] * matches
+    await page.set_content(
+        """<div class="CheckoutStrip__CTAText-x" onclick="document.querySelector('#addresses').style.display='block'">Proceed</div>
+        <div id="addresses" style="display:none">"""
+        + "".join(cards)
+        + """</div>
+        <script>document.querySelectorAll('.AddressList__AddressItemWrapper-x').forEach(e => e.onclick=()=>{
+          window.selected=e.innerText; document.querySelector('#addresses').style.display='none';
+        });</script>"""
+    )
+    if matches == 1:
+        await worker.select_checkout_address(page)
+        assert "Flat 7, Test Road" in await page.evaluate("window.selected")
+    else:
+        with pytest.raises(DomainError, match="reconnect"):
+            await worker.select_checkout_address(page)
+        assert await page.evaluate("window.selected") is None
+
+
+async def test_blinkit_address_recovery_never_clicks_payment_button(page):
+    from easydial.controller import DomainError
+    from easydial.providers.blinkit import BlinkitProvider
+
+    worker = BlinkitProvider("", "Test locality", "Flat 7, Test Road")
+    await page.set_content('<div class="CheckoutStrip__CTAText-x" onclick="window.paid=true">Pay now</div>')
+    with pytest.raises(DomainError, match="confirm your delivery address"):
+        await worker.select_checkout_address(page)
+    assert await page.evaluate("window.paid") is None

@@ -371,3 +371,11 @@ Changes:
 - Blinkit's homepage can briefly show a placeholder/default locality while restoring saved state. Wait up to five seconds for the expected location; continue rejecting a persistent mismatch.
 
 Validation: 177 standard tests pass (19 opt-in DOM tests skipped in that run), Ruff passes. New tests cover unrelated cards, variants, partial failure, retry/skip flow, one-item-at-a-time search, and quantity preservation across selection (4 then 1). Existing payment invalidation and atomic failure tests remain passing. No customer basket was changed by the repair, no OTP requested, and no order/payment submitted. Customer-selected Crax remains until the user requests a change; never silently replace an already-selected item.
+
+## 2026-11-21 — Blinkit checkout address continuation
+
+The reported address-change error was a missing checkout address, not evidence of a different address. Live inspection found the correct two cart lines but only a Proceed control: Blinkit requires a second saved-address selection in the cart even after onboarding selected the shopping location. Proceed opened the saved-address list.
+
+Cart reading now completes this address-only step when populated cart data lacks an address. It clicks only an exact Proceed control, matches the full onboarded address against the innermost address text, requires exactly one match, and reads the resulting cart again. Missing/duplicate matches stop safely; payment controls are never clicked. Existing post-read address validation remains in place.
+
+Live verification: 4 Diet Cokes + 1 popcorn, items ₹257, free delivery, handling ₹13, payable ₹270; full address matched the onboarding choice. No order or payment submitted. Standard suite: 177 passed; four additional Chrome regressions cover unique/missing/duplicate matches and refusal to click Pay now.

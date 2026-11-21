@@ -148,7 +148,11 @@ class BlinkitProvider:
                 raw = await card.evaluate(blinkit_dom.CARD)
                 raw["quantity"] = await card.evaluate(blinkit_dom.QUANTITY)
                 parsed = parse_card(raw, address)
-                if parsed and matches_query(query, parsed.name, parsed.pack_size) and parsed.id not in {offer.id for offer in offers}:
+                if (
+                    parsed
+                    and matches_query(query, parsed.name, parsed.pack_size)
+                    and parsed.id not in {offer.id for offer in offers}
+                ):
                     offers.append(parsed)
                     self.known[parsed.product_id] = query
             return SearchResult(
@@ -185,6 +189,13 @@ class BlinkitProvider:
             ):
                 break
             await asyncio.sleep(0.25)
+        if data["items"] and not data.get("address") and self.verified_address:
+            await self.select_checkout_address(page)
+            for _ in range(32):
+                data = await drawer.evaluate(blinkit_dom.CART)
+                if data.get("address") and data.get("total") and data.get("bill"):
+                    break
+                await asyncio.sleep(0.25)
         data["header_address"] = self.header_address
         if re.search(
             r"can't take your order|currently unavailable|store is closed|high demand", data["text"], re.I
@@ -192,6 +203,24 @@ class BlinkitProvider:
             raise DomainError("Blinkit is not accepting this basket right now. Try again later.")
         cart_signature(data)  # Do not interpret missing selectors as an empty basket.
         return data
+
+    async def select_checkout_address(self, page):
+        """Apply only the address explicitly chosen at onboarding, never a default row."""
+        proceed = page.locator("div[class*='CheckoutStrip__CTAText']").get_by_text("Proceed", exact=True)
+        if await proceed.count() != 1 or not await proceed.is_visible():
+            raise DomainError("I couldn't confirm your delivery address. Please review your basket again.")
+        await proceed.click()
+        rows = page.locator("div[class*='AddressList__AddressItemWrapper-']")
+        await rows.first.wait_for(state="visible")
+        matches = []
+        for index in range(await rows.count()):
+            details = rows.nth(index).locator("div[class*='AddressList__AddressDetails-']").last
+            if normalized(await details.inner_text()) == normalized(self.verified_address):
+                matches.append(details)
+        if len(matches) != 1:
+            raise DomainError("Please reconnect Blinkit and choose your delivery address again.")
+        await matches[0].click()
+        await rows.first.wait_for(state="hidden")
 
     async def set_quantity(self, page, line, desired):
         # Existing items must remain removable even if search inventory stops returning them.
