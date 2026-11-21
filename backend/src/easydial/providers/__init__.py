@@ -32,6 +32,11 @@ class ProviderWorkers:
             )
             worker.browser.channel = settings.browser_channel
 
+    def _worker(self, provider):
+        if hasattr(self, "allowed_providers") and provider not in self.allowed_providers:
+            raise DomainError("This store is not connected. Send Connect to link it first.")
+        return self.workers[list(Provider).index(provider)]
+
     def restore_checkpoint(self, checkpoint, session_id):
         """Restore only a previously verified private checkpoint, not an unknown live cart.
 
@@ -43,7 +48,7 @@ class ProviderWorkers:
             raise DomainError("Stored cart ownership needs attention before continuing.")
         if any(x.offer.provider != view.synced_provider for x in view.lines):
             raise DomainError("Stored cart provider does not match.")
-        worker = self.workers[list(Provider).index(view.synced_provider)]
+        worker = self._worker(view.synced_provider)
         if worker.guard.owner is None:
             worker.guard.owner = view.id
             worker.guard.expected = tuple(
@@ -76,13 +81,18 @@ class ProviderWorkers:
 
         return list(
             await asyncio.gather(
-                *(run(p, w) for p, w in zip(Provider, self.workers) if provider is None or p == provider)
+                *(
+                    run(p, w)
+                    for p, w in zip(Provider, self.workers)
+                    if (provider is None or p == provider)
+                    and (not hasattr(self, "allowed_providers") or p in self.allowed_providers)
+                )
             )
         )
 
     async def refresh_offer(self, offer, address):
         """Read only the selected store; never substitute a similarly named SKU/pack."""
-        worker = self.workers[list(Provider).index(offer.provider)]
+        worker = self._worker(offer.provider)
         try:
             result = await asyncio.wait_for(worker.search(offer.name, address), timeout=60)
         except Exception:
@@ -115,7 +125,7 @@ class ProviderWorkers:
         if not session.lines:
             raise DomainError("Add something to your basket first.", 422)
         provider = session.lines[0].offer.provider
-        worker = self.workers[list(Provider).index(provider)]
+        worker = self._worker(provider)
         try:
             return await asyncio.wait_for(worker.review(session), timeout=150)
         except DomainError:
@@ -129,7 +139,7 @@ class ProviderWorkers:
     async def clear(self, session: SessionView):
         if session.lines or not session.synced_provider:
             raise DomainError("Remove the draft items before syncing an empty basket.")
-        worker = self.workers[list(Provider).index(session.synced_provider)]
+        worker = self._worker(session.synced_provider)
         try:
             await asyncio.wait_for(worker.clear(session.id), timeout=150)
         except DomainError:
@@ -142,7 +152,7 @@ class ProviderWorkers:
     async def revalidate(self, session: SessionView):
         if not session.lines or not session.review:
             raise DomainError("Review the basket before approving its amount.")
-        worker = self.workers[list(Provider).index(session.lines[0].offer.provider)]
+        worker = self._worker(session.lines[0].offer.provider)
         try:
             return await asyncio.wait_for(worker.revalidate(session), timeout=60)
         except DomainError:
@@ -158,7 +168,7 @@ class ProviderWorkers:
             or any(x.offer.provider != view.synced_provider for x in view.lines)
         ):
             raise DomainError("Invalid cart recovery checkpoint. Review again.")
-        worker = self.workers[list(Provider).index(view.synced_provider)]
+        worker = self._worker(view.synced_provider)
         try:
             await asyncio.wait_for(worker.adopt_checkpoint(view, expected_address), timeout=60)
         except DomainError:
@@ -171,7 +181,7 @@ class ProviderWorkers:
     async def payment_options(self, view, review):
         from .payments import options
 
-        worker = self.workers[list(Provider).index(review.provider)]
+        worker = self._worker(review.provider)
         try:
             return await asyncio.wait_for(options(worker, view, review), timeout=75)
         except DomainError:
@@ -182,7 +192,7 @@ class ProviderWorkers:
     async def generate_upi(self, view, review):
         from .payments import generate_upi
 
-        worker = self.workers[list(Provider).index(review.provider)]
+        worker = self._worker(review.provider)
         try:
             return await asyncio.wait_for(generate_upi(worker, view, review), timeout=75)
         except DomainError:
@@ -195,17 +205,17 @@ class ProviderWorkers:
     async def prepare_cash(self, view, review):
         from .payments import prepare_cash
 
-        worker = self.workers[list(Provider).index(review.provider)]
+        worker = self._worker(review.provider)
         return await asyncio.wait_for(prepare_cash(worker, view, review), timeout=75)
 
     async def submit_cash(self, view, review, before_submit):
         from .payments import submit_cash
 
-        worker = self.workers[list(Provider).index(review.provider)]
+        worker = self._worker(review.provider)
         return await asyncio.wait_for(submit_cash(worker, view, review, before_submit), timeout=90)
 
     async def order_history(self, view, exclude_ids=None):
         from .order_history import read_history
 
-        worker = self.workers[list(Provider).index(view.review.provider)]
+        worker = self._worker(view.review.provider)
         return await asyncio.wait_for(read_history(worker, view, exclude_ids), timeout=45)

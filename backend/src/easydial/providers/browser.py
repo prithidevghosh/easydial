@@ -12,6 +12,8 @@ class BrowserSession:
         self.profile, self.storage_state = profile, storage_state
         self.headless, self.channel = False, "chrome"
         self.runtime = self.context = self.page = self.browser = None
+        self.secret_box = None
+        self.allow_empty_state = False
 
     @property
     def configured(self):
@@ -34,7 +36,16 @@ class BrowserSession:
                 self.browser = await self.runtime.chromium.launch(
                     channel=self.channel, headless=self.headless
                 )
-                self.context = await self.browser.new_context(storage_state=self.storage_state)
+                state = self.storage_state
+                if self.secret_box:
+                    state = (
+                        self.secret_box.open(Path(self.storage_state).read_text())
+                        if Path(self.storage_state).is_file()
+                        else None
+                    )
+                    if state is None and not self.allow_empty_state:
+                        raise DomainError("Connect this store first.")
+                self.context = await self.browser.new_context(storage_state=state or None)
             self.page = self.context.pages[0] if self.context.pages else await self.context.new_page()
             self.page.set_default_timeout(8000)
             return self.page, self.context
@@ -56,8 +67,11 @@ class BrowserSession:
 
     async def save(self):
         if self.storage_state and self.context:
-            await self.context.storage_state(path=self.storage_state)
-            Path(self.storage_state).chmod(0o600)
+            if self.secret_box:
+                self.secret_box.write(self.storage_state, await self.context.storage_state(indexed_db=True))
+            else:
+                await self.context.storage_state(path=self.storage_state)
+                Path(self.storage_state).chmod(0o600)
 
     async def close(self):
         try:

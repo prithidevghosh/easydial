@@ -377,3 +377,8 @@ Handoff: docs/POST_PAYMENT.md is the implementation contract and evidence record
 - [ ] General multi-item store migration with per-item replacement choices.
 
 See docs/STORE_SWITCHING.md.
+
+
+## Customer onboarding and isolation — 2026-11-21
+
+See [onboarding implementation plan](docs/ONBOARDING_IMPLEMENTATION.md) and [operator/customer guide](docs/CUSTOMER_ONBOARDING.md). Shared WhatsApp QR, immutable versioned consent before login, encrypted credentials/queue, sender-scoped merchant contexts and explicit saved-address selection are implemented as a controlled single-process pilot. Live OTP/address completion and AWS production gates remain tracked separately; do not mark them complete from unit tests.

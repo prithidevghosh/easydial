@@ -10,7 +10,7 @@ from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, PlainTextResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
 
 from ..controller import DomainError
 from ..master import OpenAIMaster
@@ -34,6 +34,8 @@ def missing_settings(settings):
         "whatsapp_allowed_sender",
         "whatsapp_support_contact",
     )
+    if settings.whatsapp_multiuser:
+        fields = tuple(x for x in fields if x != "whatsapp_allowed_sender") + ("customer_session_key",)
     return [name.upper() for name in fields if not getattr(settings, name).strip()]
 
 
@@ -43,13 +45,31 @@ class Runtime:
         self.wake = asyncio.Event()
         self.payments = PaymentRequests(inbox, settings.whatsapp_public_url)
         self.chat.payments = self.payments
+        self.onboarding = self.customer_chats = None
+        if settings.whatsapp_multiuser:
+            from .accounts import Accounts, CustomerChats
+            from .onboarding import Onboarding
+            from .store_login import StoreLogin
+
+            if not inbox.secret_box:
+                raise ValueError("Multi-user ingress requires encrypted queue storage")
+            accounts = Accounts(inbox.db, inbox.secret_box, settings.customer_session_directory)
+            self.customer_chats = CustomerChats(settings, accounts, chat.master, self.payments)
+            self.onboarding = Onboarding(
+                accounts,
+                StoreLogin(settings, accounts),
+                self.customer_chats,
+                self.payments,
+                settings.onboarding_max_customers,
+            )
 
     async def process(self):
         row = self.inbox.claim()
         if not row:
             return False
         state = self.inbox.load(row["sender"]) or self.chat.initial()
-        message = json.loads(row["payload"])
+        message = self.inbox.decode_event(row)
+        chat = self.chat
         replies = []
         status = "done"
         progress = None
@@ -57,6 +77,29 @@ class Runtime:
             if not self.inbox.window_open(row["sender"]):
                 self.inbox.finish(row, state, [], "expired")
                 return True
+            if row["timestamp"] < state.get("last_timestamp", 0):
+                raise DomainError(
+                    "An older message arrived late. Please use the latest setup or shopping choices."
+                )
+            if self.onboarding:
+                # This runs before media download, transcription, model context or cart recovery.
+                onboarding_replies = await self.onboarding.handle(row, message, state)
+                if onboarding_replies is not None:
+                    self.inbox.supersede_waiting_replies(row["sender"])
+                    connection_state = self.onboarding.accounts.state(row["sender"]) or {}
+                    if (
+                        connection_state.get("stage") == "ready"
+                        and not state["view"]["lines"]
+                        and not self.payments.existing(row["sender"], state["view"]["id"])
+                    ):
+                        state = self.chat.initial()
+                    state["last_timestamp"] = max(row["timestamp"], state.get("last_timestamp", 0))
+                    state["last_reply_event"] = row["id"]
+                    self.inbox.finish(row, state, onboarding_replies)
+                    return True
+                chat = await self.customer_chats.get(row["sender"])
+                if not state["view"]["lines"]:
+                    state["view"]["address_label"] = chat.settings.live_address_label
             if self.inbox.interrupted(row["sender"]) and not self.payments.existing(
                 row["sender"], state["view"]["id"]
             ):
@@ -68,7 +111,7 @@ class Runtime:
                 raise DomainError("An older message arrived late. Please repeat your latest request.")
             self.inbox.supersede_waiting_replies(row["sender"])
             if state.get("cart_checkpoint"):
-                self.chat.workers.restore_checkpoint(state["cart_checkpoint"], state["view"]["id"])
+                chat.workers.restore_checkpoint(state["cart_checkpoint"], state["view"]["id"])
             text, action_id = "", None
             if not state["paused"] and message["type"] in {"audio", "text", "interactive"}:
                 progress = TurnProgress(
@@ -85,7 +128,7 @@ class Runtime:
                     self.inbox.finish(row, state, [], "paused")
                     return True
                 audio = await self.transport.audio(message.get("audio", {}))
-                client = self.chat.master.require_client()
+                client = chat.master.require_client()
                 result = await client.audio.transcriptions.create(
                     model=self.settings.openai_transcription_model,
                     file=("recording.wav", audio, "audio/wav"),
@@ -114,7 +157,7 @@ class Runtime:
                 ).fetchone()
                 if not context or context[0] != state.get("last_reply_event"):
                     raise DomainError("That reply refers to an older message. Please use the latest choices.")
-            state, replies = await self.chat.handle(
+            state, replies = await chat.handle(
                 text, state, action_id, progress=progress, customer=row["sender"]
             )
             state["last_timestamp"] = row["timestamp"]
@@ -179,6 +222,8 @@ class Runtime:
         while True:
             self.wake.clear()
             try:
+                if self.onboarding:
+                    await self.onboarding.adapter.expire()
                 # Preserve turn/reply ordering before accepting another conversational turn.
                 if await self.send_one():
                     continue
@@ -212,7 +257,12 @@ def create_whatsapp_app(settings=None):
                 fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError:
                 raise RuntimeError("Only one WhatsApp worker may own this pilot database") from None
-            inbox = Inbox(settings.whatsapp_database)
+            box = None
+            if settings.whatsapp_multiuser:
+                from .security import SecretBox
+
+                box = SecretBox(settings.customer_session_key)
+            inbox = Inbox(settings.whatsapp_database, box)
             # Prevent accidental reuse of a previous user's durable state after configuration edits.
             inbox.db.execute("CREATE TABLE IF NOT EXISTS binding (id INTEGER PRIMARY KEY, fingerprint TEXT)")
             fingerprint = hashlib.sha256(
@@ -223,6 +273,14 @@ def create_whatsapp_app(settings=None):
                         settings.live_address_label,
                         settings.blinkit_browser_profile,
                         settings.instamart_browser_profile,
+                        *(
+                            [
+                                "multiuser-v1",
+                                hashlib.sha256(settings.customer_session_key.encode()).hexdigest(),
+                            ]
+                            if settings.whatsapp_multiuser
+                            else []
+                        ),
                     ]
                 ).encode()
             ).hexdigest()
@@ -234,9 +292,26 @@ def create_whatsapp_app(settings=None):
                 )
             with inbox.db:
                 inbox.db.execute("INSERT OR IGNORE INTO binding VALUES (1,?)", (fingerprint,))
-            workers, master = ProviderWorkers(settings), OpenAIMaster(settings)
+            # No pilot account/browser can be reached from the multi-user runtime.
+            runtime_settings = (
+                settings.model_copy(
+                    update={
+                        "blinkit_browser_profile": "",
+                        "instamart_browser_profile": "",
+                        "blinkit_storage_state": "",
+                        "blinkit_verified_location": "",
+                        "blinkit_verified_address": "",
+                        "instamart_verified_location": "",
+                        "instamart_verified_address": "",
+                        "live_address_label": "",
+                    }
+                )
+                if settings.whatsapp_multiuser
+                else settings
+            )
+            workers, master = ProviderWorkers(runtime_settings), OpenAIMaster(settings)
             transport = MetaTransport(settings)
-            runtime = Runtime(settings, inbox, transport, ShoppingChat(settings, workers, master))
+            runtime = Runtime(settings, inbox, transport, ShoppingChat(runtime_settings, workers, master))
             app.state.runtime = runtime
             task = asyncio.create_task(runtime.run())
             try:
@@ -245,6 +320,9 @@ def create_whatsapp_app(settings=None):
                 task.cancel()
                 with suppress(asyncio.CancelledError):
                     await task
+                if runtime.onboarding:
+                    await runtime.onboarding.adapter.close()
+                    await runtime.customer_chats.close()
                 await transport.close()
                 await workers.close()
                 if master.client:
@@ -266,6 +344,26 @@ def create_whatsapp_app(settings=None):
             "payments": False,
             "payment_link_host_configured": bool(settings.whatsapp_public_url),
         }
+
+    def join_link():
+        number = settings.whatsapp_business_number
+        if not re.fullmatch(r"[1-9][0-9]{7,14}", number):
+            raise HTTPException(503, "EasyDial join number has not been configured")
+        return f"https://wa.me/{number}?text=Start"
+
+    @app.get("/join")
+    async def join():
+        return RedirectResponse(join_link(), status_code=307, headers={"Cache-Control": "no-store"})
+
+    @app.get("/join/qr.png")
+    async def join_qr():
+        import io
+
+        import qrcode
+
+        stream = io.BytesIO()
+        qrcode.make(join_link()).save(stream, format="PNG")
+        return Response(stream.getvalue(), media_type="image/png", headers={"Cache-Control": "no-store"})
 
     @app.get("/pay/{token}")
     async def payment_page(token: str):
@@ -323,7 +421,10 @@ def create_whatsapp_app(settings=None):
                     if value.get("metadata", {}).get("phone_number_id") != settings.whatsapp_phone_number_id:
                         continue
                     for message in value.get("messages", []):
-                        if message.get("from") != settings.whatsapp_allowed_sender:
+                        sender = message.get("from")
+                        if not isinstance(sender, str) or not re.fullmatch(r"[0-9]{5,20}", sender):
+                            continue
+                        if not settings.whatsapp_multiuser and sender != settings.whatsapp_allowed_sender:
                             continue  # No message, media fetch, AI request or cart access for strangers.
                         timestamp = int(message.get("timestamp", 0))
                         if not time.time() - 86400 < timestamp <= time.time() + 60:

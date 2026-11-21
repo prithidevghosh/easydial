@@ -198,3 +198,230 @@ async def test_blinkit_bill_free_hidden_prices_and_ambiguous_amounts(page):
     </div>""")
     cart = await page.locator("#drawer").evaluate(blinkit_dom.CART)
     assert [r["value"] for r in cart["bill"]] == ["FREE", "₹13", "Unverified"]
+
+
+async def test_onboarding_reads_only_instamart_saved_address_cards(page):
+    from types import SimpleNamespace
+
+    from easydial.whatsapp.store_login import StoreLogin
+
+    await page.set_content("""<div data-testid="modal-overlay" style="width:10px;height:10px"></div>
+      <div class="FObAQ">
+       <div class="_1gcSd"><div class="_2wcdd"><div>Home</div><div>Flat 1, Test road</div></div></div>
+       <div class="_1gcSd"><div class="_2wcdd"><div>Work</div><div>Office 2, Test road</div></div></div>
+      </div><div>Unrelated product address text</div>""")
+
+    async def opened():
+        return page, None
+
+    adapter = StoreLogin(SimpleNamespace(), SimpleNamespace(consented=lambda *a: True))
+    adapter.sessions["alice", "instamart"] = SimpleNamespace(open=opened)
+    rows = await adapter.addresses("alice", "instamart")
+    assert [x["address"] for x in rows] == ["Flat 1, Test road", "Office 2, Test road"]
+    assert rows[0]["id"] != rows[1]["id"]
+
+
+async def test_onboarding_otp_fields_exclude_mobile_number_and_search(page):
+    from types import SimpleNamespace
+
+    from easydial.whatsapp.store_login import StoreLogin
+
+    await page.set_content("""<input type="tel" maxlength="10"><input name="auth-sidebar-mobile" type="tel">
+      <input placeholder="Search"><input autocomplete="one-time-code" inputmode="numeric">""")
+    adapter = StoreLogin(SimpleNamespace(), None)
+    assert await adapter.otp_inputs(page).count() == 1
+
+
+async def test_customer_browser_cookie_contexts_are_separate_and_encrypted(tmp_path):
+    from cryptography.fernet import Fernet
+
+    from easydial.providers.browser import BrowserSession
+    from easydial.whatsapp.security import SecretBox
+
+    box = SecretBox(Fernet.generate_key())
+    sessions = []
+    try:
+        for name in ["alice", "bob"]:
+            path = tmp_path / (name + ".enc")
+            box.write(
+                path,
+                {
+                    "cookies": [
+                        {
+                            "name": "store-session",
+                            "value": name + "-secret",
+                            "domain": "example.test",
+                            "path": "/",
+                            "expires": -1,
+                            "httpOnly": True,
+                            "secure": True,
+                            "sameSite": "Lax",
+                        }
+                    ],
+                    "origins": [],
+                },
+            )
+            session = BrowserSession(storage_state=str(path))
+            session.headless = True
+            session.secret_box = box
+            sessions.append(session)
+            _, context = await session.open()
+            assert [x["value"] for x in await context.cookies()] == [name + "-secret"]
+            await session.save()
+            assert name + "-secret" not in path.read_text()
+        assert sessions[0].context is not sessions[1].context
+        await sessions[0].context.clear_cookies()
+        assert len(await sessions[1].context.cookies()) == 1
+    finally:
+        for session in sessions:
+            await session.close()
+
+
+@pytest.mark.parametrize("delayed_location", [True, False])
+async def test_blinkit_login_waits_for_client_rendered_entry(page, delayed_location):
+    from easydial.whatsapp.store_login import StoreLogin
+
+    await page.set_content('<main id="root"></main>')
+    await page.evaluate("""(locationGate) => {
+      const root = document.querySelector('#root');
+      const showLogin = () => {
+        root.innerHTML = '<button id="login">Login</button>';
+        document.querySelector('#login').onclick = () => {
+          root.innerHTML = '<input placeholder="Enter mobile number">';
+        };
+      };
+      setTimeout(() => {
+        if (!locationGate) { showLogin(); return; }
+        root.innerHTML = '<input placeholder="search delivery location">';
+        root.querySelector('input').oninput = (event) => {
+          window.entryLocality = event.target.value;
+          if (root.querySelector('button')) return;
+          setTimeout(() => {
+            const result = document.createElement('button');
+            result.textContent = 'Bengaluru, Karnataka, India';
+            result.onclick = showLogin;
+            root.appendChild(result);
+          }, 200);
+        };
+      }, 350);
+    }""", delayed_location)
+    await StoreLogin.open_blinkit_login(page)
+    assert await page.get_by_placeholder('Enter mobile number').is_visible()
+    assert await page.get_by_placeholder('Enter mobile number').input_value() == ''
+    if delayed_location:
+        assert await page.evaluate('window.entryLocality') == 'Koramangala Bengaluru'
+
+
+async def test_blinkit_location_gate_can_arrive_after_login_button(page):
+    from easydial.whatsapp.store_login import StoreLogin
+
+    await page.set_content('<button id="login">Login</button><main id="root"></main>')
+    await page.evaluate("""() => {
+      const root = document.querySelector('#root');
+      let located = false;
+      document.querySelector('#login').onclick = () => {
+        if (located) root.innerHTML = '<input placeholder="Enter mobile number">';
+      };
+      setTimeout(() => {
+        root.innerHTML = '<input placeholder="search delivery location">';
+        root.querySelector('input').oninput = () => {
+          if (root.querySelector('button')) return;
+          const result = document.createElement('button');
+          result.textContent = 'Bengaluru, Karnataka, India';
+          result.onclick = () => { located = true; root.innerHTML = ''; };
+          root.appendChild(result);
+        };
+      }, 400);
+    }""")
+    await StoreLogin.open_blinkit_login(page)
+    assert await page.get_by_placeholder('Enter mobile number').is_visible()
+
+
+async def test_blinkit_onboarding_nested_address_selection(page):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from easydial.controller import DomainError
+    from easydial.whatsapp.store_login import StoreLogin
+
+    await page.set_content('''<div class="LocationBar__Subtitle">Test locality</div>
+    <section id="addresses">
+    <div class="AddressListItem__AddressItemWrapperItem">
+      <div class="AddressListItem__AddressDetailsWrapper"><div class="AddressListItem__AddressLabel">Home</div><div class="AddressListItem__AddressDetails">Flat 1, Test Road</div></div>
+    </div>
+    <div class="AddressListItem__AddressItemWrapperItem">
+      <div class="AddressListItem__AddressDetailsWrapper"><div class="AddressListItem__AddressLabel">Work</div><div class="AddressListItem__AddressDetails">Flat 1, Test Road Extension</div></div>
+    </div></section>''')
+    await page.evaluate('''() => {
+      document.querySelectorAll('[class="AddressListItem__AddressDetails"]').forEach((el, i) => {
+        el.onclick = () => { window.selectedRow = i; document.querySelector('#addresses').style.display='none'; };
+      });
+    }''')
+    async def opened():
+        return page, None
+    session = SimpleNamespace(open=opened, save=AsyncMock())
+    accounts = SimpleNamespace(consented=lambda *a: True, session_path=lambda *a: 'unused',
+                               session_box=lambda *a: object())
+    adapter = StoreLogin(SimpleNamespace(), accounts)
+    adapter.sessions['alice', 'blinkit'] = session
+    rows = await adapter.addresses('alice', 'blinkit')
+    assert rows[0]['label'] == 'Home: Flat 1, Test Road'
+    assert rows[0]['address'] == 'Flat 1, Test Road'
+    # The longer second address contains the first; substring matching is unsafe.
+    result = await adapter.select_address('alice', 'blinkit', rows[0])
+    assert await page.evaluate('window.selectedRow') == 0
+    assert result['address'] == 'Flat 1, Test Road'
+    session.save.assert_awaited_once()
+    await page.locator('#addresses').evaluate('(el) => el.style.display="block"')
+    await page.locator('[class="AddressListItem__AddressDetails"]').first.evaluate('(el) => el.textContent="Changed road"')
+    with pytest.raises(DomainError, match='address changed'):
+        await adapter.select_address('alice', 'blinkit', rows[0])
+    assert session.save.await_count == 1
+
+
+@pytest.mark.parametrize('provider', ['blinkit', 'instamart'])
+async def test_onboarding_duplicate_addresses_are_selectable_and_reordering_rejected(page, provider):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from easydial.controller import DomainError
+    from easydial.whatsapp.store_login import StoreLogin
+
+    rows = [('Home', 'Flat 1, Test Road'), ('Home', 'Flat 1, Test Road'), ('Work', 'Flat 2, Test Road')]
+    if provider == 'blinkit':
+        cards = ''.join(f'<div class="AddressListItem__AddressItemWrapperItem"><div class="AddressListItem__AddressDetailsWrapper"><div class="AddressListItem__AddressLabel">{label}</div><div class="AddressListItem__AddressDetails">{address}</div></div></div>' for label, address in rows)
+        html = f'<div class="LocationBar__Subtitle">Test locality</div><section id="cards">{cards}</section>'
+    else:
+        cards = ''.join(f'<div class="_1gcSd"><div class="_2wcdd"><div>{label}</div><div>{address}</div></div></div>' for label, address in rows)
+        html = f'<div data-testid="address-bar"><div data-testid="address-line">Test locality</div></div><div data-testid="modal-overlay" style="height:10px;width:10px"></div><section id="cards" class="FObAQ">{cards}</section>'
+    await page.set_content(html)
+    await page.evaluate('''() => {
+      [...document.querySelector('#cards').children].forEach((el, i) => el.onclick = () => {
+        window.selectedRow = i;
+        document.querySelector('#cards').style.display = 'none';
+        const overlay = document.querySelector('[data-testid="modal-overlay"]');
+        if (overlay) overlay.style.display = 'none';
+      });
+    }''')
+    async def opened():
+        return page, None
+    session = SimpleNamespace(open=opened, save=AsyncMock())
+    accounts = SimpleNamespace(consented=lambda *a: True, session_path=lambda *a: 'unused',
+                               session_box=lambda *a: object())
+    adapter = StoreLogin(SimpleNamespace(), accounts)
+    adapter.sessions['alice', provider] = session
+    choices = await adapter.addresses('alice', provider)
+    assert len(choices) == 3
+    assert len({a['id'] for a in choices}) == 3
+    await adapter.select_address('alice', provider, choices[1])
+    assert await page.evaluate('window.selectedRow') == 1
+    session.save.assert_awaited_once()
+    await page.evaluate('''() => {
+      const cards = document.querySelector('#cards');
+      cards.style.display = 'block'; cards.prepend(cards.lastElementChild);
+      const overlay = document.querySelector('[data-testid="modal-overlay"]');
+      if (overlay) overlay.style.display = 'block';
+    }''')
+    with pytest.raises(DomainError, match='address changed'):
+        await adapter.select_address('alice', provider, choices[1])
+    assert session.save.await_count == 1

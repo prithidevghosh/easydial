@@ -1,0 +1,299 @@
+"""Deterministic onboarding: credentials never reach the shopping master agent."""
+
+import logging
+import math
+import re
+import time
+
+from ..controller import DomainError
+from .accounts import CONSENT_TEXT
+from .conversation import text_message
+
+log = logging.getLogger(__name__)
+
+
+def button_message(body, nonce, options):
+    return {
+        "type": "interactive",
+        "interactive": {
+            "type": "button",
+            "body": {"text": body},
+            "action": {
+                "buttons": [
+                    {"type": "reply", "reply": {"id": f"onboard:{nonce}:{key}", "title": title}}
+                    for key, title in options
+                ]
+            },
+        },
+    }
+
+
+def content(message):
+    if message.get("type") == "text":
+        return message.get("text", {}).get("body", "").strip(), None
+    if message.get("type") == "interactive":
+        reply = (
+            message.get("interactive", {}).get("button_reply")
+            or message.get("interactive", {}).get("list_reply")
+            or {}
+        )
+        return reply.get("title", ""), reply.get("id", "")
+    return "", None
+
+
+class Onboarding:
+    def __init__(self, accounts, adapter, chats, payments, max_customers=100):
+        self.accounts, self.adapter, self.chats, self.payments = accounts, adapter, chats, payments
+        self.max_customers = max_customers
+        self.accounts.db.execute(
+            "CREATE TABLE IF NOT EXISTS login_requests(sender TEXT,provider TEXT,created_at REAL)"
+        )
+        columns = {row[1] for row in self.accounts.db.execute("PRAGMA table_info(login_requests)")}
+        if "account_key" not in columns:
+            self.accounts.db.execute("ALTER TABLE login_requests ADD COLUMN account_key TEXT")
+        self.accounts.db.execute(
+            "CREATE INDEX IF NOT EXISTS login_requests_by_account ON login_requests(account_key,created_at)"
+        )
+        self.accounts.db.commit()
+        # An in-flight browser OTP challenge cannot safely survive a process restart.
+        for row in self.accounts.db.execute("SELECT sender,state FROM onboarding").fetchall():
+            state = self.accounts.box.open(row["state"])
+            # Consent/phone prompts do not depend on a live browser and can
+            # survive restart with their original expiry and consent checks.
+            if state["stage"] not in {"ready", "store", "consent", "phone"}:
+                self.accounts.begin(row["sender"], "store")
+
+    def menu(self, sender, intro="Welcome to EasyDial. Which store would you like to connect?"):
+        state = self.accounts.begin(sender)
+        return [button_message(intro, state["nonce"], [("blinkit", "Blinkit"), ("instamart", "Instamart")])]
+
+    async def cancel(self, sender, provider=None):
+        await self.adapter.cancel(sender, provider)
+
+    async def handle(self, row, message, shopping_state):
+        sender, event_id = row["sender"], row["id"]
+        text, action = content(message)
+        low = text.casefold().strip()
+        state = self.accounts.state(sender)
+        connections = self.accounts.connections(sender)
+        if not state:
+            count = self.accounts.db.execute("SELECT COUNT(*) FROM onboarding").fetchone()[0]
+            if count >= self.max_customers:
+                return [text_message("EasyDial is full for this pilot. Please try again later.")]
+        # Withdrawal is permitted even with an outstanding order. It never cancels an order.
+        disconnect = re.fullmatch(r"disconnect (blinkit|instamart)", low)
+        if disconnect:
+            provider = disconnect[1]
+            await self.cancel(sender, provider)
+            await self.chats.close_customer(sender, save=False)
+            self.accounts.consent(sender, provider, event_id, "withdrawn")
+            self.accounts.forget(sender, provider)
+            self.accounts.begin(sender, "ready" if self.accounts.connections(sender) else "store")
+            return [
+                text_message(
+                    f"{provider.title()} disconnected. Saved login removed and permission withdrawn. Existing orders are not cancelled. Send Connect to link a store again."
+                )
+            ]
+        command = low in {"start", "connect", "connect store", "reconnect", "change address"}
+        if command or not state:
+            if shopping_state["view"]["lines"] or self.payments.existing(
+                sender, shopping_state["view"]["id"]
+            ):
+                return [
+                    text_message(
+                        "Finish checking your current order or empty your basket before changing store connections."
+                    )
+                ]
+            await self.cancel(sender)
+            return self.menu(sender)
+        if low == "cancel" and state["stage"] != "ready":
+            await self.cancel(sender, state.get("provider"))
+            self.accounts.begin(sender, "ready" if connections else "store")
+            return [text_message("Setup cancelled. Send Connect whenever you are ready.")]
+        if state["stage"] == "ready":
+            if action and action.startswith("onboard:"):
+                return [text_message("That setup choice has expired. Send Connect to manage your stores.")]
+            if not any(self.accounts.consented(sender, p) for p in connections):
+                return self.menu(sender)
+            # Never forward bare phone numbers/OTPs accidentally sent after login to the LLM.
+            if re.fullmatch(r"\+?[\d\s-]{4,18}", text) and len(re.sub(r"\D", "", text)) >= 4:
+                return [
+                    text_message(
+                        "If this is a login code, do not send another. Send Connect to start a fresh login."
+                    )
+                ]
+            return None
+        if time.time() > state["expires"]:
+            await self.cancel(sender, state.get("provider"))
+            return self.menu(sender, "Setup expired. Choose a store to start again.")
+        choice = None
+        if action:
+            prefix = f"onboard:{state['nonce']}:"
+            if not action.startswith(prefix):
+                return [text_message("That choice has expired. Please use the latest setup message.")]
+            choice = action[len(prefix) :]
+        stage = state["stage"]
+        if stage == "store":
+            provider = choice or low
+            if provider not in {"blinkit", "instamart"}:
+                return [button_message(
+                    "First choose which store to connect below. I'll ask for your phone number next.",
+                    state["nonce"], [("blinkit", "Blinkit"), ("instamart", "Instamart")],
+                )]
+            if shopping_state["view"]["lines"] or self.payments.existing(
+                sender, shopping_state["view"]["id"]
+            ):
+                return [text_message("Finish your current basket or order before changing connections.")]
+            state = self.accounts.begin(sender, "consent", provider=provider)
+            return [
+                button_message(
+                    CONSENT_TEXT.format(store=provider.title()),
+                    state["nonce"],
+                    [("agree", "I agree"), ("decline", "Not now")],
+                )
+            ]
+        provider = state["provider"]
+        if stage == "consent":
+            if choice == "decline" or low in {"not now", "no", "decline"}:
+                self.accounts.consent(sender, provider, event_id, "declined")
+                # Declining reconnection must also revoke reuse of the prior session.
+                await self.chats.close_customer(sender, save=False)
+                self.accounts.forget(sender, provider)
+                self.accounts.begin(sender, "ready" if self.accounts.connections(sender) else "store")
+                return [text_message("No login started. Send Connect if you change your mind.")]
+            if choice != "agree" and low != "i agree":
+                return [
+                    button_message(
+                        "Please choose I agree or Not now to continue.",
+                        state["nonce"],
+                        [("agree", "I agree"), ("decline", "Not now")],
+                    )
+                ]
+            self.accounts.consent(sender, provider, event_id, "accepted")
+            self.accounts.begin(sender, "phone", provider=provider)
+            return [
+                text_message(
+                    f"What is the 10-digit Indian mobile number for your {provider.title()} account? Send Cancel to stop."
+                )
+            ]
+        if not self.accounts.consented(sender, provider):
+            return self.menu(sender, "Permission is needed before signing in. Choose a store.")
+        try:
+            if stage == "phone":
+                phone = re.sub(r"[\s()-]", "", text)
+                if phone.startswith("+91"):
+                    phone = phone[3:]
+                elif len(phone) == 12 and phone.startswith("91"):
+                    phone = phone[2:]
+                if not re.fullmatch(r"[6-9]\d{9}", phone):
+                    return [text_message("Please type a valid 10-digit Indian mobile number.")]
+                account_key = self.accounts.account_key(provider, phone)
+                now = time.time()
+                recent = self.accounts.db.execute(
+                    "SELECT created_at FROM login_requests WHERE account_key=? AND created_at>? ORDER BY created_at DESC",
+                    (account_key, now - 900),
+                ).fetchall()
+                if len(recent) >= 3:
+                    minutes = max(1, math.ceil((recent[2][0] + 900 - now) / 60))
+                    return [
+                        text_message(
+                            f"Too many login requests for this {provider.title()} number. "
+                            f"Try again in {minutes} minute{'s' if minutes != 1 else ''}, or use a different number."
+                        )
+                    ]
+                self.accounts.claim_account(sender, provider, phone, reserve=False)
+                await self.chats.close_customer(sender)
+                # Reconnection starts clean; a failed new login cannot silently reuse the old account.
+                self.accounts.forget(sender, provider)
+                with self.accounts.db:
+                    self.accounts.db.execute(
+                        "INSERT INTO login_requests(sender,provider,created_at,account_key) VALUES (?,?,?,?)",
+                        (sender, provider, now, account_key),
+                    )
+                # Save a non-replayable stage BEFORE the external OTP request.
+                self.accounts.begin(sender, "requesting", provider=provider)
+                await self.adapter.request_otp(sender, provider, phone)
+                self.accounts.begin(sender, "otp", provider=provider, phone=phone)
+                return [
+                    text_message(
+                        f"Enter the OTP sent by {provider.title()}. It is used only for this login. Send Cancel to stop."
+                    )
+                ]
+            if stage == "otp":
+                if not re.fullmatch(r"\d{4,8}", text):
+                    return [text_message("Please type only the OTP digits, or send Cancel.")]
+                state["tries"] += 1
+                self.accounts.put(sender, state)
+                if state["tries"] > 3:
+                    await self.cancel(sender, provider)
+                    return self.menu(sender, "Too many incorrect attempts. Choose a store to reconnect.")
+                addresses = await self.adapter.verify_otp(sender, provider, text)
+                if addresses is None:
+                    return [
+                        text_message("That code was not accepted. Check it and try again, or send Cancel.")
+                    ]
+                self.accounts.claim_account(sender, provider, state["phone"])
+                if not addresses:
+                    await self.cancel(sender, provider)
+                    return self.menu(
+                        sender, "No saved address was found. Add one in the store app, then connect again."
+                    )
+                # Full text is retained encrypted and shown only to this sender.
+                state = self.accounts.begin(sender, "address", provider=provider, addresses=addresses)
+                return self.address_menu(state)
+            if stage == "address":
+                selected = choice or text
+                if selected.startswith("address-"):
+                    selected = selected[8:]
+                if not selected.isdigit() or not 1 <= int(selected) <= len(state["addresses"]):
+                    return self.address_menu(state)
+                address = state["addresses"][int(selected) - 1]
+                if any(p != provider for p in connections):
+                    state = self.accounts.begin(sender, "same_address", provider=provider, address=address)
+                    return [
+                        button_message(
+                            "Is this the same delivery address as your other connected store?\n"
+                            + address["label"],
+                            state["nonce"],
+                            [("same", "Same address"), ("different", "Choose another")],
+                        )
+                    ]
+                return await self.complete(sender, provider, address)
+            if stage == "same_address":
+                if choice == "same" or low == "same address":
+                    return await self.complete(sender, provider, state["address"])
+                if choice == "different" or low == "choose another":
+                    addresses = await self.adapter.addresses(sender, provider)
+                    state = self.accounts.begin(sender, "address", provider=provider, addresses=addresses)
+                    return self.address_menu(state)
+                return [text_message("Choose Same address or Choose another in the message above.")]
+            return self.menu(sender, "Login was interrupted. Choose a store to reconnect.")
+        except DomainError as error:
+            await self.cancel(sender, provider)
+            return self.menu(sender, error.message + " Choose a store to retry, or send Cancel.")
+        except Exception as error:
+            # Never log exception text/traceback: browser calls can include phone or OTP.
+            log.warning("Store onboarding failed: provider=%s stage=%s category=%s",
+                        provider, stage, type(error).__name__)
+            await self.cancel(sender, provider)
+            return self.menu(
+                sender, "I could not finish signing in. No order was placed. Choose a store to retry."
+            )
+
+    def address_menu(self, state):
+        # A text list keeps full addresses intact; opaque buttons bind to one attempt.
+        addresses = state["addresses"]
+        lines = "\n".join(f"{i}. {a['label']}" for i, a in enumerate(addresses, 1))
+        return [text_message("Choose your delivery address. Reply with its number:\n" + lines)]
+
+    async def complete(self, sender, provider, address):
+        data = await self.adapter.select_address(sender, provider, address)
+        self.accounts.save_connection(sender, provider, data)
+        await self.cancel(sender, provider)
+        await self.chats.close_customer(sender)
+        self.accounts.begin(sender, "ready")
+        return [
+            text_message(
+                f"{provider.title()} connected.\nDelivery: {data['address']}\nSend a voice note or type what you need. Send Connect to add another store, or Disconnect {provider} to remove access."
+            )
+        ]

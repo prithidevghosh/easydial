@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import hashlib
+import logging
 import re
 import shutil
 import tempfile
@@ -11,6 +12,8 @@ from urllib.parse import urlparse
 import httpx
 
 from ..controller import DomainError
+
+log = logging.getLogger(__name__)
 
 MAX_AUDIO = 8 * 1024 * 1024
 
@@ -37,6 +40,20 @@ class MetaTransport:
             and payload["image"].get("caption")
         ):
             return await self.send(sender, {"type": "text", "text": {"body": payload["image"]["caption"]}})
+        if response.is_error:
+            # Log only numeric diagnostics, never recipient, token, URL, or message content.
+            try:
+                error = response.json().get("error", {})
+                code = error.get("code")
+                subcode = error.get("error_subcode")
+                log.warning(
+                    "Meta send rejected: HTTP %s, code %s, subcode %s",
+                    response.status_code,
+                    code if isinstance(code, int) else None,
+                    subcode if isinstance(subcode, int) else None,
+                )
+            except (ValueError, AttributeError):
+                log.warning("Meta send rejected: HTTP %s", response.status_code)
         response.raise_for_status()
         return response.json()["messages"][0]["id"]
 

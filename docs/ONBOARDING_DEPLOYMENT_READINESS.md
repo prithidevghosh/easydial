@@ -1,3 +1,5 @@
+> Historical pre-implementation audit. Customer onboarding and isolation have since been implemented as a controlled pilot; see [CUSTOMER_ONBOARDING.md](CUSTOMER_ONBOARDING.md) for current capabilities and remaining verification/deployment gates.
+
 # Onboarding and AWS readiness audit
 
 Date: 2026-11-21. Source inspection only; no onboarding, cloud deployment, merchant login, cart modification or purchase performed.

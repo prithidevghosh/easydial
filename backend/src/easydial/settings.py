@@ -30,3 +30,9 @@ class Settings(BaseSettings):
     whatsapp_public_url: str = ""
     whatsapp_database: str = ".state/whatsapp/pilot.sqlite3"
     whatsapp_support_contact: str = ""
+
+    whatsapp_multiuser: bool = False
+    whatsapp_business_number: str = ""
+    customer_session_key: str = ""
+    customer_session_directory: str = ".state/customers"
+    onboarding_max_customers: int = 100

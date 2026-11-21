@@ -12,7 +12,8 @@ class Inbox:
     replayed automatically; store cart guards must reconcile any uncertain write.
     """
 
-    def __init__(self, path: str):
+    def __init__(self, path: str, secret_box=None):
+        self.secret_box = secret_box
         target = Path(path)
         target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         target.touch(mode=0o600, exist_ok=True)
@@ -74,8 +75,16 @@ class Inbox:
         with self.db:
             self.db.execute(
                 "INSERT OR IGNORE INTO events(id,sender,timestamp,payload) VALUES (?,?,?,?)",
-                (message["id"], message["from"], int(message["timestamp"]), json.dumps(message)),
+                (
+                    message["id"],
+                    message["from"],
+                    int(message["timestamp"]),
+                    self.secret_box.seal(message) if self.secret_box else json.dumps(message),
+                ),
             )
+
+    def decode_event(self, row):
+        return self.secret_box.open(row["payload"]) if self.secret_box else json.loads(row["payload"])
 
     def claim(self):
         row = self.db.execute("SELECT * FROM events WHERE status='queued' ORDER BY rowid LIMIT 1").fetchone()
