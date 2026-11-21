@@ -3,6 +3,8 @@
 import asyncio
 import time
 
+from playwright.async_api import Error as PlaywrightError
+
 from ..controller import DomainError
 from .browser import BrowserSession, click_and_settle
 
@@ -17,6 +19,14 @@ class BlinkitAddressError(DomainError):
         super().__init__(
             "I couldn't confirm your saved Blinkit delivery address. "
             "Send Connect and select your address again; retrying products won't fix this.", 409
+        )
+
+
+class BlinkitAddressLoadingError(DomainError):
+    def __init__(self):
+        super().__init__(
+            "Blinkit's saved delivery address did not finish loading. Your connection is saved; please retry shortly.",
+            503,
         )
 
 
@@ -41,7 +51,7 @@ async def settled_location(page, label, *, expected=None, timeout=12):
         else:
             previous, stable_since = None, None
         await asyncio.sleep(0.2)
-    raise BlinkitAddressError()
+    raise BlinkitAddressLoadingError()
 
 
 async def select_and_verify_address(page, card, address):
@@ -60,10 +70,10 @@ async def select_and_verify_address(page, card, address):
         await page.reload(wait_until="domcontentloaded", timeout=20000)
         await BrowserSession.check_page(page)
         return await settled_location(page, label, expected=location)
-    except BlinkitAddressError:
+    except DomainError:
         raise
-    except Exception:
-        raise BlinkitAddressError() from None
+    except PlaywrightError:
+        raise BlinkitAddressLoadingError() from None
 
 
 async def restore_saved_address(page, address):
@@ -79,7 +89,7 @@ async def restore_saved_address(page, address):
         if len(matches) != 1:
             raise BlinkitAddressError()
         return await select_and_verify_address(page, matches[0], address)
-    except BlinkitAddressError:
+    except DomainError:
         raise
-    except Exception:
-        raise BlinkitAddressError() from None
+    except PlaywrightError:
+        raise BlinkitAddressLoadingError() from None

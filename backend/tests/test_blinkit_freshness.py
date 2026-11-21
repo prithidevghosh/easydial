@@ -114,3 +114,69 @@ async def test_nonempty_cart_wrong_address_is_not_reselected(monkeypatch):
         await worker.navigate(page, 'milk')
     restore.assert_not_awaited()
     assert worker.verified_location == 'Old locality'
+
+
+@pytest.mark.parametrize('failures', [1, 3])
+async def test_location_loading_retries_same_page_and_never_saves_unverified_state(monkeypatch, failures):
+    from easydial.providers.blinkit_location import BlinkitAddressLoadingError
+
+    worker = BlinkitProvider('', 'Saved locality', 'Approved address')
+    page = object()
+    worker.verify_location = AsyncMock(side_effect=[BlinkitAddressLoadingError()] * failures + [None])
+    worker.browser.save = AsyncMock()
+    worker.browser.check_page = AsyncMock()
+    goto = AsyncMock()
+    monkeypatch.setattr('easydial.providers.blinkit.goto_with_retry', goto)
+    monkeypatch.setattr('easydial.providers.blinkit.asyncio.sleep', AsyncMock())
+    if failures == 3:
+        with pytest.raises(BlinkitAddressLoadingError, match='connection is saved'):
+            await worker.navigate(page, 'milk')
+        goto.assert_not_awaited()
+    else:
+        await worker.navigate(page, 'milk')
+        assert goto.await_args.args[0] is page
+        assert '/s/?q=milk' in goto.await_args.args[1]
+    assert worker.verify_location.await_count == min(failures + 1, 3)
+    assert all(call.args == (page,) for call in worker.verify_location.await_args_list)
+    worker.browser.save.assert_not_awaited()
+    assert worker.verified_location == 'Saved locality'
+
+
+async def test_loading_failure_keeps_connection_and_search_allows_recovery_budget(monkeypatch):
+    from easydial.models import Provider
+    from easydial.providers import ProviderWorkers
+    from easydial.providers.blinkit_location import BlinkitAddressLoadingError
+    from easydial.settings import Settings
+
+    workers = ProviderWorkers(Settings(_env_file=None, openai_api_key=''))
+    deadlines = []
+    async def bounded(awaitable, *, timeout):
+        deadlines.append(timeout)
+        return await awaitable
+    monkeypatch.setattr('easydial.providers.asyncio.wait_for', bounded)
+    workers.workers[0].search = AsyncMock(side_effect=BlinkitAddressLoadingError())
+    result = await workers.search('milk', 'Test home', Provider.BLINKIT)
+    assert deadlines == [90]
+    assert result[0].recovery is None
+    assert 'connection is saved' in result[0].message
+    await workers.close()
+
+
+@pytest.mark.parametrize('persistent', [False, True])
+async def test_inventory_reload_is_read_only_and_bounded(monkeypatch, persistent):
+    from playwright.async_api import TimeoutError
+
+    worker = BlinkitProvider('', 'Locality', 'Approved address')
+    page = object()
+    ready = AsyncMock(side_effect=[TimeoutError('loading'), TimeoutError('loading')] if persistent else [TimeoutError('loading'), None])
+    cards = SimpleNamespace(first=SimpleNamespace(wait_for=ready))
+    goto = AsyncMock()
+    worker.browser.check_page = AsyncMock()
+    monkeypatch.setattr('easydial.providers.blinkit.goto_with_retry', goto)
+    if persistent:
+        with pytest.raises(DomainError, match='products did not finish loading'):
+            await worker.wait_for_products(page, cards, 'milk')
+    else:
+        await worker.wait_for_products(page, cards, 'milk')
+    assert ready.await_count == 2
+    goto.assert_awaited_once_with(page, 'https://blinkit.com/s/?q=milk', wait_until='domcontentloaded', timeout=20000)

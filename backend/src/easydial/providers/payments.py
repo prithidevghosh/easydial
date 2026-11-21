@@ -125,7 +125,7 @@ async def open_options_once(worker, view, review, page):
                 await frames[0].get_by_text("UPI", exact=True).wait_for()
                 return frames[0]
             await asyncio.sleep(0.25)
-        raise DomainError("Blinkit payment options did not load. Try again later.")
+        raise CheckoutTemporarilyUnavailable("Blinkit payment options did not load. Retrying checkout.")
     await page.get_by_text("Payment Options", exact=True).wait_for()
     verify_instamart_payment_total(await page.locator("body").inner_text(), review.total_paise)
     return page
@@ -184,7 +184,7 @@ async def continue_blinkit_address(worker, view, review, page):
                 await click_and_settle(page, proceed)
                 last_checkout_click = time.monotonic()
         await asyncio.sleep(0.25)
-    raise DomainError("Blinkit payment options did not load. Try again later.")
+    raise CheckoutTemporarilyUnavailable("Blinkit payment options did not load. Retrying checkout.")
 
 
 def verify_instamart_payment_total(text, approved_paise):

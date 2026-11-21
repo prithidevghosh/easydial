@@ -80,7 +80,10 @@ class ProviderWorkers:
     async def search(self, query: str, address: str, provider: Provider | None = None) -> list[SearchResult]:
         async def run(provider, worker):
             try:
-                return await asyncio.wait_for(worker.search(query, address), timeout=45)
+                # Blinkit may need bounded address restoration before inventory renders.
+                # Preserve the existing Instamart deadline.
+                timeout = 90 if provider == Provider.BLINKIT else 45
+                return await asyncio.wait_for(worker.search(query, address), timeout=timeout)
             except DomainError as error:
                 return SearchResult(provider=provider, query=query, status="error", message=error.message,
                                     recovery="reconnect_address" if isinstance(error, BlinkitAddressError) else None)
@@ -223,7 +226,8 @@ class ProviderWorkers:
 
         worker = self._worker(review.provider)
         try:
-            return await asyncio.wait_for(options(worker, view, review), timeout=75)
+            timeout = 120 if review.provider == Provider.BLINKIT else 75
+            return await asyncio.wait_for(options(worker, view, review), timeout=timeout)
         except DomainError:
             raise
         except Exception:

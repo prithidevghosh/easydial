@@ -1,12 +1,15 @@
 import asyncio
+import logging
 import re
 from contextlib import asynccontextmanager
 from urllib.parse import quote, urlsplit
 
+from playwright.async_api import TimeoutError as PlaywrightTimeoutError
+
 from ..controller import DomainError
 from ..models import Offer, Provider, Review, SearchResult, SessionView
 from . import blinkit_dom
-from .blinkit_location import BlinkitAddressError, restore_saved_address
+from .blinkit_location import BlinkitAddressError, BlinkitAddressLoadingError, restore_saved_address
 from .browser import BrowserSession, click_and_settle, goto_with_retry
 from .cart_guard import CartConflict, CartGuard
 from .images import product_image_url
@@ -105,6 +108,21 @@ class BlinkitProvider:
         yield page, context
 
     async def navigate(self, page, query):
+        for attempt in range(3):
+            try:
+                await self.verify_location(page)
+                break
+            except (BlinkitAddressLoadingError, PlaywrightTimeoutError):
+                logging.getLogger(__name__).warning("Blinkit address restoration not ready: attempt=%s max_attempts=3", attempt + 1)
+                if attempt == 2:
+                    raise BlinkitAddressLoadingError() from None
+                await asyncio.sleep(0.5 * (attempt + 1))
+        await goto_with_retry(page,
+            f"https://blinkit.com/s/?q={quote(query)}", wait_until="domcontentloaded", timeout=20000
+        )
+        await self.browser.check_page(page)
+
+    async def verify_location(self, page):
         # The search layout has no LocationBar. Verify locality on the homepage first.
         await goto_with_retry(page, "https://blinkit.com/", wait_until="domcontentloaded", timeout=20000)
         await self.browser.check_page(page)
@@ -133,10 +151,20 @@ class BlinkitProvider:
                 self.on_location_verified(location)
             self.verified_location = location
         self.header_address = location
-        await goto_with_retry(page,
-            f"https://blinkit.com/s/?q={quote(query)}", wait_until="domcontentloaded", timeout=20000
-        )
-        await self.browser.check_page(page)
+
+    async def wait_for_products(self, page, cards, query):
+        # Retry only inventory reads, before any cart mutation. A temporarily
+        # blank client-rendered search page must not cause an ADD to be replayed.
+        for attempt in range(2):
+            try:
+                await cards.first.wait_for(state="visible", timeout=10000)
+                return
+            except PlaywrightTimeoutError:
+                if attempt:
+                    raise DomainError("Blinkit's products did not finish loading. Your basket is saved; please retry shortly.", 503) from None
+                await goto_with_retry(page, f"https://blinkit.com/s/?q={quote(query)}",
+                                      wait_until="domcontentloaded", timeout=20000)
+                await self.browser.check_page(page)
 
     async def close(self):
         await self.browser.close()
@@ -152,7 +180,7 @@ class BlinkitProvider:
         async with self.lock, self.browser_page() as (page, _):
             await self.navigate(page, query)
             cards = page.locator("div[role='button'][id]").filter(has_text="₹")
-            await cards.first.wait_for(state="visible")
+            await self.wait_for_products(page, cards, query)
             count = await cards.count()
             offers = []
             for i in range(min(count, 20)):
@@ -309,7 +337,7 @@ class BlinkitProvider:
             raise DomainError("Search this Blinkit item again before reviewing.")
         await self.navigate(page, query)
         card = page.locator("div[role='button'][id]").filter(has=page.locator("div[class*='line-clamp-2']"))
-        await card.first.wait_for(state="visible")
+        await self.wait_for_products(page, card, query)
         # Product IDs came from the visible DOM. Match as data, never interpolate into a CSS expression.
         matches = []
         for i in range(await card.count()):

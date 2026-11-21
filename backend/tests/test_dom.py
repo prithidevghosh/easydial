@@ -919,3 +919,34 @@ async def test_blinkit_surge_fee_is_not_a_store_refusal(page, notice, blocked):
         assert cart["items"] == [{"name": "Test bar", "pack": "50 g", "quantity": 1}]
         assert cart["bill"][-1] == {"label": notice, "value": "₹20"}
         assert cart["total"] == "₹70"
+
+
+async def test_blinkit_search_recovers_when_initial_address_picker_does_not_load(page):
+    from easydial.providers.blinkit import BlinkitProvider
+
+    page.set_default_timeout(300)
+    home_visits = []
+
+    async def respond(route):
+        if '/s/' in route.request.url:
+            return await route.fulfill(body='<div>Search results</div>', content_type='text/html')
+        home_visits.append(route.request.url)
+        header = 'Temporary locality' if len(home_visits) == 1 else 'Home<br>Saved locality'
+        await route.fulfill(body=f'<div class="LocationBar__Subtitle">{header}</div>'
+                            '<div class="CartButton__Button" disabled>My Cart</div>', content_type='text/html')
+
+    await page.route('https://blinkit.com/**', respond)
+    worker = BlinkitProvider('', 'Home\nSaved locality', 'Flat 7, Road')
+    await worker.navigate(page, 'milk')
+    assert len(home_visits) == 2
+    assert page.url == 'https://blinkit.com/s/?q=milk'
+    assert worker.verified_location == 'Home\nSaved locality'
+
+
+async def test_blinkit_missing_picker_is_temporary_not_a_missing_saved_address(page):
+    from easydial.providers.blinkit_location import BlinkitAddressLoadingError, restore_saved_address
+
+    page.set_default_timeout(150)
+    await page.set_content('<div class="LocationBar__Subtitle">Temporary locality</div>')
+    with pytest.raises(BlinkitAddressLoadingError, match='connection is saved'):
+        await restore_saved_address(page, 'Flat 7, Road')
