@@ -297,3 +297,4 @@ The project is complete only when an intended user can speak a supported-languag
 
 | 2026-11-21 | Live-only request | Removed runtime samples; real provider cart review and Pending checkout implemented; 26 contract/unit tests pass | Authenticate and verify both providers |
 | 2026-11-21 | Visual correction | Full-width white-on-blue primary actions; refined home, composer and supporting text; simulator checks | Credentialed basket screenshots and device usability |
+| 2026-11-21 | Remote verification | GitHub run 44872856799 passes backend and iOS build at 06ef361 | Account login is the remaining live-validation prerequisite |

@@ -25,7 +25,7 @@ User rejected the button styling and then explicitly removed the entire demo flo
 - iOS simulator build and disconnected live home/settings UI test pass after fixing accessibility assertions to match SwiftUI's combined labels.
 - Earlier in this session, the primary button contrast was inspected in a basket screenshot and the then-existing sample journey passed. That runtime sample flow was subsequently deleted.
 - Firefox DOM readers executed against a local HTML fixture: excludes struck-through MRP, reads quantity, rejects missing quantity. This does NOT verify actual Blinkit selectors.
-- Latest code changes are being committed/pushed with CI; record the successful run after it finishes.
+- GitHub Actions run 44872856799 at commit `06ef361` passed both backend checks and the iOS simulator build: https://github.com/prithidevghosh/easydial/actions/runs/44872856799. Code, UI and setup docs are pushed in focused commits.
 
 ## Not yet verified / required external input
 
