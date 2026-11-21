@@ -1,12 +1,15 @@
-"""Read-only official MCP adapter. Live cart/purchase tools are intentionally not exposed."""
+"""Official MCP discovery and basket review. No order/payment tools are exposed."""
 
+import asyncio
 import json
 from decimal import Decimal, InvalidOperation
 
 from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
 
-from ..models import Offer, Provider, SearchResult
+from ..controller import DomainError
+from ..models import Offer, Provider, Review, SearchResult, SessionView
+from .cart_guard import CartGuard
 
 
 def paise(value) -> int | None:
@@ -86,10 +89,14 @@ class InstamartProvider:
 
     def __init__(self, token: str, address_id: str):
         self.token, self.address_id = token, address_id
+        self.lock = asyncio.Lock()
+        self.guard = CartGuard()
 
     async def call(self, name: str, arguments: dict):
-        if name not in {"get_addresses", "search_products"}:
-            raise ValueError("Only discovery tools are enabled.")
+        if name not in {"get_addresses", "search_products", "get_cart", "update_cart"}:
+            raise ValueError(
+                "Only discovery and basket tools are enabled. Payment and order tools are blocked."
+            )
         async with streamablehttp_client(
             self.endpoint, headers={"Authorization": f"Bearer {self.token}"}, timeout=20
         ) as (read, write, _):
@@ -110,3 +117,94 @@ class InstamartProvider:
             )
         data = await self.call("search_products", {"query": query, "addressId": self.address_id})
         return normalize_products(data, query, address)
+
+    async def review(self, session: SessionView) -> Review:
+        if not self.token or not self.address_id:
+            raise DomainError("Connect Swiggy and select a delivery address first.", 503)
+        desired = tuple(sorted((x.offer.product_id, x.offer.sku_id, x.quantity) for x in session.lines))
+        async with self.lock:
+            before = await self.call("get_cart", {})
+            self.guard.check(session.id, cart_signature(before))
+            self.guard.before_write(desired)
+            await self.call(
+                "update_cart",
+                {
+                    "items": [{"spinId": p, "skuId": s, "quantity": q} for p, s, q in desired],
+                    "selectedAddressId": self.address_id,
+                },
+            )
+            after = await self.call("get_cart", {})
+            actual = cart_signature(after)
+            # Remember the provider readback even when stock changes prevent review.
+            self.guard.accepted(actual)
+            if actual != desired:
+                raise DomainError(
+                    "Swiggy changed quantities or removed an item. Check availability and edit your basket before reviewing again."
+                )
+            if after.get("addressWarning") or after.get("unserviceableItems") or after.get("cartWarning"):
+                raise DomainError(
+                    "Swiggy reported a delivery or basket issue. Check the selected address and items in Instamart."
+                )
+            details = after.get("selectedAddressDetails") or {}
+            if details.get("id") != self.address_id:
+                raise DomainError("Swiggy's basket delivery address does not match your selected address.")
+            if any(x.get("isInStockAndAvailable") is not True for x in after.get("items", [])):
+                raise DomainError("Swiggy could not confirm availability for every basket item.")
+            total = paise(after.get("cartTotalAmount"))
+            bill = after.get("billBreakdown") or {}
+            payable = paise((bill.get("toPay") or {}).get("value"))
+            if total is None or (payable is not None and payable != total):
+                raise DomainError("Swiggy's payable total could not be verified.")
+            bill_lines = [
+                {"label": str(x["label"]), "value": str(x["value"])}
+                for x in bill.get("lineItems", [])
+                if "label" in x and "value" in x
+            ]
+            subtotal = next(
+                (
+                    paise(x["value"])
+                    for x in bill_lines
+                    if x["label"].strip().casefold() in {"item total", "item subtotal", "items total"}
+                ),
+                None,
+            )
+            return Review(
+                version=session.version,
+                provider=Provider.INSTAMART,
+                address_label=details.get("address") or session.address_label,
+                item_subtotal_paise=subtotal,
+                fees_paise=None,
+                total_paise=total,
+                payment_method="Pending — payment is not enabled",
+                mode="live",
+                bill_lines=bill_lines,
+                cart_reference=after.get("cartId"),
+            )
+
+    async def clear(self, session_id: str):
+        async with self.lock:
+            before = await self.call("get_cart", {})
+            self.guard.check(session_id, cart_signature(before))
+            self.guard.before_write(())
+            await self.call("update_cart", {"items": [], "selectedAddressId": self.address_id})
+            after = cart_signature(await self.call("get_cart", {}))
+            self.guard.accepted(after)
+            if after:
+                raise DomainError("Swiggy did not confirm an empty basket.")
+
+
+def cart_signature(data: dict) -> tuple:
+    items = data.get("items")
+    if items is None and data.get("cartAbsent") is True:
+        return ()
+    if not isinstance(items, list):
+        raise ValueError("Unrecognized cart response")
+    result = []
+    for item in items:
+        p, s, q = item.get("spinId"), item.get("skuId"), item.get("quantity")
+        if not p or not s or isinstance(q, bool) or not isinstance(q, int) or q < 1:
+            raise ValueError("Unrecognized cart item")
+        result.append((str(p), str(s), q))
+    if len({(p, s) for p, s, _ in result}) != len(result):
+        raise ValueError("Duplicate SKU rows cannot be reconciled safely")
+    return tuple(sorted(result))

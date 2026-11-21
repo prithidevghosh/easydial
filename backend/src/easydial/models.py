@@ -27,7 +27,7 @@ class Offer(BaseModel):
     price_paise: int | None = Field(default=None, ge=0)
     available: bool | None = None
     max_quantity: int = Field(default=10, ge=1, le=100)
-    mode: Literal["sample", "live"]
+    mode: Literal["live"]
     address_label: str
     retrieved_at: datetime = Field(default_factory=now)
     suggested_quantity: int = Field(default=1, ge=1, le=100)
@@ -58,11 +58,13 @@ class Review(BaseModel):
     version: int
     provider: Provider
     address_label: str
-    item_subtotal_paise: int
+    item_subtotal_paise: int | None
     fees_paise: int | None
     total_paise: int | None
     payment_method: str
-    mode: Literal["sample", "live"]
+    mode: Literal["live"]
+    bill_lines: list[dict[str, str]] = Field(default_factory=list)
+    cart_reference: str | None = None
     created_at: datetime = Field(default_factory=now)
 
 
@@ -73,15 +75,16 @@ class Message(BaseModel):
 
 class SessionView(BaseModel):
     id: str
-    mode: Literal["sample", "live"]
+    mode: Literal["live"]
     version: int = 0
     address_label: str
     lines: list[BasketLine] = Field(default_factory=list)
     results: list[SearchResult] = Field(default_factory=list)
     messages: list[Message] = Field(default_factory=list)
     review: Review | None = None
-    phase: Literal["shopping", "review", "sample_complete"] = "shopping"
+    phase: Literal["shopping", "review", "checkout_pending"] = "shopping"
     comparison: str | None = None
+    synced_provider: Provider | None = None
 
 
 class SessionCreated(BaseModel):

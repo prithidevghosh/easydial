@@ -1,7 +1,7 @@
-from ..models import Offer, Provider, SearchResult
+from easydial.models import Offer, Provider, Review, SearchResult
 
 
-class SampleProvider:
+class FixtureProvider:
     """Synthetic catalogue. Never connects to a commerce website."""
 
     def __init__(self, provider: Provider):
@@ -67,7 +67,7 @@ class SampleProvider:
                 continue
             offers.append(
                 Offer(
-                    id=f"sample:{self.provider}:{key}",
+                    id=f"fixture:{self.provider}:{key}",
                     provider=self.provider,
                     product_id=key,
                     sku_id=key,
@@ -77,7 +77,7 @@ class SampleProvider:
                     pack_size=size,
                     price_paise=blinkit if self.provider == Provider.BLINKIT else swiggy,
                     available=True,
-                    mode="sample",
+                    mode="live",
                     address_label=address,
                 )
             )
@@ -86,4 +86,17 @@ class SampleProvider:
             query=query,
             offers=offers,
             message="Synthetic catalogue. These are not live prices.",
+        )
+
+    async def review(self, session):
+        total = sum(x.subtotal for x in session.lines)
+        return Review(
+            version=session.version,
+            provider=self.provider,
+            address_label=session.address_label,
+            item_subtotal_paise=total,
+            fees_paise=0,
+            total_paise=total,
+            payment_method="Pending",
+            mode="live",
         )

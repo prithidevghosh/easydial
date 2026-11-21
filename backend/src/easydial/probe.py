@@ -15,11 +15,7 @@ async def main():
     parser.add_argument("query", nargs="?", default="milk")
     args = parser.parse_args()
     settings = Settings()
-    address = (
-        "Sample home · Bengaluru (not a delivery address)"
-        if settings.commerce_mode == "sample"
-        else settings.live_address_label
-    )
+    address = settings.live_address_label
     if not address:
         raise SystemExit("Set a verified delivery address before live discovery.")
     results = await ProviderWorkers(settings).search(args.query, address)

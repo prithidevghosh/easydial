@@ -40,7 +40,7 @@ class OpenAIMaster:
     def require_client(self):
         if self.client is None:
             raise DomainError(
-                "Voice and conversation need an OpenAI connection. You can still use the sample searches and basket controls.",
+                "Voice and conversation need an OpenAI connection. You can still use the product search and basket controls.",
                 503,
             )
         return self.client

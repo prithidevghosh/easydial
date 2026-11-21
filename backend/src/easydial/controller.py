@@ -23,8 +23,6 @@ class Session:
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
     def check(self, version: int):
-        if self.view.phase == "sample_complete":
-            raise DomainError("This sample journey is complete. Start a new session.")
         if version != self.view.version:
             raise DomainError("Your basket changed. Refresh it and try again.")
 
@@ -48,6 +46,8 @@ class Session:
             offer = self.offers.get(request.offer_id or "")
             if not offer or offer.available is not True or offer.price_paise is None:
                 raise DomainError("Choose an available product with a verified price.", 422)
+            if self.view.synced_provider and self.view.synced_provider != offer.provider:
+                raise DomainError("Sync an empty basket with the previous store before switching stores.")
             if offer.mode != self.view.mode or offer.address_label != self.view.address_label:
                 raise DomainError("This product belongs to another delivery context.")
             if now() - offer.retrieved_at > timedelta(minutes=10):
@@ -73,49 +73,27 @@ class Session:
         self.view.lines = lines
         self.changed()
 
-    def make_review(self, version: int):
+    def accept_review(self, version: int, review: Review):
         self.check(version)
         if not self.view.lines:
             raise DomainError("Add something to your basket first.", 422)
-        if self.view.mode == "live":
-            raise DomainError(
-                "Live cart and payment verification are not enabled yet. No order has been placed.", 503
-            )
-        subtotal = sum(x.subtotal for x in self.view.lines)
-        self.view.review = Review(
-            version=self.view.version,
-            provider=self.view.lines[0].offer.provider,
-            address_label=self.view.address_label,
-            item_subtotal_paise=subtotal,
-            fees_paise=0,
-            total_paise=subtotal,
-            payment_method="Sample payment — no money charged",
-            mode="sample",
-        )
+        self.view.review = review
         self.view.phase = "review"
-        self.say(
-            f"Your sample total is ₹{subtotal / 100:.2f}. Review the basket below. This will not place a real order."
-        )
+        self.say("Your store basket is synced. Check the current bill before checkout.")
 
     def confirm(self, version: int, review_id: str, confirmed: bool):
-        # Repeating the same sample confirmation returns the completed state, not another order.
-        review = self.view.review
-        if (
-            self.view.phase == "sample_complete"
-            and review
-            and review.id == review_id
-            and version == review.version
-        ):
-            return
         self.check(version)
+        review = self.view.review
         if not confirmed or not review or review.id != review_id or review.version != version:
-            raise DomainError("Review the current basket and confirm it explicitly.")
+            raise DomainError("Review the current basket before checkout.")
         if now() - review.created_at > timedelta(minutes=5):
             raise DomainError("This review expired. Review your basket again.")
-        if self.view.mode != "sample":
-            raise DomainError("Live purchasing is not enabled.", 503)
-        self.view.phase = "sample_complete"
-        self.say("Sample journey complete. No payment was taken and no groceries were ordered.")
+        # A local checkpoint only: never invokes provider checkout or payment.
+        if self.view.phase != "checkout_pending":
+            self.view.phase = "checkout_pending"
+            self.say(
+                "Pending — payment isn't enabled. Your groceries are in the store basket; no order was placed."
+            )
 
 
 class SessionStore:
@@ -127,11 +105,7 @@ class SessionStore:
         if len(self.sessions) >= 100:
             raise DomainError("Too many local sessions. Try again later.", 429)
         session = Session(SessionView(id=uuid4().hex, mode=mode, address_label=address))
-        session.say(
-            "Tell me what you need, or try a sample search. Prices here are examples, not live offers."
-            if mode == "sample"
-            else "Tell me what to search for. Live checkout is not enabled yet."
-        )
+        session.say("Tell me what you need. We'll check Blinkit and Swiggy Instamart for your address.")
         self.sessions[session.view.id] = session
         return session
 
@@ -164,7 +138,7 @@ def exact_comparison(offers: list[Offer]) -> str | None:
             max(options, key=lambda x: x.price_paise),
         )
         delta = (expensive.price_paise - cheap.price_paise) / 100
-        prefix = "Sample comparison: " if cheap.mode == "sample" else ""
+        prefix = ""
         if delta == 0:
             return f"{prefix}{cheap.name}, {cheap.pack_size}, has the same item price at both stores. Fees may differ."
         return f"{prefix}{cheap.name}, {cheap.pack_size}, is ₹{delta:.2f} less at {cheap.provider.value.title()}. This compares item prices only; delivery and other fees may differ."

@@ -8,10 +8,10 @@ class Settings(BaseSettings):
     openai_transcription_model: str = "gpt-4o-transcribe"
     openai_speech_model: str = "gpt-4o-mini-tts"
     openai_voice: str = "coral"
-    commerce_mode: str = "sample"
+    commerce_mode: str = "live"
     swiggy_access_token: str = ""
     swiggy_address_id: str = ""
     live_address_label: str = ""
     blinkit_storage_state: str = ""
     blinkit_verified_location: str = ""
-    enable_live_comparison: bool = False
+    blinkit_verified_address: str = ""

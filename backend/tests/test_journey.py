@@ -9,15 +9,18 @@ from easydial.controller import DomainError, SessionStore, exact_comparison
 from easydial.models import EditRequest, Intent, IntentEdit, Provider, now
 from easydial.providers.blinkit import parse_card
 from easydial.providers.instamart import normalize_products, paise, unpack
-from easydial.providers.sample import SampleProvider
 from easydial.settings import Settings
+from tests.fakes import FixtureProvider
 
 
 @pytest.fixture
 def client():
     with TestClient(
-        create_app(Settings(_env_file=None, commerce_mode="sample", openai_api_key=""))
+        create_app(
+            Settings(_env_file=None, commerce_mode="live", live_address_label="home", openai_api_key="")
+        )
     ) as client:
+        client.app.state.workers.workers = [FixtureProvider(p) for p in Provider]
         yield client
 
 
@@ -42,10 +45,10 @@ def edit(client, path, headers, state, **kwargs):
     return response.json()
 
 
-def test_sample_journey_edit_review_confirm(client):
+def test_provider_contract_journey_edit_review_pending(client):
     path, headers = start(client)
     state = search(client, path, headers)
-    assert "Sample comparison" in state["comparison"]
+    assert "less at" in state["comparison"]
     milk = state["results"][0]["offers"][0]["id"]
     state = edit(client, path, headers, state, kind="add", offer_id=milk, quantity=2)
     milk_line = state["lines"][0]["id"]
@@ -60,9 +63,9 @@ def test_sample_journey_edit_review_confirm(client):
     body = {"expected_version": state["version"], "review_id": review["review"]["id"], "confirmed": True}
     result = client.post(path + "/confirm", headers=headers, json=body)
     assert result.status_code == 200
-    assert result.json()["phase"] == "sample_complete"
-    assert "No payment" in result.json()["messages"][-1]["text"]
-    # A duplicate tap cannot create another simulated purchase.
+    assert result.json()["phase"] == "checkout_pending"
+    assert "no order was placed" in result.json()["messages"][-1]["text"]
+    # A duplicate tap cannot submit payment or an order.
     assert client.post(path + "/confirm", headers=headers, json=body).json() == result.json()
 
 
@@ -190,8 +193,8 @@ def test_master_edits_are_atomic(client):
 
 
 async def test_comparison_requires_equivalent_known_variants():
-    a = (await SampleProvider(Provider.BLINKIT).search("milk", "home")).offers[0]
-    b = (await SampleProvider(Provider.INSTAMART).search("milk", "home")).offers[0]
+    a = (await FixtureProvider(Provider.BLINKIT).search("milk", "home")).offers[0]
+    b = (await FixtureProvider(Provider.INSTAMART).search("milk", "home")).offers[0]
     assert exact_comparison([a, b])
     assert exact_comparison([a, b.model_copy(update={"pack_size": "1 l"})]) is None
     assert exact_comparison([a, b.model_copy(update={"variant": None})]) is None
@@ -236,14 +239,14 @@ def test_blinkit_ambiguous_price_is_not_guessed():
 
 
 async def test_stale_offer_and_review_expire():
-    session = SessionStore().create("sample", "home")
-    offer = (await SampleProvider(Provider.BLINKIT).search("milk", "home")).offers[0]
+    session = SessionStore().create("live", "home")
+    offer = (await FixtureProvider(Provider.BLINKIT).search("milk", "home")).offers[0]
     session.offers[offer.id] = offer.model_copy(update={"retrieved_at": now() - timedelta(minutes=11)})
     with pytest.raises(DomainError):
         session.edit(EditRequest(kind="add", offer_id=offer.id, expected_version=0))
     session.offers[offer.id] = offer
     session.edit(EditRequest(kind="add", offer_id=offer.id, expected_version=0))
-    session.make_review(1)
+    session.accept_review(1, await FixtureProvider(Provider.BLINKIT).review(session.view))
     session.view.review.created_at = now() - timedelta(minutes=6)
     with pytest.raises(DomainError):
         session.confirm(1, session.view.review.id, True)
@@ -282,11 +285,14 @@ def test_spoken_search_preserves_quantity_and_replacement_target(client):
 async def test_provider_failure_isolated_without_fake_stock():
     from easydial.providers import ProviderWorkers
 
-    workers = ProviderWorkers(Settings(_env_file=None, commerce_mode="sample", openai_api_key=""))
+    workers = ProviderWorkers(
+        Settings(_env_file=None, commerce_mode="live", live_address_label="home", openai_api_key="")
+    )
 
     async def broken(*args):
         raise RuntimeError("private token must not leak")
 
+    workers.workers = [FixtureProvider(p) for p in Provider]
     workers.workers[0].search = broken
     results = await workers.search("milk", "home")
     assert results[0].status == "error" and results[0].offers == []

@@ -24,10 +24,8 @@ from .settings import Settings
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or Settings()
-    if settings.commerce_mode not in {"sample", "live"}:
-        raise ValueError("COMMERCE_MODE must be sample or live")
-    if settings.commerce_mode == "live" and not settings.live_address_label:
-        raise ValueError("Set LIVE_ADDRESS_LABEL to the verified address before enabling live discovery")
+    if settings.commerce_mode != "live":
+        raise ValueError("Only live commerce is supported. Set COMMERCE_MODE=live.")
     store, workers, master = SessionStore(), ProviderWorkers(settings), OpenAIMaster(settings)
 
     @asynccontextmanager
@@ -78,15 +76,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "voice_available": bool(settings.openai_api_key),
             "conversation_available": bool(settings.openai_api_key),
             "live_checkout": False,
+            "providers": workers.connection_status(),
+            "address_configured": bool(settings.live_address_label),
         }
 
     @app.post("/sessions", response_model=SessionCreated)
     async def new_session():
-        address = (
-            "Sample home · Bengaluru (not a delivery address)"
-            if settings.commerce_mode == "sample"
-            else settings.live_address_label
-        )
+        address = settings.live_address_label
         created = store.create(settings.commerce_mode, address)
         return SessionCreated(session=created.view, token=created.token)
 
@@ -97,6 +93,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def search_results(queries: list[RequestedProduct], address: str):
         if not queries or len(queries) > 3 or any(not q.query.strip() for q in queries):
             raise DomainError("Please name a product to search for.", 422)
+        if not address:
+            raise DomainError(
+                "Connect a store and select your delivery address first. See Connection settings.", 503
+            )
         batches = await asyncio.gather(*(workers.search(q.query.strip(), address) for q in queries))
         results = []
         for query, batch in zip(queries, batches):
@@ -153,7 +153,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.post("/sessions/{session_id}/review", response_model=SessionView)
     async def review(body: VersionRequest, current: SessionDep):
         async with current.lock:
-            current.make_review(body.expected_version)
+            current.check(body.expected_version)
+            current.view.review = None
+            current.view.phase = "shopping"
+            if not current.view.lines and current.view.synced_provider:
+                await workers.clear(current.view)
+                current.view.synced_provider = None
+                current.changed()
+                current.say("Your store basket is now empty.")
+            else:
+                if current.view.lines:
+                    current.view.synced_provider = current.view.lines[0].offer.provider
+                reviewed = await workers.review(current.view)
+                current.accept_review(body.expected_version, reviewed)
             return current.view
 
     @app.post("/sessions/{session_id}/confirm", response_model=SessionView)
@@ -201,7 +213,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     )
                 candidate.say("Your basket is updated. Please check the quantities below.")
             elif intent.action == "review":
-                candidate.make_review(body.expected_version)
+                candidate.changed()
+                candidate.say(
+                    "Open your basket and tap Review basket to sync it with the store and check the live bill."
+                )
             elif intent.action == "stop":
                 candidate.changed()
                 candidate.say("I'll wait. No order has been placed.")
