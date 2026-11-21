@@ -243,6 +243,13 @@ class Onboarding:
             return self.menu(sender, "Permission is needed before signing in. Choose a store.")
         try:
             if stage == "phone":
+                if choice == "different_number" or low == "use another number":
+                    self.accounts.begin(sender, "phone", provider=provider)
+                    return [text_message(f"What is the other 10-digit number for your {provider.title()} account? Send Cancel to stop.")]
+                if choice == "retry_login" or low == "retry login":
+                    text = state.get("retry_phone", "")
+                    if not text:
+                        return [text_message(f"What is the 10-digit number for your {provider.title()} account? Send Cancel to stop.")]
                 phone = re.sub(r"[\s()-]", "", text)
                 if phone.startswith("+91"):
                     phone = phone[3:]
@@ -258,12 +265,15 @@ class Onboarding:
                 ).fetchall()
                 if len(recent) >= 3:
                     minutes = max(1, math.ceil((recent[2][0] + 900 - now) / 60))
-                    return [
-                        text_message(
-                            f"Too many login requests for this {provider.title()} number. "
-                            f"Try again in {minutes} minute{'s' if minutes != 1 else ''}, or use a different number."
-                        )
-                    ]
+                    state["retry_phone"] = phone
+                    state["expires"] = max(state["expires"], recent[2][0] + 1500)
+                    self.accounts.put(sender, state)
+                    return [button_message(
+                        f"Login for this {provider.title()} number is paused for {minutes} minute{'s' if minutes != 1 else ''}. "
+                        "Then tap Retry login. You can use another number or cancel now.",
+                        state["nonce"],
+                        [("retry_login", "Retry login"), ("different_number", "Use another number"), ("cancel", "Cancel")],
+                    )]
                 self.accounts.claim_account(sender, provider, phone, reserve=False)
                 await self.chats.close_customer(sender)
                 # Reconnection starts clean; a failed new login cannot silently reuse the old account.

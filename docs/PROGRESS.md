@@ -461,3 +461,11 @@ Removed the generic overlay assumption from both address loading and selection. 
 Added a Chrome regression covering OTP acceptance, simultaneous hidden/visible overlays, a hidden old address list, address opening, exact user selection and session saving end to end on a synthetic page. The regression retains unrelated overlays after selection to catch the second failure too. No real OTP or order was submitted by the agent. Live customer OTP/address completion remains the next verification step.
 
 Validation: 229 standard tests and all 31 opt-in Chrome DOM tests passed; lint/diff checks passed. Restarted WhatsApp server with the fix.
+
+## 2026-11-21 — Login cooldown recovery buttons
+
+Replaced the phone-rate-limit text dead end with Retry login, Use another number and Cancel buttons. Retry reuses the number from encrypted onboarding state and rechecks the original per-store/per-number cooldown; early taps show remaining time and never request another OTP. Changing number clears the retry number and prompts for a replacement. Cancel exits setup. Nonces reject stale retry taps after OTP begins, and the phone-stage expiry extends beyond cooldown so the action remains usable. No automatic OTP requests or rate-limit resets were added.
+
+Regression coverage checks all three buttons, encrypted retry storage, no OTP during cooldown, successful retry after expiry/restart, stale-button protection and different-number isolation.
+
+Validation: 232 standard tests passed; 31 opt-in DOM tests skipped (UI browser code unchanged). Lint and diff checks passed. Server restarted with the updated onboarding responses.

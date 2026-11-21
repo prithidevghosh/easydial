@@ -355,7 +355,7 @@ async def test_login_rate_limit_is_per_store_phone_not_chat(tmp_path):
             )
     await consent(r, sender, 'blinkit')
     reply = await turn(r, '+91 ' + phone, sender)
-    assert '8 minutes' in reply[0]['text']['body']
+    assert '8 minutes' in reply[0]['interactive']['body']['text']
     assert not any(c[0] == 'request' for c in r.onboarding.adapter.calls)
     # Changing the login phone in the same chat is allowed.
     await turn(r, '9777777777', sender)
@@ -364,7 +364,7 @@ async def test_login_rate_limit_is_per_store_phone_not_chat(tmp_path):
     other = '916666666666'
     await consent(r, other, 'blinkit')
     reply = await turn(r, phone, other)
-    assert 'Too many login requests' in reply[0]['text']['body']
+    assert 'paused' in reply[0]['interactive']['body']['text']
     assert sum(c[0] == 'request' for c in r.onboarding.adapter.calls) == 1
     # The same phone on a different store has its own budget.
     await consent(r, other, 'instamart')
@@ -555,4 +555,43 @@ async def test_login_error_diagnostics_never_log_otp_or_exception_text(tmp_path,
     assert "123456" not in caplog.text
     assert "9999999999" not in caplog.text
     assert "private OTP" not in caplog.text
+    r.inbox.close()
+
+
+@pytest.mark.parametrize('action', ['retry_login', 'different_number', 'cancel'])
+async def test_cooldown_buttons_recover_without_bypassing_limit(tmp_path, action):
+    import time
+
+    r = runtime(tmp_path)
+    sender, phone = '919999999999', '9888888888'
+    await consent(r, sender)
+    key = r.onboarding.accounts.account_key('instamart', phone)
+    with r.inbox.db:
+        for _ in range(3):
+            r.inbox.db.execute('INSERT INTO login_requests(sender,provider,created_at,account_key) VALUES (?,?,?,?)',
+                              (sender, 'instamart', time.time(), key))
+    reply = (await turn(r, phone))[0]['interactive']
+    buttons = {b['reply']['id'].rsplit(':', 1)[-1]: b['reply'] for b in reply['action']['buttons']}
+    assert len(buttons) == 3
+    # Phone for retry remains only in the encrypted onboarding state.
+    assert phone not in r.inbox.db.execute('SELECT state FROM onboarding WHERE sender=?', (sender,)).fetchone()[0]
+    button = buttons[action]
+    reply = await turn(r, button['title'], action=button['id'])
+    assert not any(c[0] == 'request' for c in r.onboarding.adapter.calls)
+    if action == 'retry_login':
+        assert 'paused' in reply[0]['interactive']['body']['text']
+        # Restart retains the safe phone-stage retry; expiration allows exactly one request.
+        r.onboarding = Onboarding(r.onboarding.accounts, r.onboarding.adapter, r.customer_chats, r.payments)
+        with r.inbox.db:
+            r.inbox.db.execute('UPDATE login_requests SET created_at=?', (time.time() - 901,))
+        await turn(r, button['title'], action=button['id'])
+        assert sum(c[0] == 'request' for c in r.onboarding.adapter.calls) == 1
+        await turn(r, button['title'], action=button['id'])
+        assert sum(c[0] == 'request' for c in r.onboarding.adapter.calls) == 1
+    elif action == 'different_number':
+        assert 'retry_phone' not in r.onboarding.accounts.state(sender)
+        await turn(r, '9777777777')
+        assert sum(c[0] == 'request' for c in r.onboarding.adapter.calls) == 1
+    else:
+        assert r.onboarding.accounts.state(sender)['stage'] == 'store'
     r.inbox.close()
