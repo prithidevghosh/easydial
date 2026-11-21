@@ -2,15 +2,17 @@
 
 Voice-assisted grocery ordering for older adults and people who find commerce apps difficult to use.
 
-**Phase: building. Updated: 2026-11-21.** Native SwiftUI iOS app and Python backend; sample commerce journey implemented. Live commerce and speech still require credentials and validation.
+**Phase: building. Updated: 2026-11-21.** Native SwiftUI iOS app and Python backend; live-only provider discovery and cart-review pipeline implemented; Checkout stops at Pending. Authenticated integration testing is outstanding.
 
 Repository: [prithidevghosh/easydial](https://github.com/prithidevghosh/easydial) (public).
+
+Connect accounts with [the exact credential guide](docs/CREDENTIALS.md).
 
 Start with [plan.md](plan.md) for the detailed execution checklist and [the runbook](docs/RUNBOOK.md) to run the project. Research below records the evidence that informed the build.
 
 ## Research verdict
 
-The concept is feasible as a bounded hackathon prototype. The full promise—any Indian language, reliable comparison across both providers, and completed orders—is not yet validated. Both providers remain in scope, with sample comparisons implemented. Authenticated discovery, live checkout and a measured language set are the next validation gates.
+The concept is feasible as a bounded hackathon prototype. The full promise—any Indian language, reliable comparison across both providers, and completed orders—is not yet validated. Both providers remain in scope; no demo catalogue is shipped. Authenticated discovery, live basket/bill verification and a measured language set are the next validation gates. Payment remains deferred.
 
 ## Read in this order
 

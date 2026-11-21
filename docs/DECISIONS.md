@@ -34,3 +34,16 @@ Updated: 2026-11-21. Implementation was authorized after the initial research. T
 - Using only prompts to manage checkout: does not provide reliable stale-result rejection, locking or state reconciliation.
 
 Supporting evidence is linked alongside claims in [commerce research](COMMERCE_RESEARCH.md) and [voice research](VOICE_RESEARCH.md). Evaluation design and architectural choices are EasyDial proposals, not claims that a vendor implements them.
+
+
+## D21 — Live-only flow, pending payment boundary (accepted, 2026-11-21)
+
+User explicitly requested complete removal of demo flow and live Blinkit/Instamart baskets up to checkout. Supersedes D17's sample-mode choice and the earlier read-only implementation boundary. Production rejects sample mode; synthetic data lives only in isolated tests. Review synchronizes the chosen provider cart, validates its readback and displays its bill. Checkout is a local Pending state, never a provider checkout or payment call. Both providers are enabled for the requested local testing; published policy interpretation remains an unresolved research question rather than a disabled-provider switch.
+
+## D22 — Account cart protection and local login helpers (accepted implementation, 2026-11-21)
+
+An unrelated/external cart is never replaced silently. This single-operator build requires an empty initial provider cart, remembers ownership/expected readback in memory, and stops on mismatch. Draft edits sync only on explicit Review basket. Swiggy login uses a local OAuth/PKCE helper; Blinkit login uses a manually authenticated Firefox context. Secrets stay in ignored local files. Real account validation remains pending.
+
+## D23 — Explicit primary-action contrast (implemented, 2026-11-21)
+
+User screenshot showed dark inherited text on the dark button. PrimaryActionStyle owns white label contrast, full width, a minimum 56-point height and an 18-point corner radius. Soft secondary controls share a lighter treatment; the home screen removes redundant introductory assistant content and clarifies disconnected stores. Supporting text has an explicit slate colour.

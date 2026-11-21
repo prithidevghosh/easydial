@@ -4,6 +4,25 @@ Updated: 2026-11-21. Owner: current agent and founder. Repository: https://githu
 
 This is the primary execution document. Read it together with `docs/PROGRESS.md` at the beginning of every session. Update the checkboxes and evidence before ending a session. A written feature, successful compilation, sample response, and verified live journey are four different levels of completion.
 
+## Current release override — 2026-11-21
+
+The user has removed demo mode from scope and requested live Blinkit and Swiggy flows through basket review, with Checkout showing Pending. This supersedes all earlier sample-mode milestones below; those entries are historical evidence only.
+
+- [x] Remove sample catalogue/mode/completion from runtime; fixtures remain test-only.
+- [x] Fix button contrast and refine home layout; explicit primary/secondary styles.
+- [x] Local credential helpers and exact setup guide (`docs/CREDENTIALS.md`).
+- [x] Instamart cart write + readback + address/quantity/bill checks.
+- [x] Blinkit visible cart controls + readback + address/quantity/bill checks.
+- [x] Existing-cart protection, account locks, stale-review invalidation and no payment tools.
+- [x] Checkout becomes local Pending; never calls provider checkout.
+- [ ] Authenticate both accounts and validate actual search/cart responses.
+- [ ] Validate Blinkit DOM selectors/address surfaces against the logged-in website.
+- [ ] Test live additions, replacements, removals and quantities on each provider.
+- [ ] Verify displayed live totals against both provider apps.
+- [ ] Test OpenAI microphone and multilingual corrections with real recordings.
+
+Current implementation evidence is contract/unit tests and simulator checks, not authenticated provider success. An empty local credentials file is prepared and ignored by Git. Payment is outside this milestone; the broader eventual purchase goals remain future work.
+
 ## 1. Product contract
 
 Build a native iOS app that makes buying groceries approachable for older adults and people who struggle with commerce interfaces. Users speak naturally, hear useful choices, correct themselves, compare matching products across Blinkit and Instamart, and explicitly approve a reviewed order.
@@ -18,7 +37,7 @@ The product must be able to answer these questions without losing state:
 - Has the user approved the exact current basket, delivery address and payment method?
 - Did the provider confirm an order, or did we only open payment/click a button?
 
-Latest verification: 13 backend tests and Ruff pass; revised simulator end-to-end sample journey passes; final iOS simulator build succeeds. Checked implementation items below do not imply authenticated live validation.
+Latest verification: 26 backend contract/unit tests and Ruff pass; live-only disconnected-home simulator test passes. Earlier sample-journey evidence below is historical and has been superseded. Checked implementation items below do not imply authenticated live validation.
 
 ### Non-negotiable goals
 
@@ -275,3 +294,6 @@ The project is complete only when an intended user can speak a supported-languag
 | 2026-11-21 | Backend foundation | 13 tests pass, read-only provider adapters, structured OpenAI intent/audio endpoints; no credentials used | Live auth and provider smoke tests pending |
 | 2026-11-21 | iOS initial journey | Revised sample UI journey and final simulator build passed | Physical-device audio and target-user testing pending |
 | 2026-11-21 | GitHub | Public repository; research, plan, backend, iOS, CI and handoff commits pushed | Remote backend and iOS CI passed (run 44871504663); credentialed validation next |
+
+| 2026-11-21 | Live-only request | Removed runtime samples; real provider cart review and Pending checkout implemented; 26 contract/unit tests pass | Authenticate and verify both providers |
+| 2026-11-21 | Visual correction | Full-width white-on-blue primary actions; refined home, composer and supporting text; simulator checks | Credentialed basket screenshots and device usability |
