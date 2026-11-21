@@ -1,0 +1,437 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		20EF712BC3B958B3DBA6E8FF /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 9946788AF1C282045EBF05D6 /* Assets.xcassets */; };
+		238749D76864C1F4AFC2C49B /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9926F251358691606431D55A /* Models.swift */; };
+		4DA2BBCC02F7005F40ED6C45 /* EasyDialUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6DF79610D29FEAC86FF8BFA /* EasyDialUITests.swift */; };
+		76D418DCB0A1F91F298867E0 /* EasyDialApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B6851F56CD05230938E0B8F /* EasyDialApp.swift */; };
+		8165509F2FF367D5BB2BA4A0 /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 277E76B636D2EAA99DA829D5 /* APIClient.swift */; };
+		8F0B2636331FFB02D5D5F9D1 /* ShoppingModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2419C39D40F1D28589286B9B /* ShoppingModel.swift */; };
+		A109FAB008051EC81F386CC2 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB71B57AF964BA64599A94B0 /* ContentView.swift */; };
+		FE39963DBF412C95DF67CEEC /* VoiceRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7319CD201D4CB629619736BC /* VoiceRecorder.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		3152B346B8EFA50BE2CF449E /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A397EB21FC7553CCECCC6115 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 5B7AEDE42185ECC9219832B8;
+			remoteInfo = EasyDial;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		065675B52F4ADF8D5DD3C09D /* EasyDial.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = EasyDial.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		1B6851F56CD05230938E0B8F /* EasyDialApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EasyDialApp.swift; sourceTree = "<group>"; };
+		2419C39D40F1D28589286B9B /* ShoppingModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShoppingModel.swift; sourceTree = "<group>"; };
+		277E76B636D2EAA99DA829D5 /* APIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIClient.swift; sourceTree = "<group>"; };
+		7319CD201D4CB629619736BC /* VoiceRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceRecorder.swift; sourceTree = "<group>"; };
+		77A742BE7A532081B816526E /* EasyDialUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = EasyDialUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		9926F251358691606431D55A /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
+		9946788AF1C282045EBF05D6 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		BBC56ACCAD2605B5CBE891CF /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		DB71B57AF964BA64599A94B0 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		F6DF79610D29FEAC86FF8BFA /* EasyDialUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EasyDialUITests.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		114356980883FE55C8FFD403 /* EasyDial */ = {
+			isa = PBXGroup;
+			children = (
+				277E76B636D2EAA99DA829D5 /* APIClient.swift */,
+				9946788AF1C282045EBF05D6 /* Assets.xcassets */,
+				DB71B57AF964BA64599A94B0 /* ContentView.swift */,
+				1B6851F56CD05230938E0B8F /* EasyDialApp.swift */,
+				BBC56ACCAD2605B5CBE891CF /* Info.plist */,
+				9926F251358691606431D55A /* Models.swift */,
+				2419C39D40F1D28589286B9B /* ShoppingModel.swift */,
+				7319CD201D4CB629619736BC /* VoiceRecorder.swift */,
+			);
+			path = EasyDial;
+			sourceTree = "<group>";
+		};
+		859E3B3E1392B628CF2CF716 /* EasyDialUITests */ = {
+			isa = PBXGroup;
+			children = (
+				F6DF79610D29FEAC86FF8BFA /* EasyDialUITests.swift */,
+			);
+			path = EasyDialUITests;
+			sourceTree = "<group>";
+		};
+		AAE6324F1984A657B84BDA6E /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				065675B52F4ADF8D5DD3C09D /* EasyDial.app */,
+				77A742BE7A532081B816526E /* EasyDialUITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		EF85B60409DE2D4D20C7C55A = {
+			isa = PBXGroup;
+			children = (
+				114356980883FE55C8FFD403 /* EasyDial */,
+				859E3B3E1392B628CF2CF716 /* EasyDialUITests */,
+				AAE6324F1984A657B84BDA6E /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		56CD0A4CBC6FDBC332611C8C /* EasyDialUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 1343642FA3674CE71E72511A /* Build configuration list for PBXNativeTarget "EasyDialUITests" */;
+			buildPhases = (
+				B21CF6D004F68B07CC727699 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				F6A4937CA28E00A8E412D158 /* PBXTargetDependency */,
+			);
+			name = EasyDialUITests;
+			packageProductDependencies = (
+			);
+			productName = EasyDialUITests;
+			productReference = 77A742BE7A532081B816526E /* EasyDialUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+		5B7AEDE42185ECC9219832B8 /* EasyDial */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = E05912CFD2A6071288A2CD9A /* Build configuration list for PBXNativeTarget "EasyDial" */;
+			buildPhases = (
+				1B1E724E2BDD47E241CDB9F6 /* Sources */,
+				AC543A2992E50B9FBEF3E9A6 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = EasyDial;
+			packageProductDependencies = (
+			);
+			productName = EasyDial;
+			productReference = 065675B52F4ADF8D5DD3C09D /* EasyDial.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		A397EB21FC7553CCECCC6115 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1600;
+				TargetAttributes = {
+					56CD0A4CBC6FDBC332611C8C = {
+						TestTargetID = 5B7AEDE42185ECC9219832B8;
+					};
+				};
+			};
+			buildConfigurationList = 5303B61EB80484C20DBC7C77 /* Build configuration list for PBXProject "EasyDial" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = EF85B60409DE2D4D20C7C55A;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = AAE6324F1984A657B84BDA6E /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				5B7AEDE42185ECC9219832B8 /* EasyDial */,
+				56CD0A4CBC6FDBC332611C8C /* EasyDialUITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		AC543A2992E50B9FBEF3E9A6 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				20EF712BC3B958B3DBA6E8FF /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		1B1E724E2BDD47E241CDB9F6 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				8165509F2FF367D5BB2BA4A0 /* APIClient.swift in Sources */,
+				A109FAB008051EC81F386CC2 /* ContentView.swift in Sources */,
+				76D418DCB0A1F91F298867E0 /* EasyDialApp.swift in Sources */,
+				238749D76864C1F4AFC2C49B /* Models.swift in Sources */,
+				8F0B2636331FFB02D5D5F9D1 /* ShoppingModel.swift in Sources */,
+				FE39963DBF412C95DF67CEEC /* VoiceRecorder.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B21CF6D004F68B07CC727699 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				4DA2BBCC02F7005F40ED6C45 /* EasyDialUITests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		F6A4937CA28E00A8E412D158 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 5B7AEDE42185ECC9219832B8 /* EasyDial */;
+			targetProxy = 3152B346B8EFA50BE2CF449E /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		156CBD2777465B733F6DE116 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		29D3C8E3D1B35BDAD36E6A92 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = in.easydial.EasyDialUITests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = EasyDial;
+			};
+			name = Release;
+		};
+		3AB49D758713DC9F40899B50 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = EasyDial/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = EasyDial;
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Connect to your EasyDial development server on this network.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Record your grocery request when you tap the microphone.";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = in.easydial.app;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		6418240E8079C37A8069C801 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+		8868BBC33B85FB40EA33DF66 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = EasyDial/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = EasyDial;
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Connect to your EasyDial development server on this network.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Record your grocery request when you tap the microphone.";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = in.easydial.app;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		C11C63C6988A49A10EFAC946 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = in.easydial.EasyDialUITests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = EasyDial;
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		1343642FA3674CE71E72511A /* Build configuration list for PBXNativeTarget "EasyDialUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C11C63C6988A49A10EFAC946 /* Debug */,
+				29D3C8E3D1B35BDAD36E6A92 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		5303B61EB80484C20DBC7C77 /* Build configuration list for PBXProject "EasyDial" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				156CBD2777465B733F6DE116 /* Debug */,
+				6418240E8079C37A8069C801 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		E05912CFD2A6071288A2CD9A /* Build configuration list for PBXNativeTarget "EasyDial" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				3AB49D758713DC9F40899B50 /* Debug */,
+				8868BBC33B85FB40EA33DF66 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = A397EB21FC7553CCECCC6115 /* Project object */;
+}
