@@ -1,3 +1,11 @@
+# Automatic stale-selection recovery — 2026-11-21
+
+The selected option was correctly understood, but the controller's ten-minute offer expiry surfaced as “Search again”. The WhatsApp harness now refreshes an expired selected offer automatically using only its provider and saved product name. It requires one exact product ID/SKU/pack/address/mode match; no lookalike or alternate pack is substituted. An unchanged price completes the original add/replacement with its intended quantity. A changed price leaves the basket untouched and presents the updated price for explicit versioned selection, retaining the pending replacement target. Unavailable stock, insufficient quantity, ambiguous identity or failed checks preserve the basket. Freshness enforcement remains in the controller.
+
+Validation: 88 tests passed, 7 DOM skipped; Ruff/diff checks pass. Added stale correction success, changed-price approval, unavailable/failed/quantity-limited preservation and selected-provider/exact-pack regressions. Recovery is bounded to one provider search and does not retry a payment or mutate the store cart. Customer-facing progress says “Checking the latest price…”. Read-only live verification of the exact user sentence resolved select+replacement; Instamart refreshed the exact Mandarin Orange SKU / 3 Pieces pack, available at the unchanged ₹112 price. No customer draft or store cart was changed by this diagnostic.
+
+---
+
 # Persistent selection corrections and English replies — 2026-11-21
 
 Root cause: selecting one result removed same-query alternatives from active choices and pruned their offers. A correctly transcribed “not first, choose second” then reached the model without numbered options. New `recent_selection` context preserves exact original menu order, selected line/offer and alternative offers across persistence. Explicit corrections select a known alternative with `replaces_line_id`, preserve the selected quantity and replace rather than add. New searches supersede this context. Old versioned buttons, price freshness, single-store and payment guards still apply. Narrow legacy recovery reconstructs the old deterministic top-two menu only for one result provider/query and one selected line; ambiguous histories are not reconstructed.

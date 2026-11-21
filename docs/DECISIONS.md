@@ -101,3 +101,5 @@ Read actual provider payment categories and let the customer choose. Generate Bl
 2026-11-21: Use gpt-4.1 for the WhatsApp master based on the measured compound-intent regression suite (32/32 versus revised mini 30/32). Enable explicit draft edits plus discovery in one turn. Keep current dictation pending a same-recording OpenAI/Sarvam evaluation; see `INTENT_EVALUATION.md`.
 
 2026-11-21: Preserve recent numbered menu context after selection so explicit ordinal corrections replace the selected line. Keep output prose English-only regardless of input language, per user preference.
+
+2026-11-21: Treat cached offer expiry as an internal recoverable condition in WhatsApp selection. Refresh exact store/SKU/pack automatically; continue unchanged terms, request approval for price changes, and preserve the basket if verification fails. Do not weaken the controller freshness guard.

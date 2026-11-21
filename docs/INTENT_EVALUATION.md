@@ -58,3 +58,7 @@ A Sarvam API key and the same test recordings are required for a real comparison
 ## Follow-up: ordinal corrections after selection
 
 An additional real incident exposed missing context rather than a transcription failure: selected-query alternatives had been pruned. Added durable recent menu/selection context and an explicit `select.replaces_line_id` field. Selection correction keeps pack count, whereas explicit additional selection adds. Fresh searches supersede old menu context; numeric button versions and offer freshness still apply. The suite now has 21 cases, with five cases for ordinal correction/selection. GPT-4.1 passed 42/42 in two runs; raw synthetic output: `evals/intent-selection-correction.json`. English-script output is checked and customer prose is instructed to remain English. This remains a development set, not a guarantee of multilingual semantic accuracy.
+
+## Follow-up: expired selections
+
+Correct intent alone is insufficient: the harness now automatically refreshes expired selected offers, using exact provider/product/SKU/pack matching. Unchanged price proceeds; price changes prompt explicit confirmation without removing the original item. Execution tests cover stale ordinal corrections, changed-price confirmation and failures preserving the draft. The language evaluator does not measure these provider effects; use `test_stale_selection.py` and a read-only live refresh for that evidence.

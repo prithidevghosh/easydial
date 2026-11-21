@@ -72,6 +72,37 @@ class ProviderWorkers:
 
         return list(await asyncio.gather(*(run(p, w) for p, w in zip(Provider, self.workers))))
 
+    async def refresh_offer(self, offer, address):
+        """Read only the selected store; never substitute a similarly named SKU/pack."""
+        worker = self.workers[list(Provider).index(offer.provider)]
+        try:
+            result = await asyncio.wait_for(worker.search(offer.name, address), timeout=60)
+        except Exception:
+            raise DomainError(
+                "I couldn’t check the latest price just now. Your basket is unchanged. Try again shortly."
+            ) from None
+        if result.status != "ok":
+            raise DomainError(
+                "I couldn’t check the latest price just now. Your basket is unchanged. Try again shortly."
+            )
+        matches = [
+            item
+            for item in result.offers
+            if (
+                item.provider == offer.provider
+                and item.product_id == offer.product_id
+                and item.sku_id == offer.sku_id
+                and normalized(item.pack_size) == normalized(offer.pack_size)
+                and item.mode == offer.mode
+                and item.address_label == address
+            )
+        ]
+        if len(matches) != 1:
+            raise DomainError(
+                "I can’t find that exact pack right now. Your basket is unchanged. Would you like another option?"
+            )
+        return matches[0]
+
     async def review(self, session: SessionView):
         if not session.lines:
             raise DomainError("Add something to your basket first.", 422)

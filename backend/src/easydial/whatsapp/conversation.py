@@ -431,12 +431,51 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
             target = next((line for line in session.view.lines if line.id == replacement), None)
             if replacement and target is None:
                 raise DomainError("Your basket changed. Please choose the item to replace again.")
+            quantity = intent.quantity or (target.quantity if target else offer.suggested_quantity)
+            if now() - offer.retrieved_at > timedelta(minutes=10):
+                if progress:
+                    progress.update("Checking the latest price…")
+                fresh = await self.workers.refresh_offer(offer, session.view.address_label)
+                if not fresh.available or fresh.price_paise is None:
+                    raise DomainError(
+                        "That option is unavailable right now. Your basket is unchanged. Would you like another option?"
+                    )
+                if quantity > fresh.max_quantity:
+                    raise DomainError(
+                        f"Only {fresh.max_quantity} packs are available now. Your basket is unchanged. How many would you like?"
+                    )
+                fresh = fresh.model_copy(
+                    update={
+                        "id": offer.id,
+                        "suggested_quantity": quantity,
+                        "replaces_line_id": replacement,
+                    }
+                )
+                session.offers[offer.id] = fresh
+                if fresh.price_paise != offer.price_paise:
+                    # Preserve the original basket until the changed price is explicitly accepted.
+                    session.changed()
+                    state["choices"] = [fresh.id]
+                    state["recent_selection"] = None
+                    state["view"] = session.view.model_dump(mode="json")
+                    keep = {fresh.id} | {line.offer.id for line in session.view.lines}
+                    state["offers"] = {
+                        id: item.model_dump(mode="json") for id, item in session.offers.items() if id in keep
+                    }
+                    return state, [
+                        text_message(
+                            f"{fresh.name} ({fresh.pack_size}) is now {money(fresh.price_paise)} per pack "
+                            f"(was {money(offer.price_paise)}). Your basket is unchanged."
+                        ),
+                        *self.choice_messages(session, [fresh.id]),
+                    ]
+                offer = fresh
             session.edit(
                 EditRequest(
                     kind="replace" if replacement else "add",
                     offer_id=offer.id,
                     line_id=replacement,
-                    quantity=intent.quantity or (target.quantity if target else offer.suggested_quantity),
+                    quantity=quantity,
                     expected_version=session.view.version,
                 )
             )
