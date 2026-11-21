@@ -445,3 +445,9 @@ Instamart login now observes the visible phone form, location-dialog Login and h
 Live verification: the new helper reached the phone form successfully in two independent fresh headless sessions. No phone/OTP was submitted during diagnostics. Added DOM regressions for delayed location dialog, a dialog appearing after the header action and an already-open phone form. Full OTP/address onboarding still requires the customer's next WhatsApp login attempt; website changes cannot be guaranteed away permanently.
 
 Validation: all 30 opt-in Chrome DOM tests and 228 standard tests passed; lint and diff checks passed. Restarted the WhatsApp server with the fix after validation.
+
+## 2026-11-21 — Instamart OTP-stage failure under investigation
+
+Customer passed phone/OTP request but verification failed with Playwright Error. The old exception handler retained only provider/stage/class, and closed the browser, so the exact failing operation cannot be reconstructed. Added diagnostics containing only StoreLogin frame names/line numbers and an allowlisted error category (e.g. ambiguous locator), never exception text, browser text, phone or OTP. Restarted the server and requested a fresh customer login in WhatsApp to identify the failing step. This is diagnostic instrumentation, not a claim that OTP verification is fixed.
+
+Validation: all 47 onboarding tests passed, including a new test that synthetic sensitive exception contents never appear in logs. Remaining work: reproduce with fresh customer OTP, fix the observed operation, add the matching DOM regression and validate address selection.

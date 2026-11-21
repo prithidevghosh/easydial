@@ -539,3 +539,20 @@ async def test_garbled_voice_account_question_bypasses_shopping_agent(tmp_path):
     assert any("Saved login: Instamart" in x.get("text", {}).get("body", "") for x in replies)
     assert a.consented(sender, "instamart")
     r.inbox.close()
+
+
+async def test_login_error_diagnostics_never_log_otp_or_exception_text(tmp_path, caplog):
+    r = runtime(tmp_path)
+    await consent(r)
+    await turn(r, "9999999999")
+
+    async def broken(*args):
+        raise RuntimeError('strict mode violation: private OTP 123456 and phone 9999999999')
+
+    r.onboarding.adapter.verify_otp = broken
+    await turn(r, "123456")
+    assert "ambiguous_locator" in caplog.text
+    assert "123456" not in caplog.text
+    assert "9999999999" not in caplog.text
+    assert "private OTP" not in caplog.text
+    r.inbox.close()

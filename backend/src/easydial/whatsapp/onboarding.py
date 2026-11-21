@@ -4,6 +4,7 @@ import logging
 import math
 import re
 import time
+import traceback
 from pathlib import Path
 from uuid import uuid4
 
@@ -335,8 +336,16 @@ class Onboarding:
             return self.menu(sender, error.message + " Choose a store to retry, or send Cancel.")
         except Exception as error:
             # Never log exception text/traceback: browser calls can include phone or OTP.
-            log.warning("Store onboarding failed: provider=%s stage=%s category=%s",
-                        provider, stage, type(error).__name__)
+            frames = [f"{frame.name}:{frame.lineno}" for frame in traceback.extract_tb(error.__traceback__)
+                      if frame.filename.endswith("store_login.py")]
+            reason = next((label for marker, label in [
+                ("strict mode violation", "ambiguous_locator"),
+                ("not an input", "not_input"),
+                ("not supported", "unsupported_input"),
+                ("Target closed", "browser_closed"),
+            ] if marker in str(error)), "unclassified")
+            log.warning("Store onboarding failed: provider=%s stage=%s category=%s reason=%s frames=%s",
+                        provider, stage, type(error).__name__, reason, ",".join(frames))
             await self.cancel(sender, provider)
             return self.menu(
                 sender, "I could not finish signing in. No order was placed. Choose a store to retry."
