@@ -541,3 +541,10 @@ Validation: 239 standard tests passed; 31 opt-in DOM tests skipped. Lint/diff ch
 - Safe read-only page navigation retries explicit proxy overflow/reset errors and HTTP 502/503/504 at most three times, with bounded backoff. Payment entry retries an explicit overflow page/widget once before any final submission. Final payment/order clicks are never blindly replayed.
 - Tests: full backend run 255 passed / 33 opt-in skips, then nine payment-resume tests passed including an added iframe-overflow case. Chrome DOM suite 33 passed. Tests cover resume, expired/wrong-page/address/bill checkpoints, cart mutation detection, preservation of checkout tab and bounded overload retry.
 - No live payment or order submitted during this change. Checkpoints intentionally do not survive browser/server restart.
+
+## Logout shorthand and semantic routing
+- Found the precise failure: onboarding's explicit command matcher supported "please" but not "pls"/"plz", allowing "Logout pls" to reach a shopping schema with no logout action.
+- Normalized polite shorthand in the fast account-command path. Added structured logout/account_status actions to the shopping interpreter and routed them through the existing account manager before any reply is queued.
+- Clear semantic logout requests now use the same consent withdrawal, session deletion, payment-artifact revocation, browser cleanup and draft reset as the direct command. Negated, hypothetical and unclear speech must not trigger logout.
+- Regression coverage includes the exact "Logout pls" request, session deletion/customer isolation, old payment buttons, re-login requirements and semantic account-action dispatch. No real customer logout was triggered during tests.
+- Validation: 261 tests passed, 33 opt-in browser tests skipped; Ruff and diff checks passed.

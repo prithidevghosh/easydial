@@ -176,6 +176,13 @@ class Runtime:
             state, replies = await chat.handle(
                 text, state, action_id, progress=progress, customer=row["sender"]
             )
+            if len(replies) == 1 and replies[0].get("type") == "account_action":
+                if not self.onboarding:
+                    replies = [text_message("Account setup is unavailable. Please contact support.")]
+                elif replies[0]["action"] == "logout":
+                    replies = await self.onboarding.logout(row["sender"], row["id"], state)
+                else:
+                    replies = self.onboarding.account_status(row["sender"])
             state["last_timestamp"] = row["timestamp"]
             if replies:
                 state["last_reply_event"] = row["id"]

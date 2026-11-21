@@ -29,6 +29,8 @@ class ChatIntent(BaseModel):
         "payment",
         "restore",
         "status",
+        "logout",
+        "account_status",
     ]
     queries: list[RequestedProduct]
     edits: list[IntentEdit]
@@ -108,7 +110,13 @@ class ShoppingChat:
                 "For explicit edits plus discovery, return action search with both edits and queries. Never drop either part.",
             )
             + """
-This is the WhatsApp channel. Additional actions: select, basket, checkout, restore.
+This is the WhatsApp channel. Additional actions: select, basket, checkout, restore, logout, account_status.
+Account management IS supported here. Use logout for a clear current request to sign out,
+disconnect all saved store accounts or remove saved logins, including polite/informal multilingual
+phrasing. Never use logout for negation, hypothetical questions or unclear speech; clarify instead.
+Use account_status for questions about saved/connected logins. These actions have no queries,
+edits or selection. Never claim logout is unavailable. They are handled by account management,
+not by shopping tools, even when an order/payment attempt exists.
 Use restore for "put the same order in the cart again", "undo removal", or "bring back my basket"
 when CURRENT_BASKET is empty and PREVIOUS_BASKET is provided. Do not ask the user to list those items again.
 PREVIOUS_BASKET is historical context only: never restore without the current user's explicit request.
@@ -593,6 +601,8 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
             )
         else:
             intent = await self.interpret(text, session, state)
+        if intent.action in {"logout", "account_status"}:
+            return state, [{"type": "account_action", "action": intent.action}]
         if intent.action == "status":
             if customer and payments and payments.existing(customer, session.view.id):
                 if progress:

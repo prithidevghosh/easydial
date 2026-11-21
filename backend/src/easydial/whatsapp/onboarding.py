@@ -48,6 +48,7 @@ def content(message):
 def logout_requested(text):
     """Explicit commands only: questions and negated speech must not revoke access."""
     text = re.sub(r"[.!?]+$", "", text.casefold().strip())
+    text = re.sub(r"\b(?:pls|plz)\b", "please", text)
     if re.search(r"\b(?:not|don't|dont|never|nahi|nhi|mat)\b|नहीं|मत", text):
         return False
     return bool(re.fullmatch(

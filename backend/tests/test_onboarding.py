@@ -401,7 +401,7 @@ async def test_restart_preserves_phone_prompt_and_recorded_consent(tmp_path):
     r.inbox.close()
 
 
-@pytest.mark.parametrize("text", ["Can you please log me out?", "मुझे लॉग आउट कर दो", "logout", "log out", "Please log me out", "sign out", "I want to logout", "logout kr do", "mujhe logout kar do", "लॉग आउट कर दो"])
+@pytest.mark.parametrize("text", ["Logout pls", "logout plz!", "pls log me out", "Can you please log me out?", "मुझे लॉग आउट कर दो", "logout", "log out", "Please log me out", "sign out", "I want to logout", "logout kr do", "mujhe logout kar do", "लॉग आउट कर दो"])
 def test_explicit_logout_intents(text):
     from easydial.whatsapp.onboarding import logout_requested
     assert logout_requested(text)
@@ -413,7 +413,8 @@ def test_ambiguous_or_negated_logout_does_not_revoke(text):
     assert not logout_requested(text)
 
 
-async def test_logout_clears_only_customer_sessions_draft_and_payment_artifacts(tmp_path):
+@pytest.mark.parametrize("logout_text", ["please log me out", "Logout pls"])
+async def test_logout_clears_only_customer_sessions_draft_and_payment_artifacts(tmp_path, logout_text):
     from pathlib import Path
     from unittest.mock import AsyncMock
 
@@ -435,7 +436,7 @@ async def test_logout_clears_only_customer_sessions_draft_and_payment_artifacts(
         r.inbox.db.execute("UPDATE customers SET state=? WHERE sender=?", (json.dumps(state), alice))
         r.inbox.db.execute("INSERT INTO payment_requests VALUES (?,?,?,?,?,?,?,?,?)", ("request", alice, old_id, "bill", "ready", "token-hash", "{}", 0, 9999999999))
     r.customer_chats.close_customer = AsyncMock()
-    replies = await turn(r, "please log me out", alice)
+    replies = await turn(r, logout_text, alice)
     assert "logged out" in replies[0]["interactive"]["body"]["text"]
     r.customer_chats.close_customer.assert_awaited_with(alice, save=False)
     assert not a.connections(alice)
@@ -594,4 +595,22 @@ async def test_cooldown_buttons_recover_without_bypassing_limit(tmp_path, action
         assert sum(c[0] == 'request' for c in r.onboarding.adapter.calls) == 1
     else:
         assert r.onboarding.accounts.state(sender)['stage'] == 'store'
+    r.inbox.close()
+
+
+async def test_semantic_logout_routes_to_account_manager(tmp_path):
+    from unittest.mock import AsyncMock
+
+    from tests.test_whatsapp import intent
+
+    r = runtime(tmp_path)
+    await connect(r)
+    r.chat.interpret = AsyncMock(return_value=intent("logout"))
+    r.customer_chats.get = AsyncMock(return_value=r.chat)
+    r.customer_chats.close_customer = AsyncMock()
+    replies = await turn(r, "Remove all my saved store logins")
+    r.chat.interpret.assert_awaited_once()
+    assert not r.onboarding.accounts.connections("919999999999")
+    assert "logged out" in replies[0]["interactive"]["body"]["text"]
+    assert not any(x.get("type") == "account_action" for x in replies)
     r.inbox.close()
