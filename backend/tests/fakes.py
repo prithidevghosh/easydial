@@ -6,6 +6,10 @@ class FixtureProvider:
 
     def __init__(self, provider: Provider):
         self.provider = provider
+        from easydial.providers.cart_guard import CartGuard
+
+        self.guard = CartGuard()
+        self.previous_lines = []
 
     async def close(self):
         pass
@@ -103,3 +107,6 @@ class FixtureProvider:
             payment_method="Pending",
             mode="live",
         )
+
+    async def revalidate(self, session):
+        return await self.review(session)

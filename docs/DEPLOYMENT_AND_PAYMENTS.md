@@ -2,6 +2,10 @@
 
 Updated 2026-11-21. Scope: source-code inspection and primary-source research. No store cart was changed, payment page advanced, payment session created, order submitted or deployment configuration changed during this research. User reports the WhatsApp integration is working; this is user-reported evidence, not independent verification of the complete paid-order journey.
 
+## Current implementation update
+
+The subsequent authorized inspection and implementation are recorded in [PAYMENT_INSPECTION.md](PAYMENT_INSPECTION.md). Configurable headless Chrome and local authenticated read-only checks now pass for both stores. WhatsApp fee tables, explicit fee warnings, live amount revalidation and private cart checkpoints are implemented. Payment initiation remains disabled. The original research below describes the state before this inspection.
+
 ## Headless verdict
 
 Playwright can run headless on a Linux host/container. Our current `providers/browser.py` explicitly sets `channel="chrome", headless=False` for both persistent-profile and storage-state paths. A configurable `headless=True` is technically straightforward, but it has NOT been implemented or tested against either authenticated store in the deployment environment. Do not equate Playwright support with either site's acceptance of automation.
@@ -23,7 +27,7 @@ The existing durable inbox/outbox does not make browser writes transactionally d
 
 ### Headless acceptance gates
 
-- [ ] Add configurable browser headless/channel settings without silently changing the working local mode.
+- [x] Add configurable browser headless/channel settings without silently changing the working local mode.
 - [ ] Build a pinned Linux runtime with browser dependencies and FFmpeg.
 - [ ] Manually onboard the intended store accounts on that host.
 - [ ] Verify both stores' authenticated address/search reads, then authorized add/edit/review/cleanup tests.

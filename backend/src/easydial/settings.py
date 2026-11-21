@@ -9,6 +9,8 @@ class Settings(BaseSettings):
     openai_speech_model: str = "gpt-4o-mini-tts"
     openai_voice: str = "coral"
     commerce_mode: str = "live"
+    browser_headless: bool = False
+    browser_channel: str = "chrome"
     instamart_browser_profile: str = ""
     instamart_verified_location: str = ""
     instamart_verified_address: str = ""

@@ -322,29 +322,50 @@ class BlinkitProvider:
                 )
             if not after.get("address") or normalized(required_address) not in normalized(after["address"]):
                 raise DomainError("The store's delivery address changed during basket review.")
-            total = paise(after.get("total"))
-            if total is None:
-                raise DomainError("The store's final bill could not be verified. No checkout was attempted.")
-            bill = [
-                {"label": str(x["label"]), "value": str(x["value"])}
-                for x in after["bill"]
-                if x.get("label") and x.get("value")
-            ]
-            subtotal = next(
-                (paise(x["value"]) for x in bill if x["label"].casefold() in {"items total", "item total"}),
-                None,
+            return self.verified_review(session, after)
+
+    def verified_review(self, session, after):
+        total = paise(after.get("total"))
+        if total is None:
+            raise DomainError("The store's final bill could not be verified. No checkout was attempted.")
+        bill = [
+            {"label": str(x["label"]), "value": str(x["value"])}
+            for x in after["bill"]
+            if x.get("label") and x.get("value")
+        ]
+        subtotal = next(
+            (paise(x["value"]) for x in bill if x["label"].casefold() in {"items total", "item total"}),
+            None,
+        )
+        return Review(
+            version=session.version,
+            provider=self.provider,
+            address_label=after["address"],
+            item_subtotal_paise=subtotal,
+            fees_paise=None,
+            total_paise=total,
+            payment_method="Pending — payment is not enabled",
+            mode="live",
+            bill_lines=bill,
+        )
+
+    async def revalidate(self, session: SessionView) -> Review:
+        """Read-only freshness check: never repairs or changes a store cart."""
+        desired = tuple(
+            sorted(
+                (normalized(x.offer.name), normalized(x.offer.pack_size), x.quantity) for x in session.lines
             )
-            return Review(
-                version=session.version,
-                provider=self.provider,
-                address_label=after["address"],
-                item_subtotal_paise=subtotal,
-                fees_paise=None,
-                total_paise=total,
-                payment_method="Pending — payment is not enabled",
-                mode="live",
-                bill_lines=bill,
-            )
+        )
+        async with self.lock, self.browser_page() as (page, context):
+            await self.navigate(page, "milk")
+            actual = await self.read_cart(page)
+            self.guard.check(session.id, cart_signature(actual))
+            if cart_signature(actual) != desired:
+                raise DomainError("The store cart changed. Review the basket again before continuing.")
+            required = self.verified_address or session.address_label
+            if not actual.get("address") or normalized(required) not in normalized(actual["address"]):
+                raise DomainError("The delivery address changed. Review it again before continuing.")
+            return self.verified_review(session, actual)
 
     async def clear(self, session_id: str):
         async with self.lock, self.browser_page() as (page, context):

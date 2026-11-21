@@ -90,3 +90,12 @@ async def test_cart_click_waits_for_delayed_save_without_inspecting_payload(page
     await page.goto("https://store.test/")
     await click_and_settle(page, page.get_by_role("button", name="Add"))
     assert saved == [True]
+
+
+async def test_instamart_free_delivery_survives_struck_price(page):
+    await page.set_content("""<div class="_2vw3P">
+      <div data-testid="billline-segment-text">Delivery Partner Fee</div>
+      <div data-testid="billline-segment-text" style="text-decoration:line-through">₹18</div>
+      <div data-testid="billline-segment-text">FREE</div></div>""")
+    data = await page.locator("body").evaluate(instamart_dom.CART)
+    assert data["bill"] == [{"label": "Delivery Partner Fee", "value": "FREE"}]

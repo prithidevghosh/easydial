@@ -85,6 +85,7 @@ class SessionView(BaseModel):
     phase: Literal["shopping", "review", "checkout_pending"] = "shopping"
     comparison: str | None = None
     synced_provider: Provider | None = None
+    payment_preparation: dict | None = None
 
 
 class SessionCreated(BaseModel):

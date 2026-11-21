@@ -1,3 +1,19 @@
+# Latest implementation — payment inspection and fee transparency
+
+2026-11-21: inspected both logged-in payment-choice pages without initiating payment or placing an order. See `PAYMENT_INSPECTION.md` for evidence. Blinkit test basket was cleared; existing Instamart basket was preserved. WhatsApp now shows a detailed monospace charge table, warns about small-cart/minimum-order fees, and requires a reconciled fresh bill before recording preparation-only approval. Payment handoff remains disabled.
+
+Headless Chrome is configurable and authenticated read-only checks passed locally for both stores; Linux deployment and headless cart mutations are not yet verified. Verified cart checkpoints now persist after successful reviews, with live guards still enforced after restart.
+
+Runtime: WhatsApp service restarted on port 8001; local and existing public HTTPS tunnel `/health` both returned `status=ok`, `payments=false`.
+
+Validation: **54 tests passed**, including Chrome DOM regressions (`EASYDIAL_DOM_TESTS=1`); Ruff and diff whitespace checks passed. No paid-order success is claimed.
+
+Operational caveat: the pre-upgrade Instamart draft requests quantity 3 of the 1 ltr x 2 pack, while the inspected live basket contains quantity 2. There is no historical ownership checkpoint in this legacy state. The attempted read-only reconciliation correctly refused to adopt it; no database checkpoint was created and no cart was changed. The user must reconcile this existing basket deliberately before a fresh sync (e.g. clear it in Instamart, then ask EasyDial to review the desired draft). Do not silently overwrite it or erase the database. Subsequent successfully reviewed baskets get durable checkpoints automatically.
+
+User reports WhatsApp works and Meta/OpenAI settings are configured privately; older setup status below is historical. The end goal remains user-authorized payment and provider-confirmed order evidence. Neither is implemented yet.
+
+---
+
 # Latest research update — deployment and payment
 
 2026-11-21: user reports WhatsApp working. Headless/payment research is recorded in `DEPLOYMENT_AND_PAYMENTS.md`. Browser workers still use `headless=False`; no production deployment or authenticated headless check performed. Recommended payment design is provider-owned UPI with user authorization and durable provider confirmation, conditional on observing transferable website payment artifacts. No cart/payment/order actions or runtime changes were made for this research. Current no-purchase/Pending boundary remains.

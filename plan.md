@@ -4,16 +4,22 @@ Updated: 2026-11-21. Owner: current agent and founder. Repository: https://githu
 
 This is the primary execution document. Read it together with `docs/PROGRESS.md` at the beginning of every session. Update the checkboxes and evidence before ending a session. A written feature, successful compilation, sample response, and verified live journey are four different levels of completion.
 
-## Deployment/payment research update (2026-11-21)
+## Payment inspection/build update (2026-11-21)
 
-User reports WhatsApp is working and asks about headless hosting and payment. See `docs/DEPLOYMENT_AND_PAYMENTS.md`. Current workers hardcode headed Chrome. Headless hosting is supported by Playwright but neither authenticated store has been verified headless on the intended deployment host. Payment handoff and provider confirmation are still unimplemented; no store/payment actions were performed for this research.
+See `docs/PAYMENT_INSPECTION.md` for actual website evidence, charge tables and remaining gates. User reports the WhatsApp flow works; credentials are configured privately. No paid order is authorized.
 
-- [x] Audit current browser launch configuration and official headless/container guidance.
-- [x] Research provider payment methods, UPI handoff constraints and durable confirmation requirements.
-- [ ] Inspect real payment-choice and order-status surfaces without initiating a purchase.
-- [ ] Implement configurable headless hosting and verify both stores on the intended host.
-- [ ] Verify a provider-issued cross-device payment handoff, then implement durable approval/reconciliation.
-- [ ] Perform a real purchase only after explicit authorization of the basket and amount.
+- [x] Inspect both logged-in payment-choice surfaces without initiating payment or purchase.
+- [x] Display itemized WhatsApp bill tables and explicit small-cart/minimum-order fee warnings.
+- [x] Block incomplete/non-reconciling bills; re-read cart/address/fees before amount approval.
+- [x] Require fresh approval for changed bills, revoke on edits/failed rechecks, expire reviews.
+- [x] Persist verified cart ownership checkpoints for restart; still reject external changes.
+- [x] Configure headless/channel settings and verify authenticated read-only use on this Mac.
+- [ ] Validate headless cart writes and recovery on the actual Linux deployment host.
+- [ ] Create and verify a transferable provider-owned payment handoff with specific authorization.
+- [ ] Implement durable payment-attempt reconciliation and merchant order confirmation.
+- [ ] Test a real paid order only after explicit basket/amount/purchase authorization.
+
+The current “Approve amount” button records preparation approval only and returns Pending. It never invokes Generate QR, Pay, or Place Order. Payment handoff is not complete.
 
 ## Latest product direction — WhatsApp first (2026-11-21)
 
@@ -28,7 +34,7 @@ User has paused app development and requested feasibility of voice recordings se
 - [ ] Verify multilingual outcomes, retry/restart safety and customer account isolation.
 - [ ] Separately implement authorized payment and provider-confirmed order evidence.
 
-Direct Meta Cloud API is implemented; Twilio Sandbox was not implemented. Meta credentials remain unconfigured. Do not resume iOS work by default or treat documentation as completed integration.
+Direct Meta Cloud API is implemented; Twilio Sandbox was not implemented. Meta credentials are now configured privately. Do not resume iOS work by default or treat documentation as completed integration.
 
 ## Prior implementation milestone — browser automation and eventual paid-order completion
 

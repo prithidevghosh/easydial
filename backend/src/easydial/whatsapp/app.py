@@ -59,6 +59,8 @@ class Runtime:
                 )
             if row["timestamp"] < state.get("last_timestamp", 0):
                 raise DomainError("An older message arrived late. Please repeat your latest request.")
+            if state.get("cart_checkpoint"):
+                self.chat.workers.restore_checkpoint(state["cart_checkpoint"], state["view"]["id"])
             text, action_id = "", None
             if message["type"] == "audio":
                 if state["paused"]:

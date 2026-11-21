@@ -5,9 +5,10 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
+from ..billing import breakdown, fingerprint, table
 from ..controller import DomainError, Session, exact_comparison
 from ..master import INSTRUCTIONS
-from ..models import EditRequest, IntentEdit, Offer, RequestedProduct, SessionView
+from ..models import EditRequest, IntentEdit, Offer, RequestedProduct, SessionView, now
 
 
 class ChatIntent(BaseModel):
@@ -228,6 +229,7 @@ in clarification. Shopping only: redirect unrelated questions to groceries.
             if not session.view.lines and session.view.synced_provider:
                 await self.workers.clear(session.view)
                 session.view.synced_provider = None
+                state["cart_checkpoint"] = None
                 session.changed()
                 replies.append(text_message("Your store basket is now empty. No order was placed."))
             else:
@@ -237,39 +239,48 @@ in clarification. Shopping only: redirect unrelated questions to groceries.
                 state["view"] = session.view.model_dump(mode="json")
                 review = await self.workers.review(session.view)
                 session.accept_review(session.view.version, review)
-                bill = (
-                    f"{basket_text(session)}\n\n{review.provider.value.title()} live bill\n"
-                    f"Items: {money(review.item_subtotal_paise)}\nFees: {money(review.fees_paise)}\n"
-                    f"Total: {money(review.total_paise)}\nDelivery: {review.address_label}\n"
-                    "Checkout will show Pending. Payment is not enabled; no order will be placed."
-                )
-                replies.append(text_message(bill))
-                replies.append(
-                    {
-                        "type": "interactive",
-                        "interactive": {
-                            "type": "button",
-                            "body": {"text": "The full bill is above. Continue to local Pending?"},
-                            "action": {
-                                "buttons": [
-                                    {
-                                        "type": "reply",
-                                        "reply": {
-                                            "id": f"checkout:{session.view.version}:{review.id}",
-                                            "title": "Checkout · Pending",
-                                        },
-                                    }
-                                ]
-                            },
-                        },
-                    }
-                )
+                session.view.payment_preparation = None
+                state["cart_checkpoint"] = session.view.model_dump(mode="json")
+                replies.extend(self.review_messages(session))
         elif intent.action == "checkout":
+            # Persist revocation even if the live read fails and this turn is rejected.
+            state["view"]["payment_preparation"] = None
+            session.view.payment_preparation = None
             review = session.view.review
             if not review:
                 raise DomainError("Please review your basket first.")
-            session.confirm(session.view.version, review.id, True)
-            replies.append(text_message(session.view.messages[-1].text))
+            if not breakdown(review)["reconciled"]:
+                raise DomainError("The charges do not reconcile. Review again before approving this bill.")
+            # Validate review identity/expiry before touching even the read-only store path.
+            from datetime import timedelta
+
+            if now() - review.created_at > timedelta(minutes=5):
+                raise DomainError("This bill expired. Review your basket again before approving.")
+            fresh = await self.workers.revalidate(session.view)
+            session.view.payment_preparation = None
+            if fingerprint(session.view, fresh) != fingerprint(session.view, review):
+                session.accept_review(session.view.version, fresh)
+                replies.append(
+                    text_message("The live bill changed. Please check this new table and approve again.")
+                )
+                replies.extend(self.review_messages(session))
+            else:
+                session.confirm(session.view.version, review.id, True)
+                session.view.payment_preparation = {
+                    "status": "approved_for_preparation_only",
+                    "review_id": review.id,
+                    "fingerprint": fingerprint(session.view, fresh),
+                    "approved_at": now().isoformat(),
+                    "provider": fresh.provider.value,
+                    "total_paise": fresh.total_paise,
+                    "breakdown": breakdown(fresh),
+                }
+                replies.append(
+                    text_message(
+                        "Amount approved for payment preparation. Pending — no order was placed; no payment request was submitted. "
+                        "The payment handoff is not enabled yet."
+                    )
+                )
         elif intent.action == "basket":
             replies.extend(self.basket_messages(session))
         elif intent.action == "stop":
@@ -294,6 +305,45 @@ in clarification. Shopping only: redirect unrelated questions to groceries.
         keep = set(state["choices"]) | {line.offer.id for line in session.view.lines}
         state["offers"] = {id: o.model_dump(mode="json") for id, o in session.offers.items() if id in keep}
         return state, replies
+
+    @staticmethod
+    def review_messages(session):
+        review = session.view.review
+        items = "\n".join(
+            f"• {line.quantity} × {line.offer.name} ({line.offer.pack_size})" for line in session.view.lines
+        )
+        replies = [
+            text_message(
+                f"{review.provider.value.title()} — live cart review\n{items}\n\n"
+                f"{table(review)}\n\nDelivery: {review.address_label}\n"
+                "Payment preparation only: no payment or order will be submitted."
+            )
+        ]
+        if breakdown(review)["reconciled"]:
+            replies.append(
+                {
+                    "type": "interactive",
+                    "interactive": {
+                        "type": "button",
+                        "body": {
+                            "text": "Check every charge above, including any small-cart fee. "
+                            "Approve this amount for preparation, or ask to change your basket."
+                        },
+                        "action": {
+                            "buttons": [
+                                {
+                                    "type": "reply",
+                                    "reply": {
+                                        "id": f"checkout:{session.view.version}:{review.id}",
+                                        "title": "Approve amount",
+                                    },
+                                }
+                            ]
+                        },
+                    },
+                }
+            )
+        return replies
 
     @staticmethod
     def choice_messages(session, choices):

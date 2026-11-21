@@ -77,3 +77,7 @@ Text/list/button responses are the initial UI; voice input is normalized through
 ## 2026-11-21 — deployment and payment recommendation (research, not implementation)
 
 Recommend a persistent Linux browser worker with configurable headless Chrome, private per-account onboarding/recovery and persistent state. Current hardcoded headed mode is unchanged. Prefer provider-owned user-authorized payment handoff rather than collecting grocery money through EasyDial's own gateway. Cross-device payment-link/intent/QR availability and provider confirmation surfaces must be observed before implementation. COD and wallets can submit real orders; they are not safe selector-test shortcuts. Details and primary sources: `DEPLOYMENT_AND_PAYMENTS.md`.
+
+## 2026-11-21 — Fee transparency and payment preparation
+
+Use provider-read bill rows in a WhatsApp monospace table; explicitly warn about small-cart/minimum-order charges, retaining FREE rows. Require arithmetic reconciliation and a fresh read-only cart/address/bill check before preparation approval. Never infer a fee-waiver threshold. Approval expires with its review and is cleared on basket changes or a failed recheck. Payment creation remains disabled until a provider-owned handoff is verified with specific authorization. Persist verified cart checkpoints to support restart without adopting unknown baskets. Headless Chrome is opt-in, locally read-tested, and still requires target-host verification. See PAYMENT_INSPECTION.md.

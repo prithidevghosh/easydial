@@ -86,7 +86,7 @@ Use your own verified WhatsApp account to initiate the chat with the Meta test n
 3. Confirm actual products/prices from both stores appear. Choose by menu, typed number, or an unambiguous spoken choice. For a multi-product request, remaining options are narrowed to the chosen store because the existing controller permits one store per basket.
 4. Ask to increase a quantity, remove an item or replace a brand. Verify the displayed draft. A comparison question must not add products.
 5. Tap **Review basket** or ask to review. This is the first store-cart synchronization step. Verify every item, quantity, delivery address, fee and total against the provider website.
-6. Tap **Checkout · Pending**. Expect explicit Pending and no order/payment. This calls only the existing local confirmation boundary.
+6. Check the detailed charge table and any small-cart/minimum-order fee warning. Tap **Approve amount**. The worker rechecks the live cart/address/bill; changed charges require a new approval. Expect explicit Pending and no order/payment. This records preparation approval only; payment handoff remains disabled.
 7. Remove all draft items and review again to clear only the cart owned by this session. Verify the store cart is empty. Never clear an unrelated/external cart to make a test pass.
 8. Test an old selection button, repeated webhook, expired store session and a correction after review. Outdated reviews must not remain valid.
 
@@ -107,7 +107,7 @@ This prints only event/outbox status counts and delivery status counts. It does 
 - `uncertain`: an outbound timeout/crash may have occurred after Meta accepted the message. No blind resend occurs. Inspect the WhatsApp conversation and credentials before retrying.
 - `expired`: no free-form reply outside the customer-service window. Ask the user to message again.
 
-After restart, draft/session/choice state survives but browser cart ownership does not. Existing provider guards refuse to silently adopt a nonempty cart. Reconcile the cart manually before proceeding; do not delete the database as an automatic recovery technique. Changing the sender, account, address or profile configuration requires a new private database and deliberate account onboarding.
+After restart, draft/session/choice state and verified cart ownership checkpoints survive. Workers compare actual carts against those checkpoints before proceeding. Unknown, legacy or externally changed baskets remain blocked; reconcile them deliberately rather than deleting the database. Changing the sender, account, address or profile configuration requires a new private database and deliberate account onboarding.
 
 State is stored in an owner-only local SQLite file, not an encrypted production database. Completed raw event payloads are cleared; bounded conversation/basket state and message IDs remain. Temporary audio files are deleted after conversion. No automated retention/deletion service or multi-user isolation layer is shipped. Keep this pilot restricted to the owner and keep `.env`/`.state` out of Git.
 
@@ -118,3 +118,7 @@ Local result: **43 tests passed**, including 13 WhatsApp tests and five optional
 Automated tests cover authenticated webhook challenge/signature, wrong sender/account rejection, duplicate events, stale selections, atomic edits, late messages, voice orchestration using mocked transcription, cart review/Pending with fixture providers, multi-item choice continuation, persistence/interrupted-work handling, uncertain sends, 24-hour-window checks, status-receipt handling, media-host restrictions, Meta HTTP payload contracts and real FFmpeg OGG/Opus decoding/duration rejection.
 
 These are local integration/contract tests. They do not establish actual Meta delivery, OpenAI transcription quality or the complete WhatsApp-to-live-store journey. Existing browser verification is recorded separately in BROWSER_VERIFICATION.md. Payment is not implemented.
+
+## Headless browser setting
+
+Set `BROWSER_HEADLESS=true` in private `backend/.env` and restart the WhatsApp service to use headless Chrome; default is false. Keep `BROWSER_CHANNEL=chrome`. Both accounts passed read-only headless checks on this Mac. Deployment-host onboarding and cart-write verification are still required; see `PAYMENT_INSPECTION.md`.

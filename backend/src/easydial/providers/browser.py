@@ -1,4 +1,4 @@
-"""Dedicated, headed browser sessions. No stealth, fingerprint spoofing or challenge bypass."""
+"""Dedicated, configurable browser sessions. No stealth, fingerprint spoofing or challenge bypass."""
 
 from pathlib import Path
 
@@ -10,6 +10,7 @@ from ..controller import DomainError
 class BrowserSession:
     def __init__(self, profile: str = "", storage_state: str = ""):
         self.profile, self.storage_state = profile, storage_state
+        self.headless, self.channel = False, "chrome"
         self.runtime = self.context = self.page = self.browser = None
 
     @property
@@ -27,10 +28,12 @@ class BrowserSession:
         try:
             if self.profile:
                 self.context = await self.runtime.chromium.launch_persistent_context(
-                    self.profile, channel="chrome", headless=False
+                    self.profile, channel=self.channel, headless=self.headless
                 )
             else:
-                self.browser = await self.runtime.chromium.launch(channel="chrome", headless=False)
+                self.browser = await self.runtime.chromium.launch(
+                    channel=self.channel, headless=self.headless
+                )
                 self.context = await self.browser.new_context(storage_state=self.storage_state)
             self.page = self.context.pages[0] if self.context.pages else await self.context.new_page()
             self.page.set_default_timeout(8000)

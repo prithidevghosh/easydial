@@ -29,6 +29,7 @@ class Session:
     def changed(self):
         self.view.version += 1
         self.view.review = None
+        self.view.payment_preparation = None
         self.view.phase = "shopping"
 
     def say(self, text: str, role="assistant"):
@@ -77,6 +78,7 @@ class Session:
         self.check(version)
         if not self.view.lines:
             raise DomainError("Add something to your basket first.", 422)
+        self.view.payment_preparation = None
         self.view.review = review
         self.view.phase = "review"
         self.say("Your store basket is synced. Check the current bill before checkout.")

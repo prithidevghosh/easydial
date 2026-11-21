@@ -3,7 +3,7 @@ import asyncio
 from ..controller import DomainError
 from ..models import Provider, SearchResult, SessionView
 from ..settings import Settings
-from .blinkit import BlinkitProvider
+from .blinkit import BlinkitProvider, normalized
 from .instamart import InstamartProvider
 
 
@@ -23,6 +23,31 @@ class ProviderWorkers:
                 settings.instamart_verified_location,
             ),
         ]
+
+        for worker in self.workers:
+            worker.browser.headless = settings.browser_headless
+            worker.browser.channel = settings.browser_channel
+
+    def restore_checkpoint(self, checkpoint, session_id):
+        """Restore only a previously verified private checkpoint, not an unknown live cart.
+
+        Every subsequent provider operation still compares the actual cart to this
+        signature, so external changes remain blocked after process restart.
+        """
+        view = SessionView.model_validate(checkpoint)
+        if view.id != session_id or not view.synced_provider or not view.lines:
+            raise DomainError("Stored cart ownership needs attention before continuing.")
+        if any(x.offer.provider != view.synced_provider for x in view.lines):
+            raise DomainError("Stored cart provider does not match.")
+        worker = self.workers[list(Provider).index(view.synced_provider)]
+        if worker.guard.owner is None:
+            worker.guard.owner = view.id
+            worker.guard.expected = tuple(
+                sorted(
+                    (normalized(x.offer.name), normalized(x.offer.pack_size), x.quantity) for x in view.lines
+                )
+            )
+            worker.previous_lines = [x.model_copy(deep=True) for x in view.lines]
 
     def connection_status(self):
         return {provider.value: worker.connected() for provider, worker in zip(Provider, self.workers)}
@@ -74,3 +99,14 @@ class ProviderWorkers:
             raise DomainError(
                 "The store did not confirm an empty basket. Check it before continuing.", 502
             ) from None
+
+    async def revalidate(self, session: SessionView):
+        if not session.lines or not session.review:
+            raise DomainError("Review the basket before approving its amount.")
+        worker = self.workers[list(Provider).index(session.lines[0].offer.provider)]
+        try:
+            return await asyncio.wait_for(worker.revalidate(session), timeout=60)
+        except DomainError:
+            raise
+        except Exception:
+            raise DomainError("Could not recheck the live bill. No payment was initiated.", 502) from None
