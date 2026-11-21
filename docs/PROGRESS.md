@@ -4,7 +4,7 @@ Updated 2026-11-21. Public repo: https://github.com/prithidevghosh/easydial.
 
 ## Current direction
 
-Native iOS EasyDial with OpenAI dictation/intent and **two Playwright provider workers**, Blinkit and https://instamart.in/. Swiggy MCP has been removed at the user's request. Final goal is a paid, provider-confirmed order; this session explicitly forbids placing any order. Current working boundary is verified live cart/checkout preparation → local Checkout Pending.
+WhatsApp-first EasyDial is now the requested direction; iOS feature development is paused. Research recommends Meta Cloud API with OpenAI dictation/intent and the existing **two Playwright provider workers**, Blinkit and https://instamart.in/. WhatsApp is not implemented/configured/tested; see `WHATSAPP_FEASIBILITY.md` for policy eligibility, account isolation and implementation gates. Swiggy MCP has been removed at the user's request. Final goal is a paid, provider-confirmed order; this session explicitly forbids placing any order. Current working boundary is verified live cart/checkout preparation → local Checkout Pending.
 
 Read `plan.md`, `docs/BROWSER_VERIFICATION.md` and `docs/CREDENTIALS.md` before continuing. Earlier MCP/Firefox and fixture-only milestones remain in Git history; they are superseded.
 
@@ -33,6 +33,8 @@ Read `plan.md`, `docs/BROWSER_VERIFICATION.md` and `docs/CREDENTIALS.md` before 
 - `backend/tests/test_dom.py`: opt-in redacted Chrome DOM regressions; no network.
 
 ## Next work
+
+0. Follow the WhatsApp acceptance gates in `WHATSAPP_FEASIBILITY.md`; first resolve use-case eligibility and establish real voice-message transport. Preserve the existing checkout/no-purchase boundary.
 
 1. Add OpenAI API key locally, then verify actual dictation and correction journeys. Do not confuse successful typed commerce tests with voice success.
 2. Improve grounded product metadata and conservative exact-match comparison; current browser cards lack complete brand/formulation metadata.

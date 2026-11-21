@@ -60,3 +60,8 @@ Empty cart address gate: neither store exposes the full checkout address when th
 Readback timing: item rows appear before bills; quantity widgets can update optimistically before the store saves the change. Wait for complete bill data and completed browser network activity before navigating away from cart edits. Never retry an uncertain write blindly; reconcile the provider cart first.
 
 Reuse normal logged-in sessions instead of relaunching headless Firefox for every request. This reduces login churn; it is not a guarantee against future bot checks. No stealth, challenge bypass, fingerprint spoofing or proxy rotation is added.
+
+
+## 2026-11-21 — WhatsApp-first channel, research only
+
+User decision: pause app development and investigate routing the complete voice-note shopping journey through WhatsApp. Retain the existing commerce backend and app code. Recommendation: direct Meta WhatsApp Business Cloud API; Twilio Sandbox is an optional test route, not a policy bypass. Feasibility is technically positive but conditional on Meta accepting this focused shopping-service use case, secure customer store-account linking, and eventual payment implementation. No WhatsApp runtime/account changes or messages were made. Detailed evidence, uncertainties and acceptance gates: `WHATSAPP_FEASIBILITY.md`.

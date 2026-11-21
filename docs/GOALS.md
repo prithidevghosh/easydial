@@ -10,7 +10,7 @@ This is a product hypothesis supplied by the founder, not a finding from user in
 
 ## Requirements supplied by the user
 
-- A dialer-style app with voice input initially; telephone calling later.
+- Latest direction: WhatsApp voice recordings as the customer channel; pause native app development. The earlier dialer-app plan is retained historically; calling remains later scope.
 - An OpenAI master agent understands Indian-language requests.
 - Separate Blinkit and Swiggy Instamart agents check products, availability, and prices.
 - The user chooses a provider and controls checkout.
@@ -20,7 +20,7 @@ This is a product hypothesis supplied by the founder, not a finding from user in
 
 ## Final product target
 
-Native iOS dictation → understood and editable basket → real Blinkit/Instamart checkout → explicitly approved payment → provider-confirmed paid order. Both provider workers now use Playwright. Payment and order confirmation require a later authorized test; this session must not place any order.
+WhatsApp voice recording → understood and editable basket → real Blinkit/Instamart checkout → explicitly approved payment → provider-confirmed paid order. Both provider workers now use Playwright. Payment and order confirmation require a later authorized test; this session must not place any order.
 
 ## Proposed first demonstrable journey
 
