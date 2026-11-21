@@ -200,7 +200,7 @@ def test_unreconciled_review_does_not_delegate_retry_or_offer_payment():
     replies = ShoppingChat.review_messages(session)
     assert not breakdown(bill)["reconciled"]
     assert "choose how to pay" not in replies[0]["text"]["body"]
-    assert len(replies) == 1
+    assert len(replies) == 2
     assert "Recheck total" not in replies[0]["text"]["body"]
     assert "basket is saved" in replies[0]["text"]["body"]
     bill.total_paise = 15630
@@ -240,7 +240,7 @@ async def test_checkout_rechecks_mismatched_bill_without_cart_writes(tmp_path, r
     if recovers:
         assert replies[-1]["interactive"]["action"]["buttons"][0]["reply"]["title"] == "Choose payment"
     else:
-        assert all(r["type"] == "text" for r in replies)
+        assert replies[-1]["interactive"]["action"]["buttons"][0]["reply"]["title"] == "Change basket"
     runtime.inbox.close()
 
 async def test_initial_review_recovers_bill_without_resyncing_cart(tmp_path):
@@ -267,4 +267,28 @@ async def test_initial_review_recovers_bill_without_resyncing_cart(tmp_path):
     assert calls == ["sync", "read"]
     assert replies[-1]["interactive"]["action"]["buttons"][0]["reply"]["title"] == "Choose payment"
     assert state["view"]["payment_preparation"] is None
+    runtime.inbox.close()
+
+
+@pytest.mark.parametrize("choice", ["change_basket", "save_basket"])
+async def test_blocked_bill_buttons_preserve_basket_and_do_not_call_provider(tmp_path, choice):
+    runtime = make_runtime(tmp_path)
+    state, _ = await runtime.chat.handle("milk", runtime.chat.initial())
+    state, _ = await runtime.chat.handle("1", state)
+    state, _ = await runtime.chat.handle("review", state)
+    state["view"]["review"]["total_paise"] += 30
+    before = copy.deepcopy(state)
+
+    async def forbid(*args, **kwargs):
+        raise AssertionError("No interpretation or provider operation expected")
+
+    runtime.chat.interpret = forbid
+    runtime.chat.workers.review = forbid
+    runtime.chat.workers.revalidate = forbid
+    action = f"{choice}:{state['view']['version']}:{state['view']['review']['id']}"
+    state, replies = await runtime.chat.handle("button", state, action)
+    assert state == before
+    assert "voice note" in replies[0]["text"]["body"] if choice == "change_basket" else "whenever" in replies[0]["text"]["body"]
+    with pytest.raises(DomainError):
+        await runtime.chat.handle("button", state, action + "old")
     runtime.inbox.close()

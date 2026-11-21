@@ -1,3 +1,11 @@
+# Blocked-bill next actions — 2026-11-21
+
+Added Change basket and Save for later WhatsApp buttons after a persistent bill mismatch. Both are version/review-bound, deterministic, and perform no provider or payment operation. Change basket prompts for additions/removals/changes by text or voice; Save for later confirms the existing saved draft without pausing or clearing it. No manual bill retry is delegated to the user. Checkout progress now says Checking your final total rather than prematurely claiming to find payment options. Payment stays blocked while charges differ. Existing delivery-receipt ordering keeps the buttons after the bill.
+
+Validation: 108 tests passed, 7 DOM skipped; Ruff passed. Tests cover blocked-bill buttons, both handlers, unchanged draft and stale review rejection. The store’s ₹0.30 mismatch remains unresolved; these buttons improve recovery choices without fabricating a payable amount.
+
+---
+
 # Automatic bill recovery — 2026-11-21
 
 Supersedes the manual Recheck total UX below. User requires the agent to handle bill verification itself. Review, checkout, and payment-method selection now retry an inconsistent bill with up to two additional read-only provider revalidations. Never repeat cart synchronization or invent rounding. Checkout refreshes expired bills automatically and presents fresh terms for approval. Any changed or inconsistent bill revokes payment preparation and cannot generate a payment request. Progress can say Double-checking the store’s total using the existing throttled progress mechanism.

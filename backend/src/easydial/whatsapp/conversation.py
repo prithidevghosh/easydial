@@ -382,6 +382,16 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
             parts = action_id.split(":", 2)
             if len(parts) != 3 or parts[1] != str(session.view.version):
                 raise DomainError("That choice is old. Ask to see your basket or search again.")
+            if parts[0] in {"change_basket", "save_basket"}:
+                if not session.view.review or parts[2] != session.view.review.id:
+                    raise DomainError("That choice is old. Ask to see your basket.")
+                if parts[0] == "change_basket":
+                    return state, [text_message(
+                        "What would you like to add, remove, or change? Send a message or voice note."
+                    )]
+                return state, [text_message(
+                    "Your basket is saved. Message me whenever you’re ready to continue."
+                )]
             if parts[0] == "pick":
                 intent = ChatIntent(action="select", **{**kwargs, "offer_id": parts[2]})
             elif parts[0] == "payment":
@@ -459,7 +469,7 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
                 {
                     "search": "Finding matching products…",
                     "review": "Checking your cart and fees…",
-                    "checkout": "Finding payment options…",
+                    "checkout": "Checking your final total…",
                     "payment": "Preparing your payment option…",
                 }.get(intent.action, "Updating your basket…")
             )
@@ -899,7 +909,7 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
         next_step = (
             "Tap Choose payment to continue, or tell me what to change."
             if reconciled else
-            "Your basket is saved. You can still tell me what to change."
+            "Your basket is saved. Choose what you’d like to do below."
         )
         replies = [
             text_message(
@@ -929,6 +939,24 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
                     },
                 }
             )
+        else:
+            replies.append({
+                "type": "interactive",
+                "interactive": {
+                    "type": "button",
+                    "body": {"text": "Would you like to change your basket or save it for later?"},
+                    "action": {"buttons": [
+                        {"type": "reply", "reply": {
+                            "id": f"change_basket:{session.view.version}:{review.id}",
+                            "title": "Change basket",
+                        }},
+                        {"type": "reply", "reply": {
+                            "id": f"save_basket:{session.view.version}:{review.id}",
+                            "title": "Save for later",
+                        }},
+                    ]},
+                },
+            })
         return replies
 
     @staticmethod
