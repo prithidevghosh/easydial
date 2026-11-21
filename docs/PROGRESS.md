@@ -1,3 +1,9 @@
+# Blinkit headed comparison — 2026-11-21
+
+User requested an explicit non-headless comparison. With the same configured saved Blinkit profile and browser channel, headless inspection was blocked; headless=False loaded the homepage (normal Blinkit title, no challenge text), passed browser.check_page, and navigated successfully to milk search. No cart modification or payment inspection in this comparison. This supports a browser-mode difference but does not identify the detection mechanism or establish reliable payment access. Production headless setting unchanged.
+
+---
+
 # Confirmed bill to live payment options — 2026-11-21
 
 Implemented the requested Instamart journey: disclose listed charges versus merchant payable, accept confirmation of the payable amount, then independently verify that exact amount on the merchant payment screen before returning live methods. Do not invent rounding or mark arithmetic reconciled. Unknown charges/conflicting totals remain blocked; cart/address/fingerprint validation remains. Approval state is recorded only after successful method/amount inspection.
