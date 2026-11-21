@@ -5,6 +5,8 @@ struct AppConfig: Decodable {
     let voiceAvailable: Bool
     let conversationAvailable: Bool
     let liveCheckout: Bool
+    let providers: [String: Bool]
+    let addressConfigured: Bool
 }
 
 struct Offer: Decodable, Identifiable {
@@ -43,15 +45,21 @@ struct ConversationMessage: Decodable {
     let text: String
 }
 
+struct BillLine: Decodable {
+    let label: String
+    let value: String
+}
+
 struct BasketReview: Decodable {
     let id: String
     let version: Int
     let provider: String
     let addressLabel: String
-    let itemSubtotalPaise: Int
+    let itemSubtotalPaise: Int?
     let feesPaise: Int?
     let totalPaise: Int?
     let paymentMethod: String
+    let billLines: [BillLine]
     let mode: String
 }
 
@@ -66,6 +74,7 @@ struct ShoppingSession: Decodable, Identifiable {
     let review: BasketReview?
     let phase: String
     let comparison: String?
+    let syncedProvider: String?
     var subtotal: Int { lines.reduce(0) { $0 + ($1.offer.pricePaise ?? 0) * $1.quantity } }
     var itemCount: Int { lines.reduce(0) { $0 + $1.quantity } }
     var lastReply: String { messages.last(where: { $0.role == "assistant" })?.text ?? "What can I get for you?" }

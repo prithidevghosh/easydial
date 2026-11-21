@@ -20,3 +20,8 @@ The distinctive element is the large familiar call-like voice control. Avoid a d
 Review against brief: large controls and short choices support people unfamiliar with apps; no background animation or fake waveforms; no technical configuration in shopping content. Sample-mode disclosure is necessary for honesty, not developer decoration. Use familiar platform controls for accessibility rather than custom gestures. Test long text and compact devices.
 
 The founder explicitly requested premium, soothing aesthetics and frictionless UX. The second pass reduces the sample notice's visual weight, softens headline weight, adds restrained concentric voice-control depth, groups equivalent products, and separates basket review. The custom microphone icon is generated from vector drawing code in `ios/tools/generate-icon.swift`; it uses no external artwork.
+
+
+## Live-only refinement (2026-11-21)
+
+Supersedes the sample notice and sample completion described above. The home now shows configured provider status and address, a restrained rounded headline, the central voice control, and a custom text composer. Primary actions have explicit white labels on deep blue, full width, 56-point minimum height and 18-point corners; disabled actions use sky/slate. Product chips and quantity controls share light blue styling. Supporting copy uses explicit slate for readability. Basket review displays the provider bill; Checkout transitions to Pending without submitting payment.

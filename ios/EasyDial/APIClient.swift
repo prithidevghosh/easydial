@@ -21,7 +21,7 @@ final class APIClient {
     func request<T: Decodable>(_ path: String, method: String = "GET", body: [String: Any]? = nil) async throws -> T {
         var request = URLRequest(url: baseURL.appendingPathComponent(path))
         request.httpMethod = method
-        request.timeoutInterval = 90
+        request.timeoutInterval = 180
         if let body {
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")

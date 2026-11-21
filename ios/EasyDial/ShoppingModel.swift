@@ -94,7 +94,7 @@ final class ShoppingModel {
         } else {
             error = nil
             guard config?.voiceAvailable == true else {
-                error = "Voice isn't connected yet. Try the sample searches below."
+                error = "Voice isn't connected yet. Connect OpenAI on your Mac, or type a product to search."
                 return
             }
             voice.onLimit = { [weak self] in Task { await self?.toggleRecording() } }
