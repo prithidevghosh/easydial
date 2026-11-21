@@ -6,6 +6,7 @@ Run: uv --directory backend run python tools/eval_chat_intents.py --output .stat
 import argparse
 import asyncio
 import json
+import re
 import sys
 import time
 from pathlib import Path
@@ -127,6 +128,49 @@ CASES = [
 ]
 
 
+CASES += [
+    dict(
+        id="correct_first_to_second",
+        text="first wla nhi , ap second wla choose kro",
+        basket=True,
+        selected=True,
+        action="select",
+        offer="curd",
+        replaces_selection="milk",
+        edits=[],
+    ),
+    dict(
+        id="correct_devanagari",
+        text="नहीं, आप पहला नहीं, सेकंड वाला ऑर्डर कर दो.",
+        basket=True,
+        selected=True,
+        action="select",
+        offer="curd",
+        replaces_selection="milk",
+        edits=[],
+    ),
+    dict(
+        id="additional_second",
+        text="second wala bhi add kar do, first rehne do",
+        basket=True,
+        selected=True,
+        action="select",
+        offer="curd",
+        edits=[],
+    ),
+    dict(id="bare_number_after_selection", text="2", basket=True, selected=True, action="clarify", edits=[]),
+    dict(
+        id="second_before_selection",
+        text="first wala nahi second choose karo",
+        basket=False,
+        full_menu=True,
+        action="select",
+        offer="curd",
+        edits=[],
+    ),
+]
+
+
 def context(full):
     offers = {}
     for key, name in [("milk", "Amul Taaza Milk"), ("curd", "Nandini Curd")]:
@@ -178,8 +222,12 @@ def failures(case, intent):
             errors.append("replacement")
     elif any(q.replaces_line_id for q in intent.queries):
         errors.append("unexpected_replacement")
-    if intent.offer_id is not None:
-        errors.append("unexpected_selection")
+    if intent.offer_id != case.get("offer"):
+        errors.append("selection")
+    if intent.replaces_line_id != case.get("replaces_selection"):
+        errors.append("selection_replacement")
+    if re.search(r"[\u0600-\u06ff\u0900-\u0dff]", intent.clarification):
+        errors.append("non_english_reply")
     return errors
 
 
@@ -194,6 +242,16 @@ async def run(args):
     async def one(case, repeat):
         async with semaphore:
             session, state = context(case["basket"])
+            if case.get("selected"):
+                session.view.lines = [line for line in session.view.lines if line.id == "milk"]
+                state["choices"] = []
+                state["recent_selection"] = {
+                    "choices": ["milk", "curd"],
+                    "line_id": "milk",
+                    "offer_id": "milk",
+                }
+            elif case.get("full_menu"):
+                state["choices"] = ["milk", "curd"]
             start = time.monotonic()
             try:
                 result = await chat.interpret(case["text"], session, state)

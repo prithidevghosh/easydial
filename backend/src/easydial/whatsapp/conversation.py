@@ -1,5 +1,6 @@
 import asyncio
 import json
+import re
 from datetime import datetime, timedelta
 from typing import Literal
 from uuid import uuid4
@@ -22,6 +23,7 @@ class ChatIntent(BaseModel):
     offer_id: str | None
     quantity: int | None = Field(ge=1, le=100)
     clarification: str
+    replaces_line_id: str | None = None
 
 
 def text_message(text):
@@ -65,12 +67,20 @@ class ShoppingChat:
         client = self.master.require_client()
         result = await client.responses.parse(
             model=self.settings.openai_text_model,
-            instructions=INSTRUCTIONS.replace(
+            instructions=INSTRUCTIONS.replace("in\nthe user's language", "in English").replace(
                 "If the request needs both edits and discovery, clarify which to do first rather than silently dropping part.",
                 "For explicit edits plus discovery, return action search with both edits and queries. Never drop either part.",
             )
             + """
 This is the WhatsApp channel. Additional actions: select, basket, checkout.
+RECENT_SELECTION preserves the last selected line and its numbered menu, even after active choices clear.
+"first wla nhi, ap second wla choose kro" after selecting option 1 means select option 2 from
+RECENT_CHOICES and set replaces_line_id to RECENT_SELECTION.line_id. Preserve its quantity unless changed.
+Do not search again or add both products when the user explicitly corrects the selection.
+Before any selection, "not first, second" simply selects option 2, with replaces_line_id null.
+For an explicit additional item ("also", "bhi") use select without replacement.
+If only a bare number follows a completed selection, clarify whether to replace or add.
+Never invent a numbered option or a replacement line ID. A new search supersedes the old menu.
 Select only a specific offer from DISPLAYED_CHOICES when the user unambiguously chooses it;
 use offer_id exactly, and quantity null to preserve the suggested pack count. Understand spoken
 option numbers in Indian languages. Never select an arbitrary cheapest/first match when ambiguous.
@@ -99,7 +109,7 @@ The selectable options for an existing basket belong to its store; other-store p
 Stop pauses this chat; do not interpret 'don't place an order yet, compare milk' as opt-out.
 Return empty queries/edits unless needed, null offer_id/quantity unless selecting.
 Use short, everyday language: one short sentence where possible. Avoid technical words and repeated disclaimers.
-Clarifications must be brief and in the user's language. Never claim any completed action or price
+All customer-facing replies and clarifications MUST be in English, even for Hindi/Hinglish or other input. Never claim any completed action or price
 in clarification. Shopping only: redirect unrelated questions to groceries.
 Interpret only the current request. CURRENT_BASKET is authoritative; an empty list means no items.
 A request such as "मुझे दही चाहिए", "दही मंगवा दो", or "dahi order karo" means search
@@ -118,6 +128,11 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
                             "quantity": line.quantity,
                         }
                         for line in session.view.lines
+                    ],
+                    "RECENT_SELECTION": state.get("recent_selection"),
+                    "RECENT_CHOICES": [
+                        {"number": i + 1, **session.offers[id].model_dump(mode="json")}
+                        for i, id in enumerate(self.recent_choices(session, state))
                     ],
                     "has_reviewed_bill": session.view.review is not None,
                     "validation_feedback": (
@@ -163,7 +178,14 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
             or (bool(intent.edits) and intent.action not in {"search", "edit"})
             or (intent.action == "search" and not 1 <= len(intent.queries) <= 3)
             or len(intent.edits) > 10
-            or (intent.action == "select" and intent.offer_id not in state["choices"])
+            or (
+                intent.action == "select"
+                and intent.offer_id not in state["choices"] + self.recent_choices(session, state)
+            )
+            or (
+                intent.replaces_line_id is not None
+                and (intent.action != "select" or intent.replaces_line_id not in line_ids)
+            )
         )
         if invalid_target or invalid_shape:
             if not repair:
@@ -174,15 +196,51 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
                 edits=[],
                 offer_id=None,
                 quantity=None,
-                clarification="कौन सा सामान चाहिए? / Which item would you like?",
+                clarification="Which product or option would you like?",
+            )
+        # Never pass Indic-script model prose through to an English-only customer chat.
+        if re.search(r"[\u0600-\u06ff\u0900-\u0dff]", intent.clarification):
+            intent.clarification = (
+                "Which product or option would you like?" if intent.action == "clarify" else ""
             )
         return intent
+
+    @staticmethod
+    def recent_choices(session, state):
+        recent = state.get("recent_selection") or {}
+        target = next((line for line in session.view.lines if line.id == recent.get("line_id")), None)
+        if not target or target.offer.id != recent.get("offer_id"):
+            return []
+        return [id for id in recent.get("choices", []) if id in session.offers]
+
+    @staticmethod
+    def restore_legacy_choices(session, state):
+        # Old versions pruned alternatives but retained the full search result. Recover only
+        # a single-provider, single-query menu with exactly one matching selected basket line.
+        if state["choices"] or state.get("recent_selection") or len(session.view.lines) != 1:
+            return
+        results = [r for r in session.view.results if r.offers]
+        if len(results) != 1:
+            return
+        choices = [o for o in results[0].offers[:2] if o.available and o.price_paise is not None]
+        line = session.view.lines[0]
+        if line.offer.id not in {o.id for o in choices}:
+            return
+        for offer in choices:
+            session.offers[offer.id] = offer
+            state["offers"][offer.id] = offer.model_dump(mode="json")
+        state["recent_selection"] = {
+            "choices": [o.id for o in choices],
+            "line_id": line.id,
+            "offer_id": line.offer.id,
+        }
 
     async def handle(self, text, state, action_id=None, progress=None, customer=None):
         session = Session(
             view=SessionView.model_validate(state["view"]),
             offers={id: Offer.model_validate(value) for id, value in state["offers"].items()},
         )
+        self.restore_legacy_choices(session, state)
         selected_method = None
         normalized = text.strip().casefold()
         if state["paused"]:
@@ -317,6 +375,7 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
                         and o.price_paise is not None
                         and (basket_store is None or o.provider == basket_store)
                     )
+            state["recent_selection"] = None
             state["choices"] = list(dict.fromkeys(choices))[:10]
             session.view.results = results
             session.view.comparison = exact_comparison([o for r in results for o in r.offers])
@@ -341,7 +400,8 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
             if state["choices"]:
                 replies.append(product_messages[-1])
         elif intent.action == "select":
-            if intent.offer_id not in state["choices"]:
+            recent_ids = self.recent_choices(session, state)
+            if intent.offer_id not in state["choices"] + recent_ids:
                 raise DomainError("Please select one of the current products, or search again.")
             offer = session.offers[intent.offer_id]
             basket_store = session.view.synced_provider or (
@@ -366,15 +426,26 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
                     replies.extend(self.choice_messages(session, state["choices"]))
                 state["view"] = session.view.model_dump(mode="json")
                 return state, replies
+            menu_ids = list(state["choices"] if intent.offer_id in state["choices"] else recent_ids)
+            replacement = intent.replaces_line_id or offer.replaces_line_id
+            target = next((line for line in session.view.lines if line.id == replacement), None)
+            if replacement and target is None:
+                raise DomainError("Your basket changed. Please choose the item to replace again.")
             session.edit(
                 EditRequest(
-                    kind="replace" if offer.replaces_line_id else "add",
+                    kind="replace" if replacement else "add",
                     offer_id=offer.id,
-                    line_id=offer.replaces_line_id,
-                    quantity=intent.quantity or offer.suggested_quantity,
+                    line_id=replacement,
+                    quantity=intent.quantity or (target.quantity if target else offer.suggested_quantity),
                     expected_version=session.view.version,
                 )
             )
+            selected_line = next(line for line in session.view.lines if line.offer.id == offer.id)
+            state["recent_selection"] = {
+                "choices": menu_ids,
+                "line_id": selected_line.id,
+                "offer_id": offer.id,
+            }
             selected_queries = {
                 result.query
                 for result in session.view.results
@@ -526,7 +597,11 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
                 session.say(reply["text"]["body"])
         state["view"] = session.view.model_dump(mode="json")
         # Keep only offers relevant to the current choices or draft, bounding database growth.
-        keep = set(state["choices"]) | {line.offer.id for line in session.view.lines}
+        keep = (
+            set(state["choices"])
+            | set(self.recent_choices(session, state))
+            | {line.offer.id for line in session.view.lines}
+        )
         state["offers"] = {id: o.model_dump(mode="json") for id, o in session.offers.items() if id in keep}
         return state, replies
 

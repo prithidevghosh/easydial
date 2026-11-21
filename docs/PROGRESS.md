@@ -1,3 +1,13 @@
+# Persistent selection corrections and English replies — 2026-11-21
+
+Root cause: selecting one result removed same-query alternatives from active choices and pruned their offers. A correctly transcribed “not first, choose second” then reached the model without numbered options. New `recent_selection` context preserves exact original menu order, selected line/offer and alternative offers across persistence. Explicit corrections select a known alternative with `replaces_line_id`, preserve the selected quantity and replace rather than add. New searches supersede this context. Old versioned buttons, price freshness, single-store and payment guards still apply. Narrow legacy recovery reconstructs the old deterministic top-two menu only for one result provider/query and one selected line; ambiguous histories are not reconstructed.
+
+Customer prose is instructed to be English regardless of input language. Removed inherited user-language clarification instructions and the Hindi fallback; unexpected Indic-script clarification uses a short English fallback. Product names remain store-sourced.
+
+Validation: 82 automated tests pass, 7 DOM skipped; Ruff/diff checks pass. Expanded real-model development suite: 42/42 across 21 cases twice, including negated ordinal correction, Devanagari, additive second choice, ambiguous bare number and second choice before selection. The exact user wording against a read-only copy of the actual saved context selected Mandarin Orange and targeted the current Nagpur Orange line for replacement; no customer basket or provider cart was changed by this check. Cached prices still expire normally, requiring a fresh search if the old menu is stale.
+
+---
+
 # Delivery-confirmed WhatsApp ordering — 2026-11-21
 
 Sequential HTTP sends did not preserve customer-visible order: Meta accepted the second product image but delivered the later choice prompt first. New reply batches have durable `outbox.after_id` dependencies. Each message waits for its predecessor's delivered/read receipt, rather than HTTP acceptance or sent status. Definitive delivery failure releases the next message; uncertain sends remain held. Early status callbacks are persisted before remote IDs are attached; receipts do not regress and dependencies survive restart. Fresh valid customer turns supersede held-back older replies so stale choice menus do not appear later. No blind retries or arbitrary sleeps.
