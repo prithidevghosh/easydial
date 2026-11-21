@@ -240,6 +240,19 @@ CASES += [
 ]
 
 
+CASES.append(
+    dict(
+        id="basket_contents_and_store",
+        text="What is in the cart right now and is it from Instamart or Blinkit?",
+        basket=True,
+        action="basket",
+        edits=[],
+        target_provider=None,
+        switch_store=False,
+    )
+)
+
+
 def context(full):
     offers = {}
     for key, name in [("milk", "Amul Taaza Milk"), ("curd", "Nandini Curd")]:

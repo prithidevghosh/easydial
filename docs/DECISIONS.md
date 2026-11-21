@@ -119,3 +119,5 @@ Read actual provider payment categories and let the customer choose. Generate Bl
 2026-11-21: Merchant order history replaces generic page-success text as confirmation authority. Capture baseline before an attempt; never infer success from a click, payment claim, QR image, or historical order. Ten bounded checks with three-second gaps and a 30-second read budget; absence means pending. Check status resumes read-only verification from the durable approved snapshot. Explicit cancellation/failure does not imply refund. See POST_PAYMENT.md.
 
 2026-11-21: Store preferences are structured execution constraints, not reply prose. Explicit one-product switches stage replacement selection, verify source cart clearing, then change the draft. Preserve the old basket until a destination is selected; never silently fall back or review the source while a move is pending. See STORE_SWITCHING.md.
+
+2026-11-21: Basket summaries must identify the provider from selected offers alongside contents. A question naming possible stores is not a switch request. Keep one next-action prompt rather than repeating it in summary and buttons.

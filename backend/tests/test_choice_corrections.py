@@ -34,7 +34,7 @@ async def test_correct_previous_selection_keeps_menu_and_replaces_without_adding
     assert state["view"]["lines"][0]["offer"]["id"] == ids[1]
     assert state["view"]["lines"][0]["quantity"] == 2
     assert state["recent_selection"]["choices"] == ids
-    assert "Your basket" in replies[0]["text"]["body"]
+    assert "Your Blinkit basket" in replies[0]["text"]["body"]
     runtime.inbox.close()
 
 

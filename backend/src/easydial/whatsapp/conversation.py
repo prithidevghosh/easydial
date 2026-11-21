@@ -60,14 +60,11 @@ def money(paise):
 def basket_text(session):
     if not session.view.lines:
         return "Your basket is empty."
-    return (
-        "Your basket:\n"
-        + "\n".join(
-            f"• {line.quantity} × {line.offer.name} ({line.offer.pack_size or 'pack unspecified'}) — "
-            f"{money(line.subtotal)}"
-            for line in session.view.lines
-        )
-        + "\nWant to change anything?"
+    stores = ", ".join(sorted({line.offer.provider.value.title() for line in session.view.lines}))
+    return f"Your {stores} basket:\n" + "\n".join(
+        f"• {line.quantity} × {line.offer.name} ({line.offer.pack_size or 'pack unspecified'}) — "
+        f"{money(line.subtotal)}"
+        for line in session.view.lines
     )
 
 
@@ -140,7 +137,10 @@ option numbers in Indian languages. Never select an arbitrary cheapest/first mat
 A generic product request ("ek dahi ka packet") is a fresh search even if a similar item is displayed;
 select requires its option number or an explicit choice of that exact brand/variant. "haan" alone
 is clarify, even if only one option is displayed. Never fill in an unstated choice.
-Basket means show the draft. Review means sync the store cart and read its bill (no purchase).
+Basket means show the draft. Questions asking what is in the cart AND which store it belongs to
+are action basket, with no search, edits, target_provider or store switch. Mentioning store names
+as alternatives in a question does not request switching stores.
+Review means sync the store cart and read its bill (no purchase).
 Checkout ONLY means an explicit request to continue AFTER a reviewed bill; it is local Pending,
 never a purchase. A bare 'yes' is ambiguous: clarify, never infer a checkout or product selection.
 A search alone never changes basket lines; explicit accompanying edits may change the draft.

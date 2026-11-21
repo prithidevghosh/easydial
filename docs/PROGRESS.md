@@ -1,3 +1,9 @@
+# Basket contents and store answer — 2026-11-21
+
+The retained request asked both what was in the cart and whether it belonged to Instamart or Blinkit. The intent correctly returned basket, but the fixed basket formatter omitted provider. Summaries now derive the store from the actual selected offers and include it in the heading; removed the duplicate modification question from the item summary while retaining the Review basket action. Added the exact question to model evals and an execution regression. Validation: 141 standard tests passed (8 opt-in DOM skipped), 28/28 real-model intent evals passed, Ruff passed. No live cart mutation.
+
+---
+
 # Explicit store-switch repair — 2026-11-21
 
 Inspected the retained conversation: the voice request correctly transcribed removal from Instamart and adding the same product on Blinkit. This was a harness error, not ASR: provider preference was absent from structured intent, choices were locked to the existing basket store, and free-form model clarification promised an unexecuted switch.

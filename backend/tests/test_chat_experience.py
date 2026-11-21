@@ -211,3 +211,25 @@ async def test_search_keeps_provider_diagnostics_out_of_customer_messages(tmp_pa
     assert "try again shortly" in replies[0]["text"]["body"]
     assert "browser" not in json.dumps(replies)
     runtime.inbox.close()
+
+
+async def test_basket_answers_contents_and_store_without_duplicate_prompt(tmp_path):
+    from tests.test_whatsapp import intent
+
+    runtime = make_runtime(tmp_path)
+    state, _ = await runtime.chat.handle("milk", runtime.chat.initial())
+    state, _ = await runtime.chat.handle("3", state)
+
+    async def interpret(*args):
+        return intent("basket")
+
+    runtime.chat.interpret = interpret
+    state, replies = await runtime.chat.handle(
+        "What is in the cart right now and is it from Instamart or Blinkit?", state
+    )
+    body = replies[0]["text"]["body"]
+    assert body.startswith("Your Instamart basket:")
+    assert "Amul Taaza Toned Milk" in body and "500 ml" in body
+    assert "Want to change anything?" not in body
+    assert replies[-1]["interactive"]["action"]["buttons"][0]["reply"]["title"] == "Review basket"
+    runtime.inbox.close()
