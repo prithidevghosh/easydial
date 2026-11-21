@@ -124,6 +124,8 @@ class OrderMonitor:
             return await self.refresh_confirmed(row, workers)
         view = SessionView.model_validate_json(row["snapshot"])
         baseline = json.loads(row["baseline"])
+        saved = json.loads(row["result"] or "{}")
+        empty_checks = saved.get("empty_checks", 0)
         result = {"status": "pending"}
         deadline = time.monotonic() + 30
         for attempt in range(max_checks):
@@ -168,6 +170,14 @@ class OrderMonitor:
                     "rejected_fields": previous.get("rejected_fields", []),
                     "history_issues": previous.get("history_issues", []),
                 }
+            if (result.get("reason") == "no_matching_order"
+                and not result.get("rejected_fields") and not result.get("history_issues")):
+                empty_checks += 1
+                result["empty_checks"] = empty_checks
+                if empty_checks >= 3:
+                    result["status"] = "not_found"
+            else:
+                empty_checks = 0
             with self.db:
                 self.db.execute(
                     "UPDATE order_checks SET status=?,result=?,checks=checks+1 WHERE sender=? AND order_id=?",
@@ -186,6 +196,14 @@ def status_messages(result, view):
     from .conversation import money, text_message
 
     order = result.get("order", {})
+    if result["status"] == "not_found":
+        store = view.review.provider.value
+        url = "https://blinkit.com/account/orders" if store == "blinkit" else "https://instamart.in"
+        return [text_message(
+            "No matching order appeared after 3 checks. Automatic checking has stopped. "
+            "The store hasn’t confirmed failure, so don’t place a duplicate yet. "
+            f"Check your {store.title()} orders here: {url}"
+        )]
     if result.get("stale"):
         return [text_message("I couldn’t refresh delivery status from the store. Tap Check status to retry. Don’t pay or order again."), status_button(view)]
     if result["status"] == "confirmed":

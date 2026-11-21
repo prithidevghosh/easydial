@@ -72,7 +72,7 @@ async def test_pending_after_three_checks_then_late_confirmation_survives_restar
     await monitor.capture("alice", view, "cash", worker)
     monitor.activate("alice", view.id)
     result = await monitor.check("alice", view.id, worker, sleep=no_sleep)
-    assert result["status"] == "pending"
+    assert result["status"] == "not_found"
     assert monitor.get("alice", view.id)["checks"] == 3
     assert (await monitor.check("bob", view.id, worker))["status"] == "pending"
 
@@ -495,4 +495,23 @@ async def test_repeat_payment_request_reconciles_existing_attempt_without_resubm
     assert not any('already exists' in x.get('text', {}).get('body', '') for x in replies)
     runtime.payments.place_cash.assert_not_awaited()
     runtime.payments.create.assert_not_awaited()
+    runtime.inbox.close()
+
+
+async def test_three_clean_empty_history_reads_stop_without_claiming_failure(tmp_path):
+    from easydial.whatsapp.order_tracking import status_messages
+
+    runtime = make_runtime(tmp_path)
+    view = SessionView.model_validate((await reviewed(runtime))['view'])
+    monitor = runtime.payments.monitor
+    worker = SimpleNamespace(order_history=empty_history)
+    await monitor.capture('alice', view, 'cash', worker)
+    monitor.activate('alice', view.id)
+    for index in range(3):
+        result = await monitor.check('alice', view.id, worker, max_checks=1)
+        assert result['status'] == ('not_found' if index == 2 else 'pending')
+    replies = status_messages(result, view)
+    assert 'Automatic checking has stopped' in replies[0]['text']['body']
+    assert 'https://' in replies[0]['text']['body']
+    assert not any(x.get('type') == 'interactive' for x in replies)
     runtime.inbox.close()

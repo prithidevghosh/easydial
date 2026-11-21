@@ -517,3 +517,11 @@ Validation: 238 standard tests passed; 31 opt-in DOM tests skipped. Lint/diff ch
 User requested three attempts instead of ten. Manual/post-COD reconciliation now defaults to at most three history reads per check, retaining the three-second interval. Automatic status jobs also stop after three polls. Fresh subsequent customer checks remain possible; an unconfirmed result stays pending, never becomes a guessed failure. Updated retry-budget/restart regression expectations.
 
 Validation: 45 order-tracking tests passed; lint/diff checks passed. Restarted server with the new limits.
+
+## 2026-11-21 — End empty-history polling after three clean reads
+
+Introduced a distinct not_found outcome after three consecutive successful history reads with no new candidate, no rejected possible order and no parsing issues. Counter persists across automatic polls/restarts. It stops automatic polling and reports that no order appeared, with a direct store link instead of another Check status button. Repeat checkout/payment intents do not restart an exhausted check; an explicit fresh status request can still discover a late confirmation. Timeouts, parse errors, ambiguous candidates and unpaid matching orders are not converted into absence or failure.
+
+The user requested treating absence as failure; the implementation ends the attempt's polling operationally but does not falsely assert merchant failure or automatically authorize duplicate submission. The existing unresolved COD attempt still needs definitive merchant resolution before safe resubmission. A regression verifies three independent clean polls, terminal not_found messaging and no repeated status-button prompt; late-confirmation and outage tests remain.
+
+Validation: 239 standard tests passed; 31 opt-in DOM tests skipped. Lint/diff checks passed; server restarted.
