@@ -38,7 +38,22 @@ LABELS = {
 }
 
 
+class CheckoutTemporarilyUnavailable(DomainError):
+    """Store rejected payment entry before any final order/payment action."""
+
+
 async def open_options(worker, view, review, page):
+    for attempt in range(2):
+        try:
+            return await open_options_once(worker, view, review, page)
+        except CheckoutTemporarilyUnavailable:
+            if attempt:
+                raise
+            await asyncio.sleep(1)
+    raise AssertionError("Unreachable")
+
+
+async def open_options_once(worker, view, review, page):
     await worker.navigate(page, "milk")
     cart = await worker.read_cart(page)
     verify_checkout_cart(worker, view, review, cart)
@@ -87,7 +102,7 @@ async def continue_blinkit_address(worker, view, review, page):
         if await heading.is_visible():
             return
         if await page.get_by_text("Oops! something went wrong", exact=True).is_visible():
-            raise DomainError("Blinkit couldn't open payment right now. Your basket is saved; please try again shortly.")
+            raise CheckoutTemporarilyUnavailable("Blinkit couldn't open payment right now. Your basket is saved; please try again shortly.")
         if await rows.first.is_visible():
             if selected:
                 raise DomainError("Blinkit couldn't confirm the delivery address. Please try again shortly.")

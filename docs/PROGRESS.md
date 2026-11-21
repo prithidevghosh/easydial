@@ -493,3 +493,13 @@ This recovery never creates a payment request, selects a method or places an ord
 Regression tests exercise status intent, direct status command and checkout with a basket but no attempt, asserting an itemized bill/Choose payment and no payment creation; empty baskets return a shopping prompt. Existing attempt/status tests remain in place.
 
 Validation: full suite passed before the final checkout fallback addition (233 passed, 31 opt-in DOM skipped); the final focused order-tracking suite passed all 44 tests including that addition. Lint/diff checks passed. Restarted the server with the updated flow.
+
+## 2026-11-21 — Blinkit COD payment-entry transient recovery
+
+Reported Place order failure mapped to Blinkit's visible “Oops! something went wrong” during payment entry, before cash-control selection or final click. Durable records showed only a prepared history baseline and no cash reservation, confirming this code path did not submit the order. Read-only cash preparation for the same saved basket subsequently succeeded at ₹160; the final Pay Now button was not clicked.
+
+Added a typed pre-submission payment-entry error and one bounded automatic retry. Each pass navigates freshly and repeats existing cart/address/bill fingerprint validation. Bill/address changes and arbitrary errors are not retried. The retry wraps only payment entry; it cannot replay final order submission, which retains its once-only durable reservation. If the turn still fails before any payment/order attempt, a saved basket now receives a Review basket action rather than only failure text. Existing/uncertain attempts retain Check status instead.
+
+Regression cases cover transient success, persistent failure stopping after two entries and a changed-bill error with no retry. Existing cash tests cover explicit confirmation, failure before reservation and no duplicate submission after uncertainty. No live order/payment was created during debugging.
+
+Validation: 237 standard tests passed; 31 opt-in DOM tests skipped (selectors unchanged). Lint/diff checks passed. Server restarted with bounded payment-entry recovery.

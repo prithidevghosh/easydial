@@ -240,3 +240,23 @@ async def test_cash_restart_preserves_uncertain_submission(tmp_path):
     assert restarted.existing("alice", "order")["status"] == "unknown"
     assert restarted.existing("bob", "order") is None
     runtime.inbox.close()
+
+
+@pytest.mark.parametrize('failure', ['temporary', 'persistent', 'bill_changed'])
+async def test_payment_entry_retries_only_pre_submission_store_error(monkeypatch, failure):
+    from unittest.mock import AsyncMock
+
+    from easydial.providers import payments
+
+    temporary = payments.CheckoutTemporarilyUnavailable('Store payment entry failed')
+    errors = [temporary, 'verified payment frame'] if failure == 'temporary' else (
+        [temporary, temporary] if failure == 'persistent' else [DomainError('Bill changed')])
+    entry = AsyncMock(side_effect=errors)
+    monkeypatch.setattr(payments, 'open_options_once', entry)
+    monkeypatch.setattr(payments.asyncio, 'sleep', AsyncMock())
+    if failure == 'temporary':
+        assert await payments.open_options(None, None, None, None) == 'verified payment frame'
+    else:
+        with pytest.raises(DomainError):
+            await payments.open_options(None, None, None, None)
+    assert entry.await_count == (1 if failure == 'bill_changed' else 2)

@@ -205,6 +205,13 @@ class Runtime:
                     ),
                     status_button(SessionView.model_validate(state["view"])),
                 ]
+            elif status in {"failed", "rejected"} and state["view"]["lines"]:
+                replies.append({"type": "interactive", "interactive": {
+                    "type": "button", "body": {"text": "Your basket is saved. Review it to continue."},
+                    "action": {"buttons": [{"type": "reply", "reply": {
+                        "id": f"review:{state['view']['version']}:current", "title": "Review basket"
+                    }}]},
+                }})
             if progress:
                 await progress.close()
         self.inbox.finish(row, state, replies, status)
