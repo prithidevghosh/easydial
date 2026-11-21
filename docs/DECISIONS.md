@@ -81,3 +81,7 @@ Recommend a persistent Linux browser worker with configurable headless Chrome, p
 ## 2026-11-21 — Fee transparency and payment preparation
 
 Use provider-read bill rows in a WhatsApp monospace table; explicitly warn about small-cart/minimum-order charges, retaining FREE rows. Require arithmetic reconciliation and a fresh read-only cart/address/bill check before preparation approval. Never infer a fee-waiver threshold. Approval expires with its review and is cleared on basket changes or a failed recheck. Payment creation remains disabled until a provider-owned handoff is verified with specific authorization. Persist verified cart checkpoints to support restart without adopting unknown baskets. Headless Chrome is opt-in, locally read-tested, and still requires target-host verification. See PAYMENT_INSPECTION.md.
+
+## 2026-11-21 — Add products to the existing basket by default
+
+An additional product request must preserve existing groceries. Once a basket has a store, show selectable additions from that store; other-store offers may remain comparison evidence but must not lead users into a blocked selection. Never infer a store switch or replacement from an additive request. Recover old mixed-store menus with compatible choices and preserve all basket lines. Separate multi-store orders or explicit whole-basket migration remain future work.

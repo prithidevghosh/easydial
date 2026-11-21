@@ -1,3 +1,11 @@
+# Additive basket correction — 2026-11-21
+
+The store-switch error was triggered by a misleading mixed-store product menu, not an explicit request to switch. The existing draft contained three Instamart milk packs; Diet Coke had not been added after the rejected selection. Earlier advice to empty the basket was inappropriate for the user's additive request.
+
+WhatsApp now limits selectable additions to the current basket store while retaining both stores' results for price comparison. Existing mixed-store menus recover by showing compatible choices without removing items or silently substituting a product. Product additions preserve existing lines; the combined basket asks whether to modify or review. Intent instructions explicitly distinguish additions from replacements. Provider safety guards remain unchanged. No private customer state or live cart was edited during this fix.
+
+---
+
 # Store-switch diagnosis — 2026-11-21
 
 User encountered the old “Sync an empty basket” error. Read-only inspection found draft version 6 still contains quantity 3 from Instamart, with `synced_provider=instamart` and no legacy cart checkpoint. Selecting Blinkit correctly hits the single-store guard. Replaced the technical error with store-specific instructions: remove all draft items, review to verify/clear the previous store cart, then choose the new store. Empty drafts get a shorter review-first message. No customer state or store cart was changed. The legacy externally changed/unknown cart protection still applies; if review refuses the existing cart, the user must clear it directly in Instamart, then review again.

@@ -71,6 +71,9 @@ Basket means show the draft. Review means sync the store cart and read its bill 
 Checkout ONLY means an explicit request to continue AFTER a reviewed bill; it is local Pending,
 never a purchase. A bare 'yes' is ambiguous: clarify, never infer a checkout or product selection.
 Search/comparison does not select or mutate products. Preserve brand, formulation and pack size.
+Adding a different product keeps every existing basket line. Do not infer replacement or store
+switching from a request for another product. Only explicit replacement sets replaces_line_id.
+The selectable options for an existing basket belong to its store; other-store prices are comparison only.
 Stop pauses this chat; do not interpret 'don't place an order yet, compare milk' as opt-out.
 Return empty queries/edits unless needed, null offer_id/quantity unless selecting.
 Clarifications must be brief and in the user's language. Never claim any completed action or price
@@ -155,6 +158,9 @@ in clarification. Shopping only: redirect unrelated questions to groceries.
             )
             results = []
             choices = []
+            basket_store = session.view.synced_provider or (
+                session.view.lines[0].offer.provider if session.view.lines else None
+            )
             for query, batch in zip(intent.queries, batches):
                 for result in batch:
                     for offer in result.offers:
@@ -164,19 +170,33 @@ in clarification. Shopping only: redirect unrelated questions to groceries.
                     results.append(result)
                     # Give each provider/query space instead of allowing the first store to fill the list.
                     choices.extend(
-                        o.id for o in result.offers[:2] if o.available and o.price_paise is not None
+                        o.id
+                        for o in result.offers[:2]
+                        if o.available
+                        and o.price_paise is not None
+                        and (basket_store is None or o.provider == basket_store)
                     )
             state["choices"] = list(dict.fromkeys(choices))[:10]
             session.view.results = results
             session.view.comparison = exact_comparison([o for r in results for o in r.offers])
             session.changed()
+            if basket_store:
+                replies.append(
+                    text_message(
+                        f"Your existing basket is kept. Choose an item from {basket_store.value.title()} "
+                        "to add to it; other-store prices are for comparison only."
+                    )
+                )
             if state["choices"]:
                 replies.extend(self.choice_messages(session, state["choices"]))
                 if session.view.comparison:
                     replies.append(text_message(session.view.comparison))
             else:
                 replies.append(
-                    text_message("No selectable products were returned. Try a brand or pack size.")
+                    text_message(
+                        f"No selectable products were returned{(' from ' + basket_store.value.title()) if basket_store else ''}. "
+                        "Your basket is unchanged. Try a brand or pack size."
+                    )
                 )
             failures = [
                 f"{r.provider.value.title()}: {r.message or 'could not check; stock unknown'}"
@@ -191,6 +211,28 @@ in clarification. Shopping only: redirect unrelated questions to groceries.
             if intent.offer_id not in state["choices"]:
                 raise DomainError("Please select one of the current products, or search again.")
             offer = session.offers[intent.offer_id]
+            basket_store = session.view.synced_provider or (
+                session.view.lines[0].offer.provider if session.view.lines else None
+            )
+            # Recover old mixed-store menus without deleting items or silently substituting a product.
+            if basket_store and offer.provider != basket_store:
+                state["choices"] = [
+                    id for id in state["choices"] if session.offers[id].provider == basket_store
+                ]
+                session.changed()
+                replies = [
+                    text_message(
+                        f"Your existing basket is kept in {basket_store.value.title()}. "
+                        "That option was from another store. Choose a matching product below to add to your basket."
+                        if state["choices"]
+                        else f"Your existing basket is kept in {basket_store.value.title()}. "
+                        "Please search again for an option from that store."
+                    )
+                ]
+                if state["choices"]:
+                    replies.extend(self.choice_messages(session, state["choices"]))
+                state["view"] = session.view.model_dump(mode="json")
+                return state, replies
             session.edit(
                 EditRequest(
                     kind="replace" if offer.replaces_line_id else "add",
@@ -382,7 +424,7 @@ in clarification. Shopping only: redirect unrelated questions to groceries.
                 "type": "interactive",
                 "interactive": {
                     "type": "button",
-                    "body": {"text": "Ready to check the live store bill?"},
+                    "body": {"text": "Would you like to change anything, or review the combined basket?"},
                     "action": {
                         "buttons": [
                             {

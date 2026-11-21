@@ -429,3 +429,67 @@ async def test_multi_product_request_keeps_remaining_choices_in_selected_store(t
     state, _ = await runtime.chat.handle("bread", state, action)
     assert len(state["view"]["lines"]) == 2 and not state["choices"]
     runtime.inbox.close()
+
+
+async def test_add_coke_preserves_milk_and_only_offers_current_store(tmp_path):
+    from easydial.models import Offer, SearchResult
+
+    runtime = make_runtime(tmp_path)
+    state, _ = await runtime.chat.handle("milk", runtime.chat.initial())
+    milk_id = next(i for i in state["choices"] if state["offers"][i]["provider"] == "instamart")
+    state, _ = await runtime.chat.handle(str(state["choices"].index(milk_id) + 1), state)
+    state["view"]["lines"][0]["quantity"] = 3
+    state["view"]["synced_provider"] = "instamart"
+
+    async def search(query, address):
+        return [
+            SearchResult(
+                provider=p,
+                query=query,
+                status="ok",
+                offers=[
+                    Offer(
+                        id=f"coke-{p.value}",
+                        provider=p,
+                        product_id="coke",
+                        sku_id="330",
+                        name="Diet Coke",
+                        pack_size="330 ml",
+                        price_paise=4000,
+                        available=True,
+                        mode="live",
+                        address_label=address,
+                    )
+                ],
+            )
+            for p in Provider
+        ]
+
+    runtime.chat.workers.search = search
+    state, _ = await runtime.chat.handle("add diet coke", state)
+    assert state["choices"] == ["coke-instamart"]
+    assert len(state["view"]["results"]) == 2  # Comparison evidence remains available.
+    state, replies = await runtime.chat.handle("1", state)
+    assert [(x["offer"]["name"], x["quantity"]) for x in state["view"]["lines"]] == [
+        ("Amul Taaza Toned Milk", 3),
+        ("Diet Coke", 2),
+    ]  # Fake interpreter requests two packs; existing milk quantity is unchanged.
+    assert "Diet Coke" in replies[0]["text"]["body"] and "Milk" in replies[0]["text"]["body"]
+    runtime.inbox.close()
+
+
+async def test_old_mixed_store_choice_recovers_without_removing_basket(tmp_path):
+    runtime = make_runtime(tmp_path)
+    state, _ = await runtime.chat.handle("milk", runtime.chat.initial())
+    # Simulate a menu issued before the fix, alongside an existing Instamart basket.
+    legacy = copy.deepcopy(state)
+    item = next(i for i in state["choices"] if state["offers"][i]["provider"] == "instamart")
+    state, _ = await runtime.chat.handle(str(state["choices"].index(item) + 1), state)
+    before = copy.deepcopy(state["view"]["lines"])
+    state["choices"], state["offers"] = legacy["choices"], legacy["offers"]
+    state["view"]["synced_provider"] = "instamart"
+    state, replies = await runtime.chat.handle("1", state)
+    assert state["view"]["lines"] == before
+    assert all(state["offers"][i]["provider"] == "instamart" for i in state["choices"])
+    assert "existing basket is kept" in replies[0]["text"]["body"]
+    runtime.inbox.close()
