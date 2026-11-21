@@ -985,12 +985,7 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
                 state["payment_menu"] = None
                 prepared = await self.payments.create(customer, session.view, fresh, self.workers)
                 session.view.payment_preparation = {"status": "request_created", **prepared}
-                replies.append(
-                    text_message(
-                        f"{money(fresh.total_paise)} · {fresh.provider.value.title()}\n"
-                        f"Open your UPI link: {prepared['url']}\nIt expires in a few minutes. Approve only in your UPI app."
-                    )
-                )
+                replies.append({"type": "payment_qr", "request_id": prepared["id"]})
                 replies.append(status_button(session.view))
             elif selected_method["id"] == "cash":
                 await self.workers.prepare_cash(session.view, fresh)

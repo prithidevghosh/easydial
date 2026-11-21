@@ -123,3 +123,5 @@ Read actual provider payment categories and let the customer choose. Generate Bl
 2026-11-21: Basket summaries must identify the provider from selected offers alongside contents. A question naming possible stores is not a switch request. Keep one next-action prompt rather than repeating it in summary and buttons.
 
 2026-11-21: Blinkit bill parsing reads only the amount column and excludes struck/hidden amounts. Savings badges are not payable components. Require a single remaining amount; never derive a missing subtotal by subtracting fees from the total. Live reported ₹123 bill reconciled after reading discounted ₹50 subtotal.
+
+2026-11-21: Send Blinkit's verified QR PNG as an uploaded WhatsApp image, with amount/instructions as its caption and a delivery-dependent status button. Never substitute a text-only caption for a failed QR image or regenerate a payment request merely to resend media. Resolve private artifact references by sender and expiry at send time.

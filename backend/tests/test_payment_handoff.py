@@ -61,10 +61,15 @@ async def test_menu_first_then_once_only_request_and_expiring_read_only_link(tmp
     assert {r["title"] for r in rows} == {"UPI"}
     state, replies = await runtime.chat.handle("UPI", state, rows[0]["id"], customer="alice")
     assert len(calls) == 1
+    assert replies[0]["type"] == "payment_qr"
+    assert replies[-1]["type"] == "interactive"
     prepared = state["view"]["payment_preparation"]
     token = prepared["url"].rsplit("/", 1)[-1]
     row = runtime.payments.lookup(token)
     assert row["sender"] == "alice"
+    assert runtime.payments.qr_artifact("alice", prepared["id"])["total_paise"] == 5600
+    with pytest.raises(DomainError):
+        runtime.payments.qr_artifact("bob", prepared["id"])
     assert runtime.payments.existing("bob", state["view"]["id"]) is None
     with pytest.raises(DomainError):
         await runtime.chat.handle("UPI", state, rows[0]["id"], customer="alice")

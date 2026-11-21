@@ -137,6 +137,19 @@ class PaymentRequests:
             )
         return result
 
+    def qr_artifact(self, sender, request_id):
+        row = self.inbox.db.execute(
+            "SELECT * FROM payment_requests WHERE id=? AND sender=?", (request_id, sender)
+        ).fetchone()
+        if not row or row["status"] != "ready" or not row["expires_at"] or row["expires_at"] <= time.time():
+            raise DomainError(
+                "This payment QR has expired or is unavailable. Check order status before paying again."
+            )
+        attempt = self.monitor.get(sender, row["order_id"])
+        if attempt and attempt["status"] in {"confirmed", "failed"}:
+            raise DomainError("This payment attempt has already finished. Check your order status.")
+        return json.loads(row["artifact"]) | {"expires_at": row["expires_at"]}
+
     def lookup(self, token):
         if not 20 <= len(token) <= 100:
             return None

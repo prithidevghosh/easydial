@@ -159,7 +159,15 @@ class Runtime:
             self.inbox.mark_reply(row["id"], "expired")
             return True
         try:
-            remote_id = await self.transport.send(row["sender"], json.loads(row["payload"]))
+            payload = json.loads(row["payload"])
+            if payload.get("type") == "payment_qr":
+                try:
+                    artifact = self.payments.qr_artifact(row["sender"], payload["request_id"])
+                    remote_id = await self.transport.send_payment_qr(row["sender"], artifact)
+                except DomainError as error:
+                    remote_id = await self.transport.send(row["sender"], text_message(error.message))
+            else:
+                remote_id = await self.transport.send(row["sender"], payload)
             self.inbox.mark_reply(row["id"], "sent", remote_id)
         except Exception as error:
             # A timeout can occur after Meta accepted a message. Do not duplicate it blindly.

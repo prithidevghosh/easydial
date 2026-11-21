@@ -1,3 +1,11 @@
+# Inline WhatsApp payment QR — 2026-11-21
+
+Blinkit UPI now queues a payment_qr artifact reference instead of a payment webpage link. The sender-scoped, unexpired verified merchant PNG is uploaded through Meta media and sent as an image with amount and "Please complete your payment using the QR above." Check status follows through the existing delivery dependency. No redrawing or payment regeneration. Expired/finished artifacts are not sent; QR rejection never falls back to a caption implying the image arrived. Existing legacy payment pages remain compatible but are no longer advertised in the new reply.
+
+At the user's request, queued the same still-valid existing merchant QR as an image plus a dependent status button; no new payment request created and no payment authorized. Meta marked both the live QR image and subsequent status button delivered. Validation: 143 standard tests passed (10 opt-in DOM skipped); Ruff passed. Tests cover exact PNG upload, image media ID, expiry, ownership and no misleading caption fallback.
+
+---
+
 # Blinkit discounted subtotal parsing — 2026-11-21
 
 The reported ₹123 bill was correct. Live inspection found the Items total amount column contained a struck-out ₹55 and current ₹50, while its label column included a Saved ₹5 badge. The old reader captured `₹55 ₹50` and marked subtotal unverified. Updated visible-DOM bill extraction to scope to the amount column, exclude struck/hidden nodes (including ancestor styling), and accept one unambiguous amount or explicit free/waived text. Multiple current amounts remain unverified; no subtraction-based inferred subtotal or relaxed payment guard.

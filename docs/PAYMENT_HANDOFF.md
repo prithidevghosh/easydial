@@ -1,3 +1,5 @@
+> QR delivery update: Blinkit now sends the verified merchant QR directly as a WhatsApp image with payment instructions and a subsequent Check status button. Legacy token pages remain for previously sent links. No assumption of automatic WhatsApp UPI launch or payment-confirmation webhook.
+
 > Current post-payment implementation (2026-11-21): see [POST_PAYMENT.md](POST_PAYMENT.md). Cash requires explicit final Place order and now verifies matching merchant history. QR shows Check status; a payment claim triggers history verification and is never proof by itself. No fresh live order/payment has been tested. Earlier limitations below are historical where superseded.
 
 # Current payment policy — 2026-11-21

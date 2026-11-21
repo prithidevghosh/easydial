@@ -1,8 +1,10 @@
 import asyncio
+import base64
 import hashlib
 import re
 import shutil
 import tempfile
+import time
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -20,7 +22,7 @@ class MetaTransport:
         self.base = f"https://graph.facebook.com/{settings.whatsapp_api_version}"
         self.headers = {"Authorization": f"Bearer {settings.whatsapp_access_token}"}
 
-    async def send(self, sender, payload):
+    async def send(self, sender, payload, *, image_fallback=True):
         response = await self.http.post(
             f"{self.base}/{self.settings.whatsapp_phone_number_id}/messages",
             headers=self.headers,
@@ -28,10 +30,53 @@ class MetaTransport:
         )
         # A definite image rejection is safe to replace with its useful text caption.
         # Never retry a timeout or uncertain send: it may already have been delivered.
-        if response.status_code == 400 and payload.get("type") == "image" and payload["image"].get("caption"):
+        if (
+            image_fallback
+            and response.status_code == 400
+            and payload.get("type") == "image"
+            and payload["image"].get("caption")
+        ):
             return await self.send(sender, {"type": "text", "text": {"body": payload["image"]["caption"]}})
         response.raise_for_status()
         return response.json()["messages"][0]["id"]
+
+    async def send_payment_qr(self, sender, artifact):
+        # Upload the exact verified merchant PNG; never redraw or regenerate a payment request.
+        if artifact["expires_at"] <= time.time():
+            raise DomainError("This QR has expired. Check order status before paying again.")
+        data = artifact["qr_data"]
+        if not data.startswith("data:image/png;base64,"):
+            raise DomainError("I couldn’t read the payment QR. Please check order status.")
+        raw = base64.b64decode(data.split(",", 1)[1], validate=True)
+        if not raw.startswith(b"\x89PNG\r\n\x1a\n") or len(raw) > 5 * 1024 * 1024:
+            raise DomainError("I couldn’t read the payment QR. Please check order status.")
+        try:
+            response = await self.http.post(
+                f"{self.base}/{self.settings.whatsapp_phone_number_id}/media",
+                headers=self.headers,
+                data={"messaging_product": "whatsapp", "type": "image/png"},
+                files={"file": ("blinkit-payment.png", raw, "image/png")},
+            )
+            response.raise_for_status()
+            media_id = response.json()["id"]
+        except Exception:
+            # Uploading media cannot deliver a chat message, so a failure notice is safe here.
+            raise DomainError(
+                "I couldn’t attach the payment QR. Please check order status before trying again."
+            ) from None
+        if artifact["expires_at"] <= time.time():
+            raise DomainError("This QR has expired. Check order status before paying again.")
+        return await self.send(
+            sender,
+            {
+                "type": "image",
+                "image": {
+                    "id": media_id,
+                    "caption": f"Blinkit · ₹{artifact['total_paise'] / 100:.2f}\nPlease complete your payment using the QR above. It expires in a few minutes.",
+                },
+            },
+            image_fallback=False,
+        )
 
     async def typing(self, message_id):
         response = await self.http.post(
