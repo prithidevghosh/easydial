@@ -53,7 +53,7 @@ async def test_ip_change_closes_browser_without_adopting_new_ip():
     assert browser.context is None
     assert browser.proxy.exit_ip == "203.0.113.7"
     context.close.assert_awaited_once()
-    page.close.assert_awaited_once()
+    assert page.close.await_count == 3
 
 
 async def test_proxy_failure_does_not_fall_back_to_direct():
@@ -61,6 +61,10 @@ async def test_proxy_failure_does_not_fall_back_to_direct():
     configure_blinkit_proxy(browser, config())
     page = browser_response(browser)
     page.goto.side_effect = RuntimeError("sensitive credentials")
+    async def reopen():
+        probe = browser_response(browser)
+        probe.goto.side_effect = RuntimeError("sensitive credentials")
+    browser._open_context = AsyncMock(side_effect=reopen)
     with pytest.raises(DomainError, match="could not be verified") as error:
         await browser._verify_proxy()
     assert "sensitive" not in str(error.value)
@@ -94,3 +98,74 @@ async def test_proxy_passed_to_both_launch_paths(monkeypatch, tmp_path, profile)
     launch = chromium.launch_persistent_context if profile else chromium.launch
     assert launch.call_args.kwargs["proxy"] == browser.proxy.options
     browser._verify_proxy.assert_awaited_once()
+
+
+@pytest.mark.parametrize("success_at", [1, 2, 3, None])
+async def test_unverified_proxy_rotates_context_until_success_or_three_attempts(success_at):
+    browser = BrowserSession()
+    configure_blinkit_proxy(browser, config())
+    sessions, contexts = [], []
+
+    async def create_context():
+        browser.proxy.load(browser)
+        probe = browser_response(browser)
+        contexts.append(browser.context)
+        sessions.append(browser.proxy.session_id)
+        if len(sessions) != success_at:
+            probe.goto.side_effect = RuntimeError("secret must not be exposed")
+        browser.page = SimpleNamespace(is_closed=lambda: False)
+
+    browser._open_context = AsyncMock(side_effect=create_context)
+    if success_at:
+        page, context = await browser.open()
+        assert page is browser.page and context is contexts[-1]
+        assert browser.proxy.exit_ip == "203.0.113.7"
+        assert len(sessions) == success_at
+        contexts[-1].close.assert_not_awaited()
+    else:
+        with pytest.raises(DomainError, match="after 3 attempts") as error:
+            await browser.open()
+        assert "secret" not in str(error.value)
+        assert browser.context is None
+        assert len(sessions) == 3
+    assert len(set(sessions)) == len(sessions)
+    for context in contexts[:-1] if success_at else contexts:
+        context.close.assert_awaited_once()
+
+
+async def test_pinned_journey_retries_without_changing_ip_context_or_page():
+    browser = BrowserSession()
+    configure_blinkit_proxy(browser, config())
+    browser.proxy.exit_ip = "203.0.113.7"
+    probe = browser_response(browser)
+    response = probe.goto.return_value
+    probe.goto.side_effect = [RuntimeError("temporary"), RuntimeError("temporary"), response]
+    browser.page = SimpleNamespace(is_closed=lambda: False)
+    original_page, original_context = browser.page, browser.context
+    original_id = browser.proxy.session_id
+    assert await browser.open() == (original_page, original_context)
+    assert probe.goto.await_count == 3
+    assert browser.proxy.session_id == original_id
+    original_context.close.assert_not_awaited()
+    # Later operations keep using that pinned journey.
+    probe.goto.side_effect = None
+    await browser.open()
+    assert browser.proxy.session_id == original_id
+    assert browser.proxy.exit_ip == "203.0.113.7"
+
+
+async def test_pinned_transport_failure_stops_after_three_without_rotation():
+    browser = BrowserSession()
+    configure_blinkit_proxy(browser, config())
+    browser.proxy.exit_ip = "203.0.113.7"
+    original_id = browser.proxy.session_id
+    probe = browser_response(browser)
+    probe.goto.side_effect = RuntimeError("unavailable")
+    with pytest.raises(DomainError, match="after 3 attempts"):
+        await browser._verify_proxy()
+    assert probe.goto.await_count == 3
+    assert browser.context is None
+    assert browser.proxy.session_id == original_id
+    assert browser.proxy.exit_ip == "203.0.113.7"
+    with pytest.raises(ValueError, match="cannot change"):
+        browser.proxy.renew_unverified()

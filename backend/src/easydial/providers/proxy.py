@@ -16,6 +16,14 @@ class BlinkitProxy:
         self.exit_ip = None
         self.loaded = False
 
+    def renew_unverified(self):
+        if self.exit_ip:
+            raise ValueError("A verified journey cannot change proxy sessions")
+        previous = self.session_id
+        while self.session_id == previous:
+            self.session_id = str(secrets.randbelow(10**12 - 1) + 1)
+        self.loaded = True
+
     @property
     def options(self):
         return {

@@ -1,10 +1,13 @@
 """Dedicated, configurable browser sessions. No stealth, fingerprint spoofing or challenge bypass."""
 
+import logging
 from pathlib import Path
 
 from playwright.async_api import async_playwright
 
 from ..controller import DomainError
+
+log = logging.getLogger(__name__)
 
 
 class BrowserSession:
@@ -24,9 +27,13 @@ class BrowserSession:
         )
 
     async def open(self):
+        await self._open_context()
+        await self._verify_proxy()
+        return self.page, self.context
+
+    async def _open_context(self):
         if self.context and self.page and not self.page.is_closed():
-            await self._verify_proxy()
-            return self.page, self.context
+            return
         await self.close()
         self.runtime = await async_playwright().start()
         try:
@@ -54,8 +61,6 @@ class BrowserSession:
                 self.context = await self.browser.new_context(storage_state=state or None)
             self.page = self.context.pages[0] if self.context.pages else await self.context.new_page()
             self.page.set_default_timeout(8000)
-            await self._verify_proxy()
-            return self.page, self.context
         except DomainError:
             await self.close()
             raise
@@ -68,14 +73,29 @@ class BrowserSession:
     async def _verify_proxy(self):
         if not self.proxy:
             return
-        try:
-            await self.proxy.verify(self)
-        except DomainError:
-            await self.close()
-            raise
-        except Exception:
-            await self.close()
-            raise DomainError("Blinkit's India proxy could not be verified. Please retry later.", 503) from None
+        for attempt in range(1, 4):
+            try:
+                await self.proxy.verify(self)
+                return
+            except Exception as error:
+                log.warning("Blinkit proxy verification failed: attempt=%s max_attempts=3 pinned=%s category=%s",
+                            attempt, bool(self.proxy.exit_ip), type(error).__name__)
+                if attempt == 3:
+                    await self.close()
+                    if isinstance(error, DomainError):
+                        raise DomainError(error.message, error.status) from None
+                    raise DomainError(
+                        "Blinkit's India proxy could not be verified after 3 attempts. Please retry later.", 503
+                    ) from None
+                if not self.proxy.exit_ip:
+                    # Chromium proxy credentials belong to the context. A fresh
+                    # allocation therefore requires a fresh context, before any
+                    # merchant action has been allowed through open().
+                    await self.close()
+                    self.proxy.renew_unverified()
+                    await self._open_context()
+                # A pinned journey retries in the SAME context and on the SAME
+                # sticky session, preserving the live page, cart and OTP form.
 
     @staticmethod
     async def check_page(page):
