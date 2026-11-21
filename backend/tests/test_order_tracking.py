@@ -64,7 +64,7 @@ async def test_unrelated_or_old_orders_cannot_confirm(tmp_path, change):
     runtime.inbox.close()
 
 
-async def test_pending_after_ten_checks_then_late_confirmation_survives_restart(tmp_path):
+async def test_pending_after_three_checks_then_late_confirmation_survives_restart(tmp_path):
     runtime = make_runtime(tmp_path)
     view = SessionView.model_validate((await reviewed(runtime))["view"])
     monitor = runtime.payments.monitor
@@ -73,7 +73,7 @@ async def test_pending_after_ten_checks_then_late_confirmation_survives_restart(
     monitor.activate("alice", view.id)
     result = await monitor.check("alice", view.id, worker, sleep=no_sleep)
     assert result["status"] == "pending"
-    assert monitor.get("alice", view.id)["checks"] == 10
+    assert monitor.get("alice", view.id)["checks"] == 3
     assert (await monitor.check("bob", view.id, worker))["status"] == "pending"
 
     async def history(*args):
@@ -82,7 +82,7 @@ async def test_pending_after_ten_checks_then_late_confirmation_survives_restart(
     worker.order_history = history
     monitor = OrderMonitor(runtime.inbox)
     assert (await monitor.check("alice", view.id, worker))["status"] == "confirmed"
-    assert monitor.get("alice", view.id)["checks"] == 11
+    assert monitor.get("alice", view.id)["checks"] == 4
     runtime.inbox.close()
 
 
@@ -445,7 +445,7 @@ async def test_automatic_check_is_delayed_durable_and_notifies_once(tmp_path, ou
     assert not await runtime.check_due_order()
     if outcome == "pending":
         with runtime.inbox.db:
-            runtime.inbox.db.execute("UPDATE automatic_order_checks SET attempts=9,due_at=0")
+            runtime.inbox.db.execute("UPDATE automatic_order_checks SET attempts=2,due_at=0")
         await runtime.check_due_order()
         assert runtime.inbox.db.execute("SELECT done FROM automatic_order_checks").fetchone()[0] == 1
     runtime.inbox.close()

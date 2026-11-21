@@ -271,7 +271,7 @@ class Runtime:
         except Exception:
             result = {"status": "pending"}
         final = result["status"] != "pending"
-        exhausted = job["attempts"] + 1 >= 10
+        exhausted = job["attempts"] + 1 >= 3
         with self.inbox.db:
             self.inbox.db.execute(
                 "UPDATE automatic_order_checks SET attempts=attempts+1,due_at=?,done=? WHERE sender=? AND order_id=?",

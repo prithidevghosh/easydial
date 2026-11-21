@@ -511,3 +511,9 @@ Customer's COD submission attempt remains pending after history polling. Read-on
 Repeat review/checkout/payment intents now invoke merchant reconciliation directly instead of returning the generic duplicate-attempt blocker. Existing duplicate-order guards remain for mutations and irreversible submission. A regression verifies that a repeat checkout with an unresolved attempt reads status and calls neither COD submission nor payment creation. The unresolved COD outcome itself is not claimed fixed; a safe retry needs definitive failure evidence or an explicit separately designed duplicate-risk recovery flow.
 
 Validation: 238 standard tests passed; 31 opt-in DOM tests skipped. Lint/diff checks passed. Server restarted with automatic reconciliation on repeat payment intent.
+
+## 2026-11-21 — Shorter status polling
+
+User requested three attempts instead of ten. Manual/post-COD reconciliation now defaults to at most three history reads per check, retaining the three-second interval. Automatic status jobs also stop after three polls. Fresh subsequent customer checks remain possible; an unconfirmed result stays pending, never becomes a guessed failure. Updated retry-budget/restart regression expectations.
+
+Validation: 45 order-tracking tests passed; lint/diff checks passed. Restarted server with the new limits.

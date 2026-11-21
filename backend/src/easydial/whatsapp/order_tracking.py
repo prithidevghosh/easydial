@@ -116,7 +116,7 @@ class OrderMonitor:
         # Keep verified purchase evidence, but never present a cached ETA as current.
         return {**saved, "stale": True, "order": {**saved["order"], "eta": None}}
 
-    async def check(self, sender, order_id, workers, *, sleep=asyncio.sleep, max_checks=10):
+    async def check(self, sender, order_id, workers, *, sleep=asyncio.sleep, max_checks=3):
         row = self.get(sender, order_id)
         if not row or row["status"] == "prepared":
             return {"status": "pending", "reason": "no_verified_attempt"}
