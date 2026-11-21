@@ -14,6 +14,7 @@ from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
 from ..controller import DomainError
 from ..providers.blinkit import normalized
+from ..providers.blinkit_location import select_and_verify_address
 from ..providers.browser import BrowserSession, goto_with_retry
 from ..providers.proxy import configure_blinkit_proxy
 
@@ -306,9 +307,7 @@ class StoreLogin:
             actual = (await card.locator('[class*="AddressListItem__AddressDetails"]').last.inner_text()).strip()
             if actual != address["address"]:
                 raise DomainError("That address changed. Please choose it again.")
-            await card.locator('[class*="AddressListItem__AddressDetails"]').last.click()
-            await card.wait_for(state="hidden")
-            location = (await page.locator('div[class*="LocationBar__Subtitle"]').first.inner_text()).strip()
+            location = await select_and_verify_address(page, card, address["address"])
         else:
             card = self.instamart_address_cards(page).nth(matches[0]["card_index"])
             actual = (await card.locator("._2wcdd > div").nth(1).inner_text()).strip()

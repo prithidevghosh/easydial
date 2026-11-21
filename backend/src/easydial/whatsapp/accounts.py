@@ -185,6 +185,10 @@ class CustomerChats:
                     worker.verified_address = data["address"]
                     worker.browser.storage_state = self.accounts.session_path(sender, worker.provider.value)
                     worker.browser.secret_box = self.accounts.session_box(sender, worker.provider.value)
+                    if worker.provider == Provider.BLINKIT:
+                        worker.on_location_verified = lambda location, connection=data: self.accounts.save_connection(
+                            sender, "blinkit", {**connection, "location": location}
+                        )
             chat = ShoppingChat(config, workers, self.master)
             chat.payments = self.payments
             self.chats[sender] = chat

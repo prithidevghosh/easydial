@@ -42,6 +42,7 @@ class SearchResult(BaseModel):
     status: Literal["ok", "unavailable", "not_connected", "error"] = "ok"
     message: str | None = None
     truncated: bool = False
+    recovery: Literal["reconnect_address"] | None = None
 
 
 class BasketLine(BaseModel):

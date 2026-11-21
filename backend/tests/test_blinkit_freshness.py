@@ -71,8 +71,46 @@ async def test_changed_header_requires_full_address_proof(monkeypatch, address):
         assert worker.verified_location == "Expanded delivery label"
         assert page.goto.await_count == 2
     else:
-        with pytest.raises(DomainError, match="delivery location changed"):
+        with pytest.raises(DomainError, match="delivery address"):
             await worker.navigate(page, "diet coke")
         assert worker.verified_location == "Short locality"
         assert page.goto.await_count == 1
     worker.read_cart.assert_awaited_once_with(page, resolve_address=False)
+
+
+async def test_empty_cart_restores_exact_approved_address_and_persists_location(monkeypatch):
+    from unittest.mock import Mock
+
+    worker = BlinkitProvider('', 'Koramangala', 'Flat 7, Road')
+    subtitle = SimpleNamespace(inner_text=AsyncMock(return_value='Home\nActual locality'))
+    page = SimpleNamespace(goto=AsyncMock(), locator=lambda _: SimpleNamespace(first=subtitle, inner_text=AsyncMock(return_value="Store page")))
+    worker.browser.check_page = AsyncMock()
+    worker.browser.save = AsyncMock()
+    worker.read_cart = AsyncMock(return_value={'items': [], 'address': None})
+    worker.on_location_verified = Mock()
+    restore = AsyncMock(return_value='Home\nActual locality')
+    monkeypatch.setattr('easydial.providers.blinkit.restore_saved_address', restore)
+    monkeypatch.setattr('easydial.providers.blinkit.asyncio.sleep', AsyncMock())
+    await worker.navigate(page, 'Diet Coke 330 ml')
+    restore.assert_awaited_once_with(page, 'Flat 7, Road')
+    worker.browser.save.assert_awaited_once()
+    worker.on_location_verified.assert_called_once_with('Home\nActual locality')
+    assert worker.verified_location == 'Home\nActual locality'
+    assert page.goto.await_count == 2
+
+
+async def test_nonempty_cart_wrong_address_is_not_reselected(monkeypatch):
+    from easydial.providers.blinkit_location import BlinkitAddressError
+
+    worker = BlinkitProvider('', 'Old locality', 'Flat 7, Road')
+    subtitle = SimpleNamespace(inner_text=AsyncMock(return_value='Wrong locality'))
+    page = SimpleNamespace(goto=AsyncMock(), locator=lambda _: SimpleNamespace(first=subtitle, inner_text=AsyncMock(return_value="Store page")))
+    worker.browser.check_page = AsyncMock()
+    worker.read_cart = AsyncMock(return_value={'items': [{'name': 'Milk'}], 'address': 'Other address'})
+    restore = AsyncMock()
+    monkeypatch.setattr('easydial.providers.blinkit.restore_saved_address', restore)
+    monkeypatch.setattr('easydial.providers.blinkit.asyncio.sleep', AsyncMock())
+    with pytest.raises(BlinkitAddressError):
+        await worker.navigate(page, 'milk')
+    restore.assert_not_awaited()
+    assert worker.verified_location == 'Old locality'

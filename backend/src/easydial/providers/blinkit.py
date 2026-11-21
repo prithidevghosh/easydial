@@ -6,6 +6,7 @@ from urllib.parse import quote
 from ..controller import DomainError
 from ..models import Offer, Provider, Review, SearchResult, SessionView
 from . import blinkit_dom
+from .blinkit_location import BlinkitAddressError, restore_saved_address
 from .browser import BrowserSession, click_and_settle, goto_with_retry
 from .cart_guard import CartConflict, CartGuard
 from .images import product_image_url
@@ -91,6 +92,7 @@ class BlinkitProvider:
         self.previous_lines = []
         self.browser = BrowserSession(browser_profile, storage_state)
         self.header_address = ""
+        self.on_location_verified = None
 
     def connected(self):
         return bool(self.browser.configured and self.verified_location and self.verified_address)
@@ -120,12 +122,15 @@ class BlinkitProvider:
             # address label. Verify the actual delivery address, never infer
             # identity from truncated header text or select a different address.
             cart = await self.read_cart(page, resolve_address=False)
-            if not self.verified_address or normalized(self.verified_address) not in normalized(
-                cart.get("address") or ""
-            ):
-                raise DomainError(
-                    "Blinkit's selected delivery location changed. Reconnect with the intended address."
-                )
+            if self.verified_address and normalized(self.verified_address) in normalized(cart.get("address") or ""):
+                pass  # A nonempty cart independently proves the approved full address.
+            elif cart.get("items") == [] and self.verified_address:
+                location = await restore_saved_address(page, self.verified_address)
+            else:
+                raise BlinkitAddressError()
+            await self.browser.save()
+            if self.on_location_verified:
+                self.on_location_verified(location)
             self.verified_location = location
         self.header_address = location
         await goto_with_retry(page,

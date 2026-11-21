@@ -337,7 +337,7 @@ async def test_blinkit_location_gate_can_arrive_after_login_button(page):
     assert await page.get_by_placeholder('Enter mobile number').is_visible()
 
 
-async def test_blinkit_onboarding_nested_address_selection(page):
+async def test_blinkit_onboarding_nested_address_selection(page, monkeypatch):
     from types import SimpleNamespace
     from unittest.mock import AsyncMock
 
@@ -354,9 +354,10 @@ async def test_blinkit_onboarding_nested_address_selection(page):
     </div></section>''')
     await page.evaluate('''() => {
       document.querySelectorAll('[class="AddressListItem__AddressDetails"]').forEach((el, i) => {
-        el.onclick = () => { window.selectedRow = i; document.querySelector('#addresses').style.display='none'; };
+        el.onclick = () => { window.selectedRow = i; document.querySelector('#addresses').style.display='none'; document.querySelector('.LocationBar__Subtitle').innerText = (i === 0 ? 'Home' : 'Work') + '\\nSelected locality'; };
       });
     }''')
+    monkeypatch.setattr(page, 'reload', AsyncMock())
     async def opened():
         return page, None
     session = SimpleNamespace(open=opened, save=AsyncMock())
@@ -380,7 +381,7 @@ async def test_blinkit_onboarding_nested_address_selection(page):
 
 
 @pytest.mark.parametrize('provider', ['blinkit', 'instamart'])
-async def test_onboarding_duplicate_addresses_are_selectable_and_reordering_rejected(page, provider):
+async def test_onboarding_duplicate_addresses_are_selectable_and_reordering_rejected(page, provider, monkeypatch):
     from types import SimpleNamespace
     from unittest.mock import AsyncMock
 
@@ -398,11 +399,14 @@ async def test_onboarding_duplicate_addresses_are_selectable_and_reordering_reje
     await page.evaluate('''() => {
       [...document.querySelector('#cards').children].forEach((el, i) => el.onclick = () => {
         window.selectedRow = i;
+        const header = document.querySelector('.LocationBar__Subtitle');
+        if (header) header.innerText = el.querySelector('[class="AddressListItem__AddressLabel"]').innerText + '\\nSelected locality';
         document.querySelector('#cards').style.display = 'none';
         const overlay = document.querySelector('[data-testid="modal-overlay"]');
         if (overlay) overlay.style.display = 'none';
       });
     }''')
+    monkeypatch.setattr(page, 'reload', AsyncMock())
     async def opened():
         return page, None
     session = SimpleNamespace(open=opened, save=AsyncMock())
@@ -706,3 +710,42 @@ async def test_observed_instamart_phone_error_is_not_loading_or_rate_limit(page)
     adapter.session = lambda *_: SimpleNamespace(open=open_page)
     with pytest.raises(LoginSubmissionRejected):
         await adapter.wait_for_otp("test", "instamart", timeout=0)
+
+
+async def test_blinkit_address_selection_waits_for_delayed_header_and_reload(page):
+    from easydial.providers.blinkit_location import CARDS, select_and_verify_address
+
+    html = '''<div class="LocationBar__Subtitle">Koramangala</div>
+    <div class="AddressListItem__AddressItemWrapperItem">
+      <div class="AddressListItem__AddressLabel">Home</div>
+      <div class="AddressListItem__AddressDetails">Flat 7, Road</div>
+    </div><script>
+    const header = document.querySelector('.LocationBar__Subtitle');
+    if (localStorage.selected) header.innerText = 'Home\\nSaved locality';
+    document.querySelector('.AddressListItem__AddressDetails').onclick = () => {
+      document.querySelector('.AddressListItem__AddressItemWrapperItem').style.display='none';
+      setTimeout(() => { localStorage.selected='yes'; header.innerText='Home\\nSaved locality'; }, 1400);
+    };
+    </script>'''
+    await page.route('https://blinkit.test/**', lambda route: route.fulfill(body=html, content_type='text/html'))
+    await page.goto('https://blinkit.test/')
+    location = await select_and_verify_address(page, page.locator(CARDS), 'Flat 7, Road')
+    assert location == 'Home\nSaved locality'
+    assert await page.evaluate('localStorage.selected') == 'yes'
+
+
+@pytest.mark.parametrize('matches', [0, 2])
+async def test_blinkit_recovery_never_selects_missing_or_duplicate_address(page, matches):
+    from easydial.providers.blinkit_location import BlinkitAddressError, restore_saved_address
+
+    cards = ''.join('''<div class="AddressListItem__AddressItemWrapperItem">
+      <div class="AddressListItem__AddressLabel">Home</div>
+      <div class="AddressListItem__AddressDetails">Flat 7, Road</div></div>''' for _ in range(matches))
+    await page.set_content('<div class="LocationBar__Subtitle">Other locality</div>'+cards+'''
+      <div class="AddressListItem__AddressItemWrapperItem">
+      <div class="AddressListItem__AddressLabel">Work</div>
+      <div class="AddressListItem__AddressDetails">Flat 7, Road Extension</div></div>''')
+    await page.evaluate("() => { window.selected = false; document.querySelectorAll('[class*=AddressDetails]').forEach(el => el.onclick = () => window.selected = true); }")
+    with pytest.raises(BlinkitAddressError):
+        await restore_saved_address(page, 'Flat 7, Road')
+    assert not await page.evaluate('window.selected')

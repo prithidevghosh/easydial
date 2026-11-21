@@ -4,6 +4,7 @@ from ..controller import DomainError
 from ..models import Provider, SearchResult, SessionView
 from ..settings import Settings
 from .blinkit import BlinkitProvider, normalized
+from .blinkit_location import BlinkitAddressError
 from .instamart import InstamartProvider
 from .proxy import configure_blinkit_proxy
 from .semantic_ranking import SemanticProductRanker
@@ -76,7 +77,8 @@ class ProviderWorkers:
             try:
                 return await asyncio.wait_for(worker.search(query, address), timeout=45)
             except DomainError as error:
-                return SearchResult(provider=provider, query=query, status="error", message=error.message)
+                return SearchResult(provider=provider, query=query, status="error", message=error.message,
+                                    recovery="reconnect_address" if isinstance(error, BlinkitAddressError) else None)
             except Exception:
                 return SearchResult(
                     provider=provider,

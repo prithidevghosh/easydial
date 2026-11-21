@@ -540,3 +540,27 @@ async def test_compound_request_partial_failure_keeps_missing_quantity_visible(t
     assert len(state['view']['lines']) == 1
     assert not state['request_queue']
     runtime.inbox.close()
+
+
+async def test_blinkit_address_failure_instructs_reconnect_without_retry_loop(tmp_path):
+    from unittest.mock import AsyncMock
+
+    from easydial.providers.blinkit_location import BlinkitAddressError
+
+    runtime = make_runtime(tmp_path)
+    workers = ProviderWorkers(settings(tmp_path))
+    workers.workers[0].search = AsyncMock(side_effect=BlinkitAddressError())
+    results = await workers.search('milk', 'test home', Provider.BLINKIT)
+    assert results[0].recovery == 'reconnect_address'
+    runtime.chat.workers.search = AsyncMock(return_value=results)
+    runtime.chat.interpret = AsyncMock(return_value=intent('search', queries=[
+        RequestedProduct(query='milk', quantity=1, replaces_line_id=None),
+    ]))
+    state, replies = await runtime.chat.handle('milk', runtime.chat.initial())
+    rendered = json.dumps(replies, ensure_ascii=False)
+    assert 'Send Connect and select your address again' in rendered
+    assert 'Retry item' not in rendered
+    assert 'Skip item' not in rendered
+    assert not state['choices']
+    await workers.close()
+    runtime.inbox.close()

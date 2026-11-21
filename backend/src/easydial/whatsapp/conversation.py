@@ -865,6 +865,7 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
             session.view.results = results
             session.view.comparison = exact_comparison([o for r in results for o in r.offers])
             session.changed()
+            address_recovery = next((r for r in results if r.recovery == "reconnect_address"), None)
             if state["choices"]:
                 product_messages = self.choice_messages(
                     session, state["choices"], partial=any(r.status != "ok" for r in results)
@@ -875,6 +876,7 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
             else:
                 replies.append(
                     text_message(
+                        address_recovery.message if address_recovery else
                         "I couldn’t check products right now. Please try again shortly."
                         if any(r.status != "ok" for r in results)
                         else "I couldn’t find a match. Try a brand or pack size."
@@ -891,7 +893,7 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
             # Search replies describe actual results, never unexecuted model promises.
             if state["choices"]:
                 replies.append(product_messages[-1])
-            else:
+            elif not address_recovery:
                 replies.append({"type": "interactive", "interactive": {
                     "type": "button", "body": {"text": "Try this item again, or skip it?"},
                     "action": {"buttons": [
