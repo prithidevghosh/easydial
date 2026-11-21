@@ -139,3 +139,19 @@ async def test_payment_generator_waits_for_real_qr_not_visible_placeholder(page,
     assert result["total_paise"] == 5600 and result["ttl_seconds"] == 299
     assert await page.evaluate("window.generated") == 1
     assert await page.evaluate("window.paid") == 0
+
+async def test_blinkit_payment_accordions_close_cards_and_do_not_toggle_target_closed(page):
+    from easydial.providers.payments import select_blinkit_method
+    await page.set_content('''
+    <div role="button" aria-label="Add credit or debit cards" aria-expanded="true"
+         onclick="this.setAttribute('aria-expanded','false')">Cards</div>
+    <div role="button" aria-label="UPI" aria-expanded="false"
+         onclick="this.setAttribute('aria-expanded',this.getAttribute('aria-expanded')==='true'?'false':'true')">UPI</div>
+    <div role="button" aria-label="Cash" aria-disabled="true">Cash</div>''')
+    await select_blinkit_method(page, 'UPI')
+    await select_blinkit_method(page, 'UPI')
+    assert await page.get_by_role('button', name='UPI', exact=True).get_attribute('aria-expanded') == 'true'
+    assert await page.get_by_role('button', name='Add credit or debit cards').get_attribute('aria-expanded') == 'false'
+    from easydial.controller import DomainError
+    with pytest.raises(DomainError):
+        await select_blinkit_method(page, 'Cash')

@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     openai_voice: str = "coral"
     commerce_mode: str = "live"
     browser_headless: bool = False
+    blinkit_browser_headless: bool | None = None
     browser_channel: str = "chrome"
     instamart_browser_profile: str = ""
     instamart_verified_location: str = ""

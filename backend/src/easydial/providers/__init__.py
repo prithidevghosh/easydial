@@ -25,7 +25,11 @@ class ProviderWorkers:
         ]
 
         for worker in self.workers:
-            worker.browser.headless = settings.browser_headless
+            worker.browser.headless = (
+                settings.blinkit_browser_headless
+                if worker.provider == Provider.BLINKIT and settings.blinkit_browser_headless is not None
+                else settings.browser_headless
+            )
             worker.browser.channel = settings.browser_channel
 
     def restore_checkpoint(self, checkpoint, session_id):
@@ -183,3 +187,15 @@ class ProviderWorkers:
             raise DomainError(
                 "I couldn't confirm the payment request. Check the store before trying again."
             ) from None
+
+    async def prepare_cash(self, view, review):
+        from .payments import prepare_cash
+
+        worker = self.workers[list(Provider).index(review.provider)]
+        return await asyncio.wait_for(prepare_cash(worker, view, review), timeout=75)
+
+    async def submit_cash(self, view, review, before_submit):
+        from .payments import submit_cash
+
+        worker = self.workers[list(Provider).index(review.provider)]
+        return await asyncio.wait_for(submit_cash(worker, view, review, before_submit), timeout=90)

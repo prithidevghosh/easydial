@@ -210,7 +210,11 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
         intent = result.output_parsed
         if intent.unclear_request:
             return ChatIntent(
-                action="clarify", queries=[], edits=[], offer_id=None, quantity=None,
+                action="clarify",
+                queries=[],
+                edits=[],
+                offer_id=None,
+                quantity=None,
                 clarification="I couldn't understand that clearly. Could you say it again?",
                 unclear_request=True,
             )
@@ -386,14 +390,29 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
                 if not session.view.review or parts[2] != session.view.review.id:
                     raise DomainError("That choice is old. Ask to see your basket.")
                 if parts[0] == "change_basket":
-                    return state, [text_message(
-                        "What would you like to add, remove, or change? Send a message or voice note."
-                    )]
-                return state, [text_message(
-                    "Your basket is saved. Message me whenever you’re ready to continue."
-                )]
+                    state.pop("cash_confirmation", None)
+                    return state, [
+                        text_message(
+                            "What would you like to add, remove, or change? Send a message or voice note."
+                        )
+                    ]
+                return state, [
+                    text_message("Your basket is saved. Message me whenever you’re ready to continue.")
+                ]
             if parts[0] == "pick":
                 intent = ChatIntent(action="select", **{**kwargs, "offer_id": parts[2]})
+            elif parts[0] == "place_cod":
+                pending = state.get("cash_confirmation")
+                if (
+                    not pending
+                    or parts[2] != pending["id"]
+                    or not session.view.review
+                    or pending["review_id"] != session.view.review.id
+                    or now() - datetime.fromisoformat(pending["created_at"]) > timedelta(minutes=5)
+                ):
+                    raise DomainError("That order confirmation expired. Choose pay on delivery again.")
+                selected_method = {"id": "cash_submit"}
+                intent = ChatIntent(action="payment", **kwargs)
             elif parts[0] == "payment":
                 menu = state.get("payment_menu")
                 if (
@@ -406,8 +425,9 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
                     raise DomainError("These payment options expired. Review your basket again.")
                 method_id = parts[2][len(menu["id"]) + 1 :]
                 selected_method = next((x for x in menu["methods"] if x["id"] == method_id), None)
-                if selected_method is None:
-                    raise DomainError("Choose one of the payment options shown.")
+                allowed = {"cash", "upi"} if session.view.review.provider.value == "blinkit" else {"cash"}
+                if selected_method is None or method_id not in allowed:
+                    raise DomainError("That payment method is no longer offered. Choose payment again.")
                 intent = ChatIntent(action="payment", **kwargs)
             elif parts[0] == "reconcile":
                 pending = state.get("cart_reconciliation")
@@ -462,7 +482,7 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
             and self.payments.existing(customer, session.view.id)
         ):
             raise DomainError(
-                "A payment request is already open. Check it in the store before changing your basket or starting another."
+                "An order or payment request already exists. Check the store’s Orders page before starting another."
             )
         if progress:
             progress.update(
@@ -753,7 +773,11 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
             fresh = await self.workers.revalidate(session.view)
             fresh = await self.resolve_bill(session, fresh, progress)
             session.view.payment_preparation = None
-            if expired or not can_choose_payment(fresh) or fingerprint(session.view, fresh) != fingerprint(session.view, review):
+            if (
+                expired
+                or not can_choose_payment(fresh)
+                or fingerprint(session.view, fresh) != fingerprint(session.view, review)
+            ):
                 session.accept_review(session.view.version, fresh)
                 state["payment_menu"] = None
                 if can_choose_payment(fresh):
@@ -761,6 +785,12 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
                 replies.extend(self.review_messages(session))
             else:
                 methods = await self.workers.payment_options(session.view, fresh)
+                allowed = {"cash", "upi"} if fresh.provider.value == "blinkit" else {"cash"}
+                methods = [item for item in methods if item["id"] in allowed]
+                if not methods:
+                    raise DomainError(
+                        "Our supported payment options aren’t available for this order right now."
+                    )
                 session.confirm(session.view.version, review.id, True)
                 session.view.payment_preparation = {
                     "status": "approved_for_preparation_only",
@@ -785,7 +815,9 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
             review = session.view.review
             fresh = await self.workers.revalidate(session.view)
             fresh = await self.resolve_bill(session, fresh, progress)
-            if not can_choose_payment(fresh) or fingerprint(session.view, fresh) != fingerprint(session.view, review):
+            if not can_choose_payment(fresh) or fingerprint(session.view, fresh) != fingerprint(
+                session.view, review
+            ):
                 session.accept_review(session.view.version, fresh)
                 state["payment_menu"] = None
                 replies = [
@@ -805,21 +837,62 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
                     )
                 )
             elif selected_method["id"] == "cash":
+                await self.workers.prepare_cash(session.view, fresh)
+                pending = {
+                    "id": uuid4().hex,
+                    "review_id": review.id,
+                    "fingerprint": fingerprint(session.view, fresh),
+                    "created_at": now().isoformat(),
+                }
+                state["cash_confirmation"] = pending
+                state["payment_menu"] = None
+                replies.append(
+                    {
+                        "type": "interactive",
+                        "interactive": {
+                            "type": "button",
+                            "body": {
+                                "text": f"Place this {money(fresh.total_paise)} order with {fresh.provider.value.title()}? Pay cash on delivery. Tapping Place order submits the order."
+                            },
+                            "action": {
+                                "buttons": [
+                                    {
+                                        "type": "reply",
+                                        "reply": {
+                                            "id": f"place_cod:{session.view.version}:{pending['id']}",
+                                            "title": "Place order",
+                                        },
+                                    },
+                                    {
+                                        "type": "reply",
+                                        "reply": {
+                                            "id": f"change_basket:{session.view.version}:{review.id}",
+                                            "title": "Change basket",
+                                        },
+                                    },
+                                ]
+                            },
+                        },
+                    }
+                )
+            elif selected_method["id"] == "cash_submit":
+                if not customer or not getattr(self, "payments", None):
+                    raise DomainError("Order submission is not connected.")
+                if state["cash_confirmation"]["fingerprint"] != fingerprint(session.view, fresh):
+                    raise DomainError("Your bill changed. Check the updated total before placing the order.")
+                result = await self.payments.place_cash(customer, session.view, fresh, self.workers)
+                state["cash_confirmation"] = None
+                state["payment_menu"] = None
+                session.view.payment_preparation = {"status": "cash_" + result["status"], **result}
                 replies.append(
                     text_message(
-                        selected_method.get("note")
-                        or "Cash on delivery requires placing the order. EasyDial won’t place it yet."
+                        f"Order confirmed: {result['order_id']}. Pay {money(fresh.total_paise)} cash on delivery."
+                        if result["status"] == "confirmed"
+                        else "I couldn’t confirm whether the store accepted your order. Please check its Orders page before trying again; I won’t submit it twice."
                     )
                 )
             else:
-                from ..providers.payments import STORE_CHECKOUT
-
-                replies.append(
-                    text_message(
-                        f"Use {selected_method['title'].lower()} on {fresh.provider.value.title()}: "
-                        f"{STORE_CHECKOUT[fresh.provider]}\nSign in with the same store account if asked. Check the bill before paying."
-                    )
-                )
+                raise DomainError("Please choose pay on delivery or an available UPI QR option.")
         elif intent.action == "basket":
             replies.extend(self.basket_messages(session))
         elif intent.action == "stop":
@@ -908,8 +981,8 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
         reconciled = can_choose_payment(review)
         next_step = (
             "Tap Choose payment to continue, or tell me what to change."
-            if reconciled else
-            "Your basket is saved. Choose what you’d like to do below."
+            if reconciled
+            else "Your basket is saved. Choose what you’d like to do below."
         )
         replies = [
             text_message(
@@ -940,23 +1013,33 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
                 }
             )
         else:
-            replies.append({
-                "type": "interactive",
-                "interactive": {
-                    "type": "button",
-                    "body": {"text": "Would you like to change your basket or save it for later?"},
-                    "action": {"buttons": [
-                        {"type": "reply", "reply": {
-                            "id": f"change_basket:{session.view.version}:{review.id}",
-                            "title": "Change basket",
-                        }},
-                        {"type": "reply", "reply": {
-                            "id": f"save_basket:{session.view.version}:{review.id}",
-                            "title": "Save for later",
-                        }},
-                    ]},
-                },
-            })
+            replies.append(
+                {
+                    "type": "interactive",
+                    "interactive": {
+                        "type": "button",
+                        "body": {"text": "Would you like to change your basket or save it for later?"},
+                        "action": {
+                            "buttons": [
+                                {
+                                    "type": "reply",
+                                    "reply": {
+                                        "id": f"change_basket:{session.view.version}:{review.id}",
+                                        "title": "Change basket",
+                                    },
+                                },
+                                {
+                                    "type": "reply",
+                                    "reply": {
+                                        "id": f"save_basket:{session.view.version}:{review.id}",
+                                        "title": "Save for later",
+                                    },
+                                },
+                            ]
+                        },
+                    },
+                }
+            )
         return replies
 
     @staticmethod

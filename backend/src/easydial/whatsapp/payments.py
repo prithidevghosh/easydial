@@ -19,10 +19,20 @@ class PaymentRequests:
             id TEXT PRIMARY KEY, sender TEXT NOT NULL, order_id TEXT NOT NULL,
             bill_fingerprint TEXT NOT NULL, status TEXT NOT NULL, token_hash TEXT UNIQUE NOT NULL,
             artifact TEXT, created_at INTEGER NOT NULL, expires_at INTEGER)""")
+        self.inbox.db.execute("""CREATE TABLE IF NOT EXISTS cash_orders (
+            sender TEXT NOT NULL, order_id TEXT NOT NULL, status TEXT NOT NULL,
+            fingerprint TEXT NOT NULL, merchant_order_id TEXT, created_at INTEGER,
+            PRIMARY KEY(sender,order_id))""")
         with self.inbox.db:
+            self.inbox.db.execute("UPDATE cash_orders SET status='unknown' WHERE status='submitting'")
             self.inbox.db.execute("UPDATE payment_requests SET status='unknown' WHERE status='creating'")
 
     def existing(self, sender, order_id):
+        cash = self.inbox.db.execute(
+            "SELECT * FROM cash_orders WHERE sender=? AND order_id=?", (sender, order_id)
+        ).fetchone()
+        if cash:
+            return cash
         return self.inbox.db.execute(
             "SELECT * FROM payment_requests WHERE sender=? AND order_id=? ORDER BY created_at DESC LIMIT 1",
             (sender, order_id),
@@ -82,6 +92,44 @@ class PaymentRequests:
                     "UPDATE payment_requests SET status='unknown' WHERE id=?", (request_id,)
                 )
             raise
+
+    async def place_cash(self, sender, view, review, workers):
+        if self.existing(sender, view.id):
+            raise DomainError("An order or payment attempt already exists. I won’t submit it twice.")
+        reserved = False
+
+        def reserve():
+            nonlocal reserved
+            with self.inbox.db:
+                self.inbox.db.execute(
+                    "INSERT INTO cash_orders VALUES (?,?,?,?,?,?)",
+                    (sender, view.id, "submitting", fingerprint(view, review), None, int(time.time())),
+                )
+            reserved = True
+
+        try:
+            result = await workers.submit_cash(view, review, reserve)
+            if not reserved:
+                raise DomainError("The order was not submitted.")
+        except BaseException as error:
+            if reserved:
+                with self.inbox.db:
+                    self.inbox.db.execute(
+                        "UPDATE cash_orders SET status='unknown' WHERE sender=? AND order_id=?",
+                        (sender, view.id),
+                    )
+                if isinstance(error, Exception):
+                    raise DomainError(
+                        "I couldn’t confirm whether the store accepted your order. Check its Orders page; I won’t submit it twice."
+                    ) from None
+            raise
+        confirmed = result.get("status") == "confirmed" and bool(result.get("order_id"))
+        with self.inbox.db:
+            self.inbox.db.execute(
+                "UPDATE cash_orders SET status=?,merchant_order_id=? WHERE sender=? AND order_id=?",
+                ("confirmed" if confirmed else "unknown", result.get("order_id"), sender, view.id),
+            )
+        return result if confirmed else {"status": "unknown"}
 
     def lookup(self, token):
         if not 20 <= len(token) <= 100:

@@ -1,3 +1,15 @@
+# Restricted payments and explicit COD submission — 2026-11-21
+
+Implemented Instamart pay on delivery only; Blinkit pay on delivery when eligible plus UPI QR. Filter current menus and reject historical disallowed selections. Cash selection verifies the merchant screen, then requires a separate versioned, review-bound, five-minute Place order button with amount and provider. Only that explicit action reaches submission. Private cash_orders table reserves customer/order before final click, prevents duplicate submissions and retains unknown attempts after timeout/restart. Successful replies require merchant confirmation text and order identifier; an unverified click is never reported as a confirmed order.
+
+Corrected Blinkit accordion handling following user feedback: close Cards if expanded, open Cash/UPI idempotently, wait for content. The initial Cash failure also had explicit below-₹50 store restriction. Above-threshold basket enabled Cash; final Pay Now control is outside the iframe. Added independent BLINKIT_BROWSER_HEADLESS override; local pilot uses visible Chrome, Instamart retains configured mode. No challenge bypass.
+
+Live evidence: actual filtered Instamart menu contained only cash, cash preflight verified ₹156. Actual Blinkit menu contained cash and UPI QR, cash preflight verified ₹133. Generated a real Blinkit QR and decoded matching ₹133/INR/reference with 300-second expiry. All temporary Blinkit cart edits cleared and verified. No final cash click, paid transaction, or real order placement. Final confirmation/order-status parsing remains unverified against a real order; QR payment outcome is not automatically verified.
+
+Validation: 118 standard tests passed (8 opt-in DOM skipped); all 8 Chrome DOM tests passed separately, including card closure, idempotent UPI expansion and disabled cash rejection. Submission tests cover separate final confirmation, stale button rejection, once-only submission, preflight failure, uncertainty and restart recovery. See PAYMENT_HANDOFF.md for the current policy and remaining limits.
+
+---
+
 # Blinkit headed comparison — 2026-11-21
 
 User requested an explicit non-headless comparison. With the same configured saved Blinkit profile and browser channel, headless inspection was blocked; headless=False loaded the homepage (normal Blinkit title, no challenge text), passed browser.check_page, and navigated successfully to milk search. No cart modification or payment inspection in this comparison. This supports a browser-mode difference but does not identify the detection mechanism or establish reliable payment access. Production headless setting unchanged.

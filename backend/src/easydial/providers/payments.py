@@ -1,4 +1,4 @@
-"""Payment choices observed in store UI. Never press Pay or submit payment credentials."""
+"""Observed payment controls. Order submission requires a separate durable confirmation."""
 
 import asyncio
 import base64
@@ -76,7 +76,21 @@ async def open_options(worker, view, review, page):
 def verify_instamart_payment_total(text, approved_paise):
     amounts = re.findall(r"\bTotal:\s*₹\s*([\d,]+(?:\.\d{1,2})?)", text)
     if not amounts or any(paise(value) != approved_paise for value in amounts):
-        raise DomainError("Instamart’s payment amount changed or could not be verified. No payment was started.")
+        raise DomainError(
+            "Instamart’s payment amount changed or could not be verified. No payment was started."
+        )
+
+
+async def select_blinkit_method(scope, label):
+    # Payment methods are accordions; do not toggle an already-open target closed.
+    cards = scope.get_by_role("button", name="Add credit or debit cards", exact=True)
+    if await cards.count() and await cards.get_attribute("aria-expanded") == "true":
+        await cards.click()
+    target = scope.get_by_role("button", name=label, exact=True)
+    if not await target.is_enabled() or await target.get_attribute("aria-disabled") == "true":
+        raise DomainError(f"Blinkit hasn’t enabled {label} for this basket.")
+    if await target.get_attribute("aria-expanded") != "true":
+        await target.click()
 
 
 async def options(worker, view, review):
@@ -85,16 +99,19 @@ async def options(worker, view, review):
         body = await scope.locator("body").inner_text()
         found = []
         for key, title, label in LABELS[worker.provider]:
-            if await scope.get_by_text(label, exact=True).first.is_visible():
+            if key not in ({"cash", "upi"} if worker.provider == Provider.BLINKIT else {"cash"}):
+                continue
+            control = scope.get_by_text(label, exact=True).first
+            if await control.is_visible() and await control.is_enabled():
                 note = ""
                 if key == "cash":
                     restriction = re.search(r"Cash on delivery is not available[^\n]*", body, re.I)
-                    note = (
-                        restriction.group(0)
-                        if restriction
-                        else "Requires placing an order; not submitted by EasyDial."
-                    )
-                found.append({"id": key, "title": title, "note": note})
+                    note = restriction.group(0) if restriction else "Pay when your order arrives."
+                if key == "cash" and restriction:
+                    continue
+                found.append(
+                    {"id": key, "title": "Pay on delivery" if key == "cash" else "UPI QR", "note": note}
+                )
         if not found:
             raise DomainError("Payment options could not be read. Please try again.")
         return found
@@ -136,7 +153,7 @@ async def generate_upi(worker, view, review):
         raise DomainError("UPI QR is not available on this store’s current payment screen.")
     async with worker.lock, worker.browser_page() as (page, context):
         scope = await open_options(worker, view, review, page)
-        await scope.get_by_text("UPI", exact=True).click()
+        await select_blinkit_method(scope, "UPI")
         # This is the only payment-request creation control. Never click Pay Now.
         generate = scope.get_by_text("Generate QR", exact=True)
         await generate.wait_for()
@@ -162,3 +179,55 @@ async def generate_upi(worker, view, review):
         if seconds <= 15:
             raise DomainError("This QR is expiring. Check Blinkit before trying again.")
         return artifact | {"ttl_seconds": seconds}
+
+
+async def cash_control(worker, view, review, page):
+    scope = await open_options(worker, view, review, page)
+    if worker.provider == Provider.INSTAMART:
+        await scope.get_by_text("Pay on Delivery", exact=True).click()
+        cash = scope.get_by_role("button", name="Cash Pay cash at the time of delivery.", exact=True)
+        if not await cash.is_enabled() or await cash.get_attribute("aria-disabled") == "true":
+            raise DomainError("Pay on delivery isn’t available for this order.")
+        await cash.click()  # Selects cash only; the separate final button submits.
+        button = scope.get_by_test_id("pm_cod_pay_btn")
+        await button.wait_for(state="visible")
+        verify_instamart_payment_total(await scope.locator("body").inner_text(), review.total_paise)
+        expected = f"Pay ₹{review.total_paise / 100:g} with Cash"
+        if (await button.inner_text()).strip() != expected or not await button.is_enabled():
+            raise DomainError("The cash payment amount changed. Please check the latest bill.")
+        return button
+    await select_blinkit_method(scope, "Cash")
+    await scope.get_by_text(
+        "Please keep exact change handy to help us serve you better", exact=True
+    ).wait_for(state="visible")
+    # Blinkit's final Pay Now control is in the parent page, outside zpaykit.
+    # Only return it after selecting the verified Cash accordion.
+    button = page.get_by_text("Pay Now", exact=True)
+    await button.wait_for(state="visible")
+    if not await button.is_enabled():
+        raise DomainError("Blinkit cash checkout is unavailable right now.")
+    return button
+
+
+async def prepare_cash(worker, view, review):
+    async with worker.lock, worker.browser_page() as (page, context):
+        await cash_control(worker, view, review, page)
+        return {"total_paise": review.total_paise}
+
+
+async def submit_cash(worker, view, review, before_submit):
+    async with worker.lock, worker.browser_page() as (page, context):
+        button = await cash_control(worker, view, review, page)
+        before_submit()  # Commits the once-only reservation before the irreversible click.
+        await button.click()
+        # A click is not proof of a confirmed order. Only explicit success plus
+        # a merchant order identifier can produce a success response.
+        for _ in range(20):
+            text = await page.locator("body").inner_text()
+            order = re.search(r"\bOrder\s*(?:ID|No\.?|Number|#)\s*[:#]?\s*([A-Za-z0-9-]{6,40})", text, re.I)
+            if order and re.search(
+                r"order (?:is )?(?:placed|confirmed)|order placed successfully", text, re.I
+            ):
+                return {"status": "confirmed", "order_id": order[1]}
+            await asyncio.sleep(0.5)
+        return {"status": "unknown"}

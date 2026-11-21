@@ -1,3 +1,30 @@
+# Current payment policy — 2026-11-21
+
+This section supersedes the earlier broad-method policy below.
+
+- Instamart: pay on delivery only.
+- Blinkit: pay on delivery when enabled by the store, and UPI QR only.
+- Old card/wallet/netbanking/pay-later button payloads are rejected server-side.
+- Choosing cash is not an order. The bot checks the live cash screen and presents a separate versioned, expiring **Place order** button stating provider, payable amount and cash-at-delivery terms. Only that button authorizes the final merchant submission.
+- Final submission revalidates cart, address, bill fingerprint and cash control. Cash attempts are reserved in private SQLite before clicking, with a unique customer/order key. Timeouts/crashes become unknown, never automatically retried. Confirmation is reported only with explicit merchant success text and an order identifier; otherwise status remains unknown.
+- QR selection explicitly opens the UPI accordion and generates the provider QR. The amount/currency/reference/expiry are verified before the expiring link is returned. UPI PIN and approval stay in the user's app. Merchant confirmation after actual UPI payment remains unverified; do not claim a paid order from QR creation.
+
+## Live controls verified
+
+Instamart: Pay on Delivery → Cash/Pay on Delivery (selection only) → separate `pm_cod_pay_btn` labeled **Pay ₹156 with Cash**. The displayed payment amount is checked against the approved amount. No final click during testing.
+
+Blinkit: Cards is an accordion and may start expanded. Close it if expanded, open the desired Cash/UPI accordion only if not already expanded, and wait for its contents. Cash final **Pay Now** lives in the parent page outside the payment iframe, and is returned only after Cash displays its exact-change message. No final click during testing.
+
+Blinkit showed a real restriction: cash unavailable for orders below ₹50 in the test account. Above-threshold test basket enabled Cash. This threshold is observed information, not hardcoded eligibility; read the current store controls/restriction each time. Temporary test baskets were cleared. Actual QR generation returned a verified ₹133 amount and five-minute expiry without payment approval.
+
+The pilot now uses `BLINKIT_BROWSER_HEADLESS=false` independently of the general browser setting. Headless Blinkit was blocked; visible Chrome worked. This is not a challenge bypass or evidence of headless production readiness.
+
+## Validation boundary
+
+No real order was placed. Submission, duplicate prevention and timeout/restart recovery are tested with fakes; real provider controls are verified only up to the irreversible click. The post-order DOM success detector still needs validation on an explicitly authorized real order. No automatic payment completion/status polling is claimed. The existing single-user store-session pilot limitation remains.
+
+---
+
 # Payment choice and request handoff — 2026-11-21
 
 ## Authorized boundary
