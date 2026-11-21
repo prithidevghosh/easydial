@@ -1,0 +1,17 @@
+.DS_Store
+.codex/
+.env
+.env.*
+!.env.example
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+*.pyc
+*.egg-info/
+.state/
+.build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+evals/private/
