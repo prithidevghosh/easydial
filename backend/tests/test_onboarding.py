@@ -614,3 +614,29 @@ async def test_semantic_logout_routes_to_account_manager(tmp_path):
     assert "logged out" in replies[0]["interactive"]["body"]["text"]
     assert not any(x.get("type") == "account_action" for x in replies)
     r.inbox.close()
+
+
+async def test_delayed_otp_preserves_request_and_rechecks_without_resend(tmp_path):
+    from unittest.mock import AsyncMock
+
+    from easydial.whatsapp.store_login import LoginStillPending
+
+    r = runtime(tmp_path)
+    await consent(r)
+    adapter = r.onboarding.adapter
+    adapter.request_otp = AsyncMock(side_effect=LoginStillPending("waiting"))
+    adapter.wait_for_otp = AsyncMock(side_effect=[LoginStillPending("waiting"), None])
+    replies = await turn(r, "9999999999")
+    state = r.onboarding.accounts.state("919999999999")
+    assert state["stage"] == "otp_wait"
+    assert [b["reply"]["title"] for b in replies[0]["interactive"]["action"]["buttons"]] == [
+        "Check login", "Use another number", "Cancel",
+    ]
+    await turn(r, "Check login")
+    assert r.onboarding.accounts.state("919999999999")["stage"] == "otp_wait"
+    replies = await turn(r, "Check login")
+    assert r.onboarding.accounts.state("919999999999")["stage"] == "otp"
+    assert "Enter the OTP" in replies[0]["text"]["body"]
+    adapter.request_otp.assert_awaited_once()
+    assert adapter.wait_for_otp.await_count == 2
+    r.inbox.close()

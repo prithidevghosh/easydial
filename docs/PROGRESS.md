@@ -548,3 +548,12 @@ Validation: 239 standard tests passed; 31 opt-in DOM tests skipped. Lint/diff ch
 - Clear semantic logout requests now use the same consent withdrawal, session deletion, payment-artifact revocation, browser cleanup and draft reset as the direct command. Negated, hypothetical and unclear speech must not trigger logout.
 - Regression coverage includes the exact "Logout pls" request, session deletion/customer isolation, old payment buttons, re-login requirements and semantic account-action dispatch. No real customer logout was triggered during tests.
 - Validation: 261 tests passed, 33 opt-in browser tests skipped; Ruff and diff checks passed.
+
+## Instamart phone submission awaiting OTP
+- Runtime diagnostic pinpointed TimeoutError at request_otp's 15-second OTP-field wait, after the phone form fill and LOGIN click. The old handler then closed the browser and reset store selection; no retained evidence establishes why the store did not expose the OTP form.
+- Replaced the fixed wait with up to 30 seconds of visible-state observation, detecting explicit rate-limit/invalid-number responses and pending proxy errors.
+- An unresolved OTP screen now retains the same isolated login context and encrypted phone state in otp_wait. Check login re-observes it for up to 10 seconds without clicking LOGIN, sending another OTP or consuming another local request allowance. Use another number and Cancel are available. A received OTP can continue once its form is visible.
+- Read-only initial login navigation uses the bounded upstream retry helper. Submitted phone requests are never automatically replayed.
+- Restart still invalidates in-flight browser login stages; this is intentional because browser OTP state is not durable. No actual OTP request was sent during diagnosis/testing.
+- Validation: full backend run 261 passed / 33 browser skips before adding new tests; onboarding suite including new pending-request test 56 passed. Actual merchant cause (slow response vs refusal) remains unverified.
+- Chrome DOM suite: 35 passed, including delayed OTP appearance and timeout preservation without re-click/reload. Ruff and diff checks passed.

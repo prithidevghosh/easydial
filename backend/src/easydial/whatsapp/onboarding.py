@@ -12,6 +12,7 @@ from ..controller import DomainError
 from ..models import SessionView
 from .accounts import CONSENT_TEXT
 from .conversation import text_message
+from .store_login import LoginStillPending
 
 log = logging.getLogger(__name__)
 
@@ -243,6 +244,16 @@ class Onboarding:
         if not self.accounts.consented(sender, provider):
             return self.menu(sender, "Permission is needed before signing in. Choose a store.")
         try:
+            if stage == "otp_wait":
+                if choice == "different_number" or low == "use another number":
+                    await self.cancel(sender, provider)
+                    self.accounts.begin(sender, "phone", provider=provider)
+                    return [text_message(f"What is the other 10-digit number for your {provider.title()} account?")]
+                await self.adapter.wait_for_otp(sender, provider, timeout=10)
+                state = self.accounts.begin(sender, "otp", provider=provider, phone=state["phone"])
+                stage = "otp"
+                if not re.fullmatch(r"\d{4,8}", text):
+                    return [text_message(f"Enter the OTP sent by {provider.title()}. Send Cancel to stop.")]
             if stage == "phone":
                 if choice == "different_number" or low == "use another number":
                     self.accounts.begin(sender, "phone", provider=provider)
@@ -285,7 +296,7 @@ class Onboarding:
                         (sender, provider, now, account_key),
                     )
                 # Save a non-replayable stage BEFORE the external OTP request.
-                self.accounts.begin(sender, "requesting", provider=provider)
+                self.accounts.begin(sender, "requesting", provider=provider, phone=phone)
                 await self.adapter.request_otp(sender, provider, phone)
                 self.accounts.begin(sender, "otp", provider=provider, phone=phone)
                 return [
@@ -342,6 +353,14 @@ class Onboarding:
                     return self.address_menu(state)
                 return [text_message("Choose Same address or Choose another in the message above.")]
             return self.menu(sender, "Login was interrupted. Choose a store to reconnect.")
+        except LoginStillPending:
+            log.warning("Store login awaiting OTP screen: provider=%s; request not repeated", provider)
+            pending = self.accounts.state(sender)
+            state = self.accounts.begin(sender, "otp_wait", provider=provider, phone=pending["phone"])
+            return [button_message(
+                "The store hasn’t opened the OTP screen yet. Tap Check login to check the same request; I won’t send another OTP.",
+                state["nonce"], [("check_login", "Check login"), ("different_number", "Use another number"), ("cancel", "Cancel")],
+            )]
         except DomainError as error:
             await self.cancel(sender, provider)
             return self.menu(sender, error.message + " Choose a store to retry, or send Cancel.")

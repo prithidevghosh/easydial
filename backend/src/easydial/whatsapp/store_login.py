@@ -13,7 +13,11 @@ from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
 from ..controller import DomainError
 from ..providers.blinkit import normalized
-from ..providers.browser import BrowserSession
+from ..providers.browser import BrowserSession, goto_with_retry
+
+
+class LoginStillPending(DomainError):
+    """The phone request was clicked but the OTP screen is not ready yet."""
 
 
 class StoreLogin:
@@ -63,7 +67,7 @@ class StoreLogin:
         self.sessions[sender, provider] = browser
         self.deadlines[sender, provider] = time.monotonic() + 600
         page, _ = await browser.open()
-        await page.goto(
+        await goto_with_retry(page,
             "https://blinkit.com/" if provider == "blinkit" else "https://instamart.in/",
             wait_until="domcontentloaded",
         )
@@ -82,7 +86,27 @@ class StoreLogin:
             await page.locator('input[name="auth-sidebar-mobile"]').fill(phone)
             await page.get_by_role("button", name="LOGIN", exact=True).click()
         # Do not claim an OTP was sent just because the phone submit button was clicked.
-        await self.otp_inputs(page).first.wait_for(state="visible", timeout=15000)
+        await self.wait_for_otp(sender, provider)
+
+    async def wait_for_otp(self, sender, provider, timeout=30):
+        session = self.session(sender, provider)
+        page, _ = await session.open()
+        deadline = time.monotonic() + timeout
+        while True:
+            if await self.otp_inputs(page).count():
+                return
+            body = (await page.locator("body").inner_text()).casefold()
+            if re.search(r"too many (?:login |otp )?(?:requests|attempts)|try again (?:after|in)", body):
+                raise DomainError("The store is limiting login requests. Please wait before retrying.")
+            if re.search(r"(?:invalid|incorrect) (?:mobile|phone) number", body):
+                raise DomainError("The store rejected that mobile number. Please check it and try again.")
+            if any(marker in body for marker in ("upstream connect error", "reset reason: overflow")):
+                # Do not reload/replay a submitted phone request: the store may
+                # still send its OTP. Keep the session for an explicit recheck.
+                raise LoginStillPending("The store is slow to respond.")
+            if time.monotonic() >= deadline:
+                raise LoginStillPending("The store has not opened its OTP screen yet.")
+            await asyncio.sleep(0.5)
 
     @staticmethod
     async def open_instamart_login(page):

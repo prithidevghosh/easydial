@@ -626,3 +626,41 @@ async def test_blinkit_upstream_overflow_is_retryable_before_submission(page):
     await page.set_content("upstream connect error or disconnect/reset before headers. reset reason: overflow")
     with pytest.raises(CheckoutTemporarilyUnavailable):
         await continue_blinkit_address(None, None, None, page)
+
+
+async def test_login_wait_handles_delayed_otp_without_reclick(page):
+    from types import SimpleNamespace
+
+    from easydial.whatsapp.store_login import StoreLogin
+
+    await page.set_content('<input name="auth-sidebar-mobile"><button onclick="window.clicks=(window.clicks||0)+1">LOGIN</button>')
+    await page.evaluate("""() => setTimeout(() => {
+        const input = document.createElement('input');
+        input.autocomplete = 'one-time-code';
+        document.body.appendChild(input);
+    }, 200)""")
+    adapter = StoreLogin(SimpleNamespace(), None)
+
+    async def open_page():
+        return page, None
+
+    adapter.session = lambda *_: SimpleNamespace(open=open_page)
+    await adapter.wait_for_otp("test", "instamart", timeout=2)
+    assert await page.evaluate("window.clicks || 0") == 0
+
+
+async def test_login_timeout_is_recoverable_and_does_not_reload(page):
+    from types import SimpleNamespace
+
+    from easydial.whatsapp.store_login import LoginStillPending, StoreLogin
+
+    await page.set_content('<input name="auth-sidebar-mobile">')
+    adapter = StoreLogin(SimpleNamespace(), None)
+
+    async def open_page():
+        return page, None
+
+    adapter.session = lambda *_: SimpleNamespace(open=open_page)
+    with pytest.raises(LoginStillPending):
+        await adapter.wait_for_otp("test", "instamart", timeout=0)
+    assert await page.locator('input[name="auth-sidebar-mobile"]').count() == 1
