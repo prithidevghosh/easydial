@@ -1,6 +1,6 @@
 # WhatsApp-first EasyDial: feasibility and implementation gates
 
-Researched 2026-11-21. Status: research complete; WhatsApp integration NOT implemented or tested. User direction: pause app development and investigate a WhatsApp voice-note journey. This document proposes implementation; it does not authorize sending messages, registering business assets, or purchasing groceries.
+Researched 2026-11-21. Historical research snapshot: this document predates implementation. **Latest status:** the user subsequently authorized building; the single-user channel is implemented with local tests. Meta credentials and live WhatsApp/OpenAI verification are still pending. Read `WHATSAPP_SETUP.md` and `PROGRESS.md` for current evidence. User direction: pause app development and investigate a WhatsApp voice-note journey. This document proposes implementation; it does not authorize sending messages, registering business assets, or purchasing groceries.
 
 ## Verdict
 

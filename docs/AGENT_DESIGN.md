@@ -1,5 +1,7 @@
 > Current implementation note (2026-11-21): both commerce workers use Playwright (Blinkit and instamart.in); MCP is superseded. The backend validates typed cart journeys through local Pending. Voice and paid-order stages below remain unverified/proposed. See BROWSER_VERIFICATION.md.
 
+**Latest channel (2026-11-21): WhatsApp-first.** The implementation in `backend/src/easydial/whatsapp/` uses the existing commerce controller and browser workers, with a durable single-user inbox/outbox and structured OpenAI interpretation. See [WHATSAPP_SETUP.md](WHATSAPP_SETUP.md) for current behavior and limitations. Older app-first proposals below are historical; iOS feature development is paused.
+
 # Proposed agent behaviour
 
 Updated: 2026-11-21. Design proposal only; no implementation. This preserves the requested OpenAI master plus two provider agents while defining the controls needed around them.
