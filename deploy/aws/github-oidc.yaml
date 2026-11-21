@@ -45,7 +45,7 @@ Resources:
             Condition:
               StringEquals:
                 token.actions.githubusercontent.com:aud: sts.amazonaws.com
-                token.actions.githubusercontent.com:sub: repo:prithidevghosh/easydial:ref:refs/heads/main
+                token.actions.githubusercontent.com:sub: repo:prithidevghosh@70886748/easydial@1466210407:ref:refs/heads/main
       Policies:
         - PolicyName: DeployEasyDial
           PolicyDocument:
