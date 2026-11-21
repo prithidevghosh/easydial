@@ -342,3 +342,20 @@ async def test_failed_payment_menu_does_not_record_approval(tmp_path):
     assert state["view"]["payment_preparation"] is None
     assert not state.get("payment_menu")
     runtime.inbox.close()
+
+
+def test_blinkit_surge_charge_is_disclosed_and_included_in_payable_total():
+    from easydial.billing import can_choose_payment
+    from easydial.whatsapp.presentation import bill_table
+
+    r = review([('Items total', '₹50'), ('High demand surge charge', '₹20')], subtotal=5000, total=7000)
+    result = breakdown(r)
+    assert result['reconciled']
+    assert can_choose_payment(r)
+    assert result['rows'][1]['amount_paise'] == 2000
+    assert result['rows'][-1]['amount_paise'] == 7000
+    displayed = bill_table(r)
+    assert 'High demand surge' in displayed and 'charge' in displayed
+    assert '₹20.00' in displayed and '₹70.00' in displayed
+    r.total_paise = 5000
+    assert not can_choose_payment(r)  # The fee must never be silently excluded.

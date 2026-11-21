@@ -223,7 +223,8 @@ class BlinkitProvider:
                 await asyncio.sleep(0.25)
         data["header_address"] = self.header_address
         if re.search(
-            r"can't take your order|currently unavailable|store is closed|high demand", data["text"], re.I
+            r"can[’']t take your order|currently unavailable|store is closed|not accepting (?:any |new )?orders",
+            data["text"], re.I
         ):
             raise DomainError("Blinkit is not accepting this basket right now. Try again later.")
         cart_signature(data)  # Do not interpret missing selectors as an empty basket.

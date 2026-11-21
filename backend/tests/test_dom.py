@@ -889,3 +889,33 @@ async def test_blinkit_payment_entry_rechecks_full_page_checkout_before_advancin
         assert await payments.open_options(worker, view, review, page) is scope
         assert await page.evaluate('window.advance') == 1
     assert not await page.evaluate('window.paid')
+
+
+@pytest.mark.parametrize("notice,blocked", [
+    ("High demand surge charge", False),
+    ("Can't take your order due to high demand", True),
+    ("Store is closed", True),
+    ("We are not accepting new orders", True),
+])
+async def test_blinkit_surge_fee_is_not_a_store_refusal(page, notice, blocked):
+    from easydial.controller import DomainError
+    from easydial.providers.blinkit import BlinkitProvider
+
+    worker = BlinkitProvider("", "Test locality")
+    await page.set_content(f'''<div class="cart-modal-rn">
+      <div class="DefaultProductCard__Container-test">
+        <div class="ProductTitle">Test bar</div><div class="ProductVariant">50 g</div>
+        <div class="AddToCart__UpdatedButtonContainer">1</div>
+      </div>
+      <div class="BillCard__BillItemContainer">Items total<br>₹50</div>
+      <div class="BillCard__BillItemContainer">{notice}<br>₹20</div>
+      <div class="CheckoutStrip__NetPriceText">₹70</div>
+    </div>''')
+    if blocked:
+        with pytest.raises(DomainError, match="not accepting"):
+            await worker.read_cart(page)
+    else:
+        cart = await worker.read_cart(page)
+        assert cart["items"] == [{"name": "Test bar", "pack": "50 g", "quantity": 1}]
+        assert cart["bill"][-1] == {"label": notice, "value": "₹20"}
+        assert cart["total"] == "₹70"
