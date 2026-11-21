@@ -343,33 +343,13 @@ def create_whatsapp_app(settings=None):
             inbox = Inbox(settings.whatsapp_database, box)
             # Prevent accidental reuse of a previous user's durable state after configuration edits.
             inbox.db.execute("CREATE TABLE IF NOT EXISTS binding (id INTEGER PRIMARY KEY, fingerprint TEXT)")
-            fingerprint = hashlib.sha256(
-                json.dumps(
-                    [
-                        settings.whatsapp_phone_number_id,
-                        settings.whatsapp_allowed_sender,
-                        settings.live_address_label,
-                        settings.blinkit_browser_profile,
-                        settings.instamart_browser_profile,
-                        *(
-                            [
-                                "multiuser-v1",
-                                hashlib.sha256(settings.customer_session_key.encode()).hexdigest(),
-                            ]
-                            if settings.whatsapp_multiuser
-                            else []
-                        ),
-                    ]
-                ).encode()
-            ).hexdigest()
-            existing = inbox.db.execute("SELECT fingerprint FROM binding WHERE id=1").fetchone()
-            if existing and existing[0] != fingerprint:
+            from .binding import bind
+
+            try:
+                bind(inbox.db, settings)
+            except RuntimeError:
                 inbox.close()
-                raise RuntimeError(
-                    "WhatsApp account/address configuration changed; use a new private database"
-                )
-            with inbox.db:
-                inbox.db.execute("INSERT OR IGNORE INTO binding VALUES (1,?)", (fingerprint,))
+                raise
             # No pilot account/browser can be reached from the multi-user runtime.
             runtime_settings = (
                 settings.model_copy(

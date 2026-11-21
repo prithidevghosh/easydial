@@ -1,0 +1,32 @@
+services:
+  whatsapp:
+    image: ${EASYDIAL_IMAGE:?Use an immutable image digest}
+    platform: linux/amd64
+    restart: unless-stopped
+    stop_grace_period: 90s
+    env_file: /run/easydial/runtime.env
+    environment:
+      WHATSAPP_PUBLIC_URL: ${EASYDIAL_PUBLIC_URL:?CloudFront HTTPS origin required}
+      WHATSAPP_MULTIUSER: 'true'
+      WHATSAPP_DATABASE: /data/whatsapp.sqlite3
+      CUSTOMER_SESSION_DIRECTORY: /data/customers
+      BROWSER_CHANNEL: chrome
+      BROWSER_HEADLESS: 'true'
+      BLINKIT_BROWSER_HEADLESS: 'false'
+    volumes:
+      - /srv/easydial:/data
+    ports:
+      - '80:8001'
+      # Browser recovery is reachable only via an authenticated SSM port-forward.
+      - '127.0.0.1:5901:5901'
+    shm_size: 1gb
+    mem_limit: 5g
+    pids_limit: 512
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: awslogs
+      options:
+        awslogs-region: ${AWS_REGION}
+        awslogs-group: ${LOG_GROUP}
+        awslogs-stream: whatsapp
