@@ -1,7 +1,7 @@
 import asyncio
 import re
 from contextlib import asynccontextmanager
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 from ..controller import DomainError
 from ..models import Offer, Provider, Review, SearchResult, SessionView
@@ -179,6 +179,12 @@ class BlinkitProvider:
             "div[class*='CartDrawer'], div[class*='CartSidebar'], div.cart-modal-rn, div[class*='CartWrapper__CartContainer']"
         ).first
         if not await drawer.is_visible():
+            # Blinkit's search route can open a permanently empty React modal.
+            # Its homepage mounts the cart UI reliably; keep this same context so
+            # confirmed quantities survive. Navigation never replays an ADD click.
+            if urlsplit(page.url).path.rstrip("/") == "/s":
+                await goto_with_retry(page, "https://blinkit.com/", wait_until="domcontentloaded", timeout=20000)
+                await self.browser.check_page(page)
             button = page.locator("div[class*='CartButton__Button']").first
             await button.wait_for(state="visible")
             # During hydration Blinkit renders a disabled, apparently empty cart

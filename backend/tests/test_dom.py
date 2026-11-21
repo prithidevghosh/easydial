@@ -749,3 +749,33 @@ async def test_blinkit_recovery_never_selects_missing_or_duplicate_address(page,
     with pytest.raises(BlinkitAddressError):
         await restore_saved_address(page, 'Flat 7, Road')
     assert not await page.evaluate('window.selected')
+
+
+async def test_blinkit_cart_opens_on_homepage_without_replaying_product_adds(page):
+    from easydial.providers.blinkit import BlinkitProvider
+
+    search = '''<button onclick="localStorage.quantity=Number(localStorage.quantity||0)+1">ADD</button>
+      <div class="CartButton__Button" onclick="document.body.innerHTML+='<div role=dialog><div></div></div>'">Cart</div>'''
+    home = '''<div class="CartButton__Button" onclick="document.querySelector('.cart-modal-rn').style.display='block'">Cart</div>
+      <div class="cart-modal-rn" style="display:none">
+        <div class="DefaultProductCard__Container">
+          <div class="ProductTitle">Diet Coke</div><div class="ProductVariant">330 ml</div>
+          <div class="AddToCart__UpdatedButtonContainer"></div>
+        </div><div class="BillCard__BillItemContainer">Items total<br>₹100</div>
+        <div class="CheckoutStrip__NetPriceText">₹100</div>
+        <div class="ListStrip__SubHeading">Test address</div>
+      </div><script>document.querySelector('.AddToCart__UpdatedButtonContainer').innerText=localStorage.quantity;</script>'''
+    await page.route('https://blinkit.com/**', lambda route: route.fulfill(
+        body=search if '/s/' in route.request.url else home, content_type='text/html; charset=utf-8'))
+    await page.goto('https://blinkit.com/s/?q=diet+coke')
+    await page.get_by_role('button', name='ADD').click(click_count=2)
+    worker = BlinkitProvider('', 'Test locality', 'Test address')
+    worker.guard.attempted = (('dietcoke', '330ml', 2),)
+    cart = await worker.read_cart(page)
+    assert page.url == 'https://blinkit.com/'
+    assert cart['items'] == [{'name': 'Diet Coke', 'pack': '330 ml', 'quantity': 2}]
+    assert cart['address'] == 'Test address'
+    assert cart['total'] == '₹100'
+    assert await page.evaluate('localStorage.quantity') == '2'
+    # Re-reading an already open cart must not navigate or toggle it closed.
+    assert await worker.read_cart(page) == cart

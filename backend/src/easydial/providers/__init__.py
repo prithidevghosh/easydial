@@ -1,4 +1,7 @@
 import asyncio
+import logging
+import traceback
+from pathlib import Path
 
 from ..controller import DomainError
 from ..models import Provider, SearchResult, SessionView
@@ -8,6 +11,8 @@ from .blinkit_location import BlinkitAddressError
 from .instamart import InstamartProvider
 from .proxy import configure_blinkit_proxy
 from .semantic_ranking import SemanticProductRanker
+
+log = logging.getLogger(__name__)
 
 
 class ProviderWorkers:
@@ -153,7 +158,13 @@ class ProviderWorkers:
             return await asyncio.wait_for(worker.review(session), timeout=150)
         except DomainError:
             raise
-        except Exception:
+        except Exception as error:
+            frames = traceback.extract_tb(error.__traceback__)
+            log.warning(
+                "Basket review failed: provider=%s category=%s frames=%s",
+                provider.value, type(error).__name__,
+                [(Path(f.filename).name, f.name, f.lineno) for f in frames if "/easydial/" in f.filename],
+            )
             raise DomainError(
                 "Could not verify the store basket. It may have changed. Review again; no order was placed.",
                 502,
