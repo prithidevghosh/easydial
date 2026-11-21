@@ -1,3 +1,13 @@
+# Explicit store-switch repair — 2026-11-21
+
+Inspected the retained conversation: the voice request correctly transcribed removal from Instamart and adding the same product on Blinkit. This was a harness error, not ASR: provider preference was absent from structured intent, choices were locked to the existing basket store, and free-form model clarification promised an unexecuted switch.
+
+Added target_provider and explicit switch_store intent, included current provider in model context, restricted provider calls/results to the requested store, and removed unchecked model promises from search replies. Stage a one-product store move without deleting the source basket; selecting the destination validates the new draft and clears the previously synced source cart before committing the switch. Pending moves block review/checkout of the old store. Unavailable destination never falls back. Basket changes, failed clearing and existing payment attempts remain guarded. Multi-item moves currently ask for clarification instead of silently deleting other lines.
+
+Validation: 139 standard tests passed (8 opt-in DOM tests skipped), followed by all 6 focused store-switch tests after adding destination-retention coverage; Ruff passed. Real-model gpt-4.1 evaluation: 27/27 passed, including the exact reported sentence, Hinglish move and compare-without-moving. Source/destination execution tests are synthetic; no live customer cart was changed for verification. See STORE_SWITCHING.md.
+
+---
+
 # WhatsApp ingress outage recovery — 2026-11-21
 
 Local server was healthy and prior replies were read, but no new inbound events arrived. The configured temporary Cloudflare hostname no longer resolved despite a running cloudflared process. Recreated the tunnel, updated private WHATSAPP_PUBLIC_URL, restarted the server, and verified/saved the new callback in the existing Meta dashboard. Public health and webhook challenge both returned HTTP 200; access token was valid at inspection. Added local/public health and last-inbound-age checks to the safe status tool. No order/payment events replayed. Fresh user test arrived, its reply was marked read, and the user confirmed replies work again.

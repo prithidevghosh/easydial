@@ -366,3 +366,14 @@ The project is complete only when an intended user can speak a supported-languag
 - [ ] Ongoing delivery/refund updates and new-order lifecycle after completion.
 
 Handoff: docs/POST_PAYMENT.md is the implementation contract and evidence record.
+
+## 2026-11-21 — Explicit store-switch correctness
+
+- [x] Verify reported transcription before changing ASR.
+- [x] Structured destination and switch intent; destination-only searches/cards.
+- [x] Stage replacement, validate source unchanged, clear synced source before switching draft.
+- [x] Block old-store checkout during pending switch and prohibit fallback on target failure.
+- [x] Regression tests and real-model intent evaluation.
+- [ ] General multi-item store migration with per-item replacement choices.
+
+See docs/STORE_SWITCHING.md.

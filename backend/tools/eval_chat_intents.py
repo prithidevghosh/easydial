@@ -199,6 +199,47 @@ CASES += [
 ]
 
 
+CASES += [
+    dict(
+        id="store_move_reported",
+        text="Please remove this order from Instamart and Blinkit pe same product add kar do.",
+        basket=True,
+        selected=True,
+        action="search",
+        term="milk",
+        quantity=2,
+        replaces="milk",
+        edits=[],
+        target_provider="blinkit",
+        switch_store=True,
+    ),
+    dict(
+        id="store_move_hinglish",
+        text="Instamart se hata ke Blinkit pe similar milk add karo",
+        basket=True,
+        selected=True,
+        action="search",
+        term="milk",
+        quantity=2,
+        replaces="milk",
+        edits=[],
+        target_provider="blinkit",
+        switch_store=True,
+    ),
+    dict(
+        id="store_compare_only",
+        text="Don't remove anything from Instamart, just compare milk prices on Blinkit",
+        basket=True,
+        action="search",
+        term="milk",
+        quantity=2,
+        edits=[],
+        target_provider="blinkit",
+        switch_store=False,
+    ),
+]
+
+
 def context(full):
     offers = {}
     for key, name in [("milk", "Amul Taaza Milk"), ("curd", "Nandini Curd")]:
@@ -227,6 +268,10 @@ def context(full):
 
 def failures(case, intent):
     errors = []
+    if "target_provider" in case and intent.target_provider != case["target_provider"]:
+        errors.append("target_provider")
+    if intent.switch_store != case.get("switch_store", False):
+        errors.append("switch_store")
     if intent.action not in case["action"].split("|"):
         errors.append("action")
     if sorted(e.line_id for e in intent.edits) != sorted(case["edits"]):

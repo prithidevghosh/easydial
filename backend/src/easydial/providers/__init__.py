@@ -60,7 +60,7 @@ class ProviderWorkers:
         for worker in self.workers:
             await worker.close()
 
-    async def search(self, query: str, address: str) -> list[SearchResult]:
+    async def search(self, query: str, address: str, provider: Provider | None = None) -> list[SearchResult]:
         async def run(provider, worker):
             try:
                 return await asyncio.wait_for(worker.search(query, address), timeout=45)
@@ -74,7 +74,11 @@ class ProviderWorkers:
                     message="Could not verify this store. Check the connection and try again; stock is unknown.",
                 )
 
-        return list(await asyncio.gather(*(run(p, w) for p, w in zip(Provider, self.workers))))
+        return list(
+            await asyncio.gather(
+                *(run(p, w) for p, w in zip(Provider, self.workers) if provider is None or p == provider)
+            )
+        )
 
     async def refresh_offer(self, offer, address):
         """Read only the selected store; never substitute a similarly named SKU/pack."""

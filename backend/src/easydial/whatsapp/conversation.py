@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 from ..billing import breakdown, can_choose_payment, fingerprint, table
 from ..controller import DomainError, Session, exact_comparison
 from ..master import INSTRUCTIONS
-from ..models import BasketLine, EditRequest, IntentEdit, Offer, RequestedProduct, SessionView, now
+from ..models import BasketLine, EditRequest, IntentEdit, Offer, Provider, RequestedProduct, SessionView, now
 from ..providers.cart_guard import CartConflict
 from ..providers.images import product_image_url
 from . import reconciliation
@@ -37,6 +37,8 @@ class ChatIntent(BaseModel):
     clarification: str
     replaces_line_id: str | None = None
     unclear_request: bool = False
+    target_provider: Provider | None = None
+    switch_store: bool = False
 
 
 class SelectionDecision(BaseModel):
@@ -156,7 +158,18 @@ whether "rehne do" means keep or cancel, ask rather than removing. Explicit "hat
 If a target is genuinely ambiguous, clarify; otherwise complete both parts without asking the user to repeat.
 Adding a different product keeps every existing basket line. Do not infer replacement or store
 switching from a request for another product. Only explicit replacement sets replaces_line_id.
-The selectable options for an existing basket belong to its store; other-store prices are comparison only.
+Set target_provider to the explicitly requested search store, otherwise null. Never choose the
+existing store instead of the requested store. Include provider in contextual reasoning.
+For "remove this from Instamart and add the same/similar product on Blinkit", return search,
+target_provider=blinkit, switch_store=true, and a query preserving the basket product name,
+pack and quantity with replaces_line_id. NO remove edits: the harness stages this replacement
+until a destination product is selected. Reverse directions work the same way.
+Only set switch_store for an explicit request to move/replace the basket at another store;
+"compare Blinkit prices", "don't switch", or adding a different product are NOT store switches.
+For a requested store when the basket is empty, use search with target_provider and switch_store=false.
+If multiple basket items make the move ambiguous, ask which entire basket should be used.
+Without an explicit store switch, existing-basket choices remain in its store; other-store prices
+are comparison only. Never claim a store was changed in clarification.
 Stop pauses this chat; do not interpret 'don't place an order yet, compare milk' as opt-out.
 Return empty queries/edits unless needed, null offer_id/quantity unless selecting.
 Use short, everyday language: one short sentence where possible. Avoid technical words and repeated disclaimers.
@@ -174,6 +187,7 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
                     "CURRENT_BASKET": [
                         {
                             "line_id": line.id,
+                            "provider": line.offer.provider.value,
                             "name": line.offer.name,
                             "pack_size": line.offer.pack_size,
                             "quantity": line.quantity,
@@ -526,12 +540,29 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
             and (
                 intent.action in {"edit", "select", "review", "checkout", "payment", "restore"}
                 or intent.edits
+                or intent.switch_store
             )
             and self.payments.existing(customer, session.view.id)
         ):
             raise DomainError(
                 "An order or payment request already exists. Check the store’s Orders page before starting another."
             )
+        if state.get("store_switch") and intent.action in {"review", "checkout", "payment"}:
+            target_store = state["store_switch"]["target"].title()
+            replies = [
+                text_message(
+                    f"Choose your {target_store} replacement first. Your old basket has not been moved yet."
+                )
+            ]
+            if state["choices"]:
+                replies.extend(self.choice_messages(session, state["choices"]))
+            else:
+                replies.append(
+                    text_message(
+                        f"I couldn’t find an available {target_store} option. Tell me another brand or pack size to search."
+                    )
+                )
+            return state, replies
         if progress:
             progress.update(
                 {
@@ -555,18 +586,57 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
             line_ids = {line.id for line in session.view.lines}
             if len(intent.edits) > 10 or any(e.line_id not in line_ids for e in intent.edits):
                 raise DomainError("Which basket item would you like to change?")
-            batches = await asyncio.gather(
-                *(self.workers.search(q.query, session.view.address_label) for q in intent.queries)
+            source = session.view.synced_provider or (
+                session.view.lines[0].offer.provider if session.view.lines else None
             )
-            for edit in intent.edits:
-                session.edit(EditRequest(**edit.model_dump(), expected_version=session.view.version))
+            pending_target = (
+                state.get("store_switch", {}).get("target") if state.get("store_switch") else None
+            )
+            target_store = intent.target_provider or (Provider(pending_target) if pending_target else None)
+            switching = bool(
+                (intent.switch_store or pending_target) and target_store and source and target_store != source
+            )
+            if intent.switch_store and not target_store:
+                raise DomainError("Which store would you like to switch to?")
+            if switching and (len(session.view.lines) != 1 or len(intent.queries) != 1):
+                raise DomainError(
+                    "I can move one selected product between stores at a time. Which product should the new basket contain?"
+                )
+            if switching and intent.edits:
+                raise DomainError(
+                    "Please ask me to move the product without other basket changes, so I can keep it safe until you choose."
+                )
+            batches = await asyncio.gather(
+                *(
+                    self.workers.search(q.query, session.view.address_label, provider=target_store)
+                    if target_store
+                    else self.workers.search(q.query, session.view.address_label)
+                    for q in intent.queries
+                )
+            )
+            if not switching:
+                for edit in intent.edits:
+                    session.edit(EditRequest(**edit.model_dump(), expected_version=session.view.version))
             results = []
             choices = []
-            basket_store = session.view.synced_provider or (
-                session.view.lines[0].offer.provider if session.view.lines else None
+            basket_store = (
+                target_store
+                or session.view.synced_provider
+                or (session.view.lines[0].offer.provider if session.view.lines else None)
+            )
+            state["store_switch"] = (
+                {
+                    "source": source.value,
+                    "target": target_store.value,
+                    "lines": [x.model_dump(mode="json") for x in session.view.lines],
+                }
+                if switching
+                else None
             )
             for query, batch in zip(intent.queries, batches):
                 for result in batch:
+                    if target_store and result.provider != target_store:
+                        continue
                     for offer in result.offers:
                         offer.suggested_quantity = query.quantity
                         offer.replaces_line_id = query.replaces_line_id
@@ -600,8 +670,15 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
                         else "I couldn’t find a match. Try a brand or pack size."
                     )
                 )
-            if intent.clarification:
-                replies.append(text_message(intent.clarification))
+            if switching:
+                replies.append(
+                    text_message(
+                        f"Choose a {target_store.value.title()} replacement below. Your {source.value.title()} basket stays unchanged until you choose."
+                        if state["choices"]
+                        else f"I couldn’t find an available {target_store.value.title()} replacement. Your {source.value.title()} basket is unchanged."
+                    )
+                )
+            # Search replies describe actual results, never unexecuted model promises.
             if state["choices"]:
                 replies.append(product_messages[-1])
         elif intent.action == "select":
@@ -613,7 +690,13 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
                 session.view.lines[0].offer.provider if session.view.lines else None
             )
             # Recover old mixed-store menus without deleting items or silently substituting a product.
-            if basket_store and offer.provider != basket_store:
+            pending_switch = state.get("store_switch")
+            switching = bool(pending_switch and pending_switch["target"] == offer.provider.value)
+            if switching and pending_switch["lines"] != [
+                x.model_dump(mode="json") for x in session.view.lines
+            ]:
+                raise DomainError("Your basket changed. Please ask me to move the updated basket again.")
+            if basket_store and offer.provider != basket_store and not switching:
                 state["choices"] = [
                     id for id in state["choices"] if session.offers[id].provider == basket_store
                 ]
@@ -675,15 +758,39 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
                         *self.choice_messages(session, [fresh.id]),
                     ]
                 offer = fresh
-            session.edit(
-                EditRequest(
-                    kind="replace" if replacement else "add",
-                    offer_id=offer.id,
-                    line_id=replacement,
-                    quantity=quantity,
-                    expected_version=session.view.version,
+            if switching:
+                # Validate the destination draft before any source-cart mutation.
+                candidate = Session(view=session.view.model_copy(deep=True), offers=session.offers)
+                candidate.view.lines = []
+                candidate.view.synced_provider = None
+                candidate.edit(
+                    EditRequest(
+                        kind="add",
+                        offer_id=offer.id,
+                        quantity=quantity,
+                        expected_version=candidate.view.version,
+                    )
                 )
-            )
+                if session.view.synced_provider:
+                    empty = session.view.model_copy(deep=True)
+                    empty.lines = []
+                    if progress:
+                        progress.update(f"Removing the old item from {basket_store.value.title()}…")
+                    await self.workers.clear(empty)
+                session = candidate
+                state["cart_checkpoint"] = None
+                state["store_switch"] = None
+                replacement = None
+            if not switching:
+                session.edit(
+                    EditRequest(
+                        kind="replace" if replacement else "add",
+                        offer_id=offer.id,
+                        line_id=replacement,
+                        quantity=quantity,
+                        expected_version=session.view.version,
+                    )
+                )
             selected_line = next(line for line in session.view.lines if line.offer.id == offer.id)
             state["recent_selection"] = {
                 "choices": menu_ids,
