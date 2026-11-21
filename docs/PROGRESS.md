@@ -24,7 +24,7 @@ Build authorized by the user after the research phase. Native SwiftUI iOS app an
 - Native iOS simulator build: succeeded with Xcode 26.5.
 - iPhone 17 simulator UI test: sample search → add → basket → review → explicit sample confirmation → no-real-order result, passed after design refinement.
 - Simulator screenshots inspected for layout; actual older-user usability, VoiceOver and physical-device microphone testing are outstanding.
-- GitHub workflow results should be checked after the CI commit; local checks are not evidence of remote CI completion.
+- GitHub Actions run 44871504663 at commit `3a54310`: backend checks and iOS simulator build both passed. https://github.com/prithidevghosh/easydial/actions/runs/44871504663
 
 ## Outstanding work and blockers
 

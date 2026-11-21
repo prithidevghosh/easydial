@@ -272,7 +272,6 @@ The project is complete only when an intended user can speak a supported-languag
 | Date | Checkpoint | Result | Next |
 | --- | --- | --- | --- |
 | 2026-11-21 | Build authorization and environment | Xcode 26.5, Swift 6.3.2, Python 3.11 and uv available; no OpenAI key in process environment | Foundation, typed controller and provider discovery |
-
 | 2026-11-21 | Backend foundation | 13 tests pass, read-only provider adapters, structured OpenAI intent/audio endpoints; no credentials used | Live auth and provider smoke tests pending |
-| 2026-11-21 | iOS initial journey | Simulator build and first sample journey passed; premium/soothing layout revision underway | Recheck revised UI and publish focused commit |
-| 2026-11-21 | GitHub | Public repository created; research, plan and backend commits pushed | iOS, CI and final handoff commits |
+| 2026-11-21 | iOS initial journey | Revised sample UI journey and final simulator build passed | Physical-device audio and target-user testing pending |
+| 2026-11-21 | GitHub | Public repository; research, plan, backend, iOS, CI and handoff commits pushed | Remote backend and iOS CI passed (run 44871504663); credentialed validation next |

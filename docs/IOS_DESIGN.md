@@ -9,7 +9,7 @@ Build date: 2026-11-21. Native SwiftUI, iOS 17+.
 - Sky blue `#E8F0FC`: calm voice-control surround and assistant response.
 - Ink `#18263D`: readable text.
 - Slate `#52647E`: supporting text with adequate contrast.
-- Amber `#FFF0CE`: explicit sample-mode notice.
+- Pale blue sample notice: clear disclosure with restrained visual weight.
 
 Use Apple's rounded system face for the app identity and large voice invitation; system text styles for product details, scalable with Dynamic Type. Product prices align with their product, not a floating dashboard statistic. Keep the main voice control central and supporting content left aligned.
 
