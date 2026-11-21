@@ -1,3 +1,11 @@
+# Latest operational update — 2026-11-21
+
+User completed Meta app creation and filled private `.env`. Presence checks now pass for Meta/OpenAI settings, FFmpeg and store address. A read-only Meta API request verified sender access. OpenAI API calls and real inbound/outbound WhatsApp delivery are still unverified.
+
+WhatsApp service restarted on loopback port 8001; older port-8000 API stopped to avoid shared Chrome-profile conflicts. A temporary Cloudflare HTTPS tunnel is running. Public GET webhook challenge passed, and unsigned POST returned 403. The user must save the callback URL/verify token in Meta and subscribe to `messages`, then initiate the chat from the allowlisted tester. No message, cart mutation, payment or order was triggered during this setup check. Temporary tunnel URLs are runtime details and change on restart.
+
+---
+
 # Progress and handoff
 
 Updated 2026-11-21. Public repo: https://github.com/prithidevghosh/easydial.
