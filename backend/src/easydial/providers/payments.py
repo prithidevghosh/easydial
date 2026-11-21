@@ -14,6 +14,7 @@ from ..billing import fingerprint
 from ..controller import DomainError
 from ..models import Provider
 from .blinkit import cart_signature, normalized
+from .money import paise
 
 STORE_CHECKOUT = {
     Provider.BLINKIT: "https://blinkit.com/checkout",
@@ -68,7 +69,14 @@ async def open_options(worker, view, review, page):
             await asyncio.sleep(0.25)
         raise DomainError("Blinkit payment options did not load. Try again later.")
     await page.get_by_text("Payment Options", exact=True).wait_for()
+    verify_instamart_payment_total(await page.locator("body").inner_text(), review.total_paise)
     return page
+
+
+def verify_instamart_payment_total(text, approved_paise):
+    amounts = re.findall(r"\bTotal:\s*₹\s*([\d,]+(?:\.\d{1,2})?)", text)
+    if not amounts or any(paise(value) != approved_paise for value in amounts):
+        raise DomainError("Instamart’s payment amount changed or could not be verified. No payment was started.")
 
 
 async def options(worker, view, review):

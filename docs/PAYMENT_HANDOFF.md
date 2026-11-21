@@ -6,7 +6,7 @@ The user authorized generating payment requests/links, but not authorizing a pay
 
 ## Implemented journey
 
-1. Review the basket and show the complete reconciled bill, including small-cart/minimum-order fee warnings.
+1. Review the basket and show the complete observed bill, including small-cart/minimum-order fee warnings. For Instamart, disclose any difference between listed charges and the merchant payable amount without naming it rounding. A readable bill can proceed to method selection only after confirming the merchant payable; the payment screen must independently display exactly that amount. Unknown charges or conflicting merchant totals remain blocked.
 2. **Choose payment** rechecks the cart/address/bill and reads the real store payment screen. Present the visible categories in WhatsApp; do not invent absent UPI/card/wallet options.
 3. The user's versioned selection chooses the next step:
    - **Blinkit UPI:** recheck again, open UPI and click only **Generate QR**. Read the provider's visible QR, decode it, require UPI/INR, a merchant/payment reference and an exact amount match. Read the displayed expiry.
@@ -37,3 +37,21 @@ Set private `WHATSAPP_PUBLIC_URL` to the HTTPS origin of the WhatsApp service. T
 - UPI app handling from an iPhone/WhatsApp browser varies; the page also displays the original QR for scan/import. Real phone opening and paid-order completion have not been tested.
 - A card/wallet/bank checkout URL does not transfer the automation browser's authenticated session. The customer must sign in to the same store account and check the final bill.
 - Expired/unknown attempts require deliberate operator/provider reconciliation; do not delete attempt records to force a retry.
+
+
+## 2026-11-21 — Confirmed amount to live method menu
+
+Read-only live evidence: Instamart Payment Options and each inspected method page show `1 item. Total: ₹156`. Website cart and its own response report listed components/subTotal ₹156.30 and toPay ₹156.00. The UI now discloses both without manufacturing a rounding/discount line. `can_choose_payment` permits this fully readable Instamart bill to reach method inspection; the arithmetic reconciliation flag remains false. `open_options` requires an exact independent payment-screen amount match before returning a menu. Missing or different amounts fail without recording payment preparation. Revalidation of items, quantities, address and bill fingerprint remains mandatory. Payment authorization/order submission remain separate work.
+
+Live Instamart options and inputs:
+
+| Option | Observed screen | User input / next step |
+| --- | --- | --- |
+| Cards | Saved card and Add New Card | New card: number, expiry MM/YY, CVV, name, optional nickname; issuer authentication on provider screen. Never collect these in WhatsApp. |
+| Wallets | PhonePe (Wallet/UPI/Cards), Amazon Pay, MobiKwik | Choose provider. PhonePe/MobiKwik show Link Account. Complete account login/linking and any OTP in provider UI; approve in provider/app as required. No OTP was requested during inspection. |
+| Netbanking | Popular and full bank list | Choose bank, then authenticate and approve on bank-controlled page. No bank credentials entered during inspection. |
+| Pay on Delivery | Cash/Pay on Delivery, pay cash at delivery | Explicit order-placement confirmation required; no online credentials. Do not promise doorstep UPI from this cash-only detail screen. |
+
+No standalone Instamart UPI category appeared; PhonePe is listed under wallets with UPI in its label. No transferable payment link for that route has been verified.
+
+Blinkit reinspection was blocked by its browser verification. Previously observed: UPI, Cards, Wallets, Netbanking, Cash, Pay Later. UPI QR requires approval in the customer's UPI app, not a PIN in WhatsApp. Other routes require respective provider authentication; current wallet/pay-later brands and eligibility are unverified. Do not present historical categories as fresh live verification.

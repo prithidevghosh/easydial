@@ -111,3 +111,5 @@ Read actual provider payment categories and let the customer choose. Generate Bl
 2026-11-21: Review actions must match bill validity. Unreconciled totals offer Recheck total, never Choose payment. Do not infer rounding or promise website-to-mobile cart synchronization without evidence.
 
 2026-11-21: Supersede manual bill retry UX with bounded automatic read-only revalidation at review/checkout/payment. Expiry triggers refresh, not user troubleshooting. Persistent discrepancies remain blocked without guessing amounts; no claim of background monitoring.
+
+2026-11-21: Separate arithmetic reconciliation from verified merchant payable at method selection. For readable Instamart bills, disclose the difference, require user confirmation of merchant payable and independently match it on the payment screen. Never synthesize a rounding line. Method selection is not payment authorization.

@@ -7,7 +7,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
-from ..billing import breakdown, fingerprint, table
+from ..billing import breakdown, can_choose_payment, fingerprint, table
 from ..controller import DomainError, Session, exact_comparison
 from ..master import INSTRUCTIONS
 from ..models import BasketLine, EditRequest, IntentEdit, Offer, RequestedProduct, SessionView, now
@@ -753,13 +753,14 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
             fresh = await self.workers.revalidate(session.view)
             fresh = await self.resolve_bill(session, fresh, progress)
             session.view.payment_preparation = None
-            if expired or not breakdown(fresh)["reconciled"] or fingerprint(session.view, fresh) != fingerprint(session.view, review):
+            if expired or not can_choose_payment(fresh) or fingerprint(session.view, fresh) != fingerprint(session.view, review):
                 session.accept_review(session.view.version, fresh)
                 state["payment_menu"] = None
-                if breakdown(fresh)["reconciled"]:
+                if can_choose_payment(fresh):
                     replies.append(text_message("Here’s the latest bill. Please check it before continuing."))
                 replies.extend(self.review_messages(session))
             else:
+                methods = await self.workers.payment_options(session.view, fresh)
                 session.confirm(session.view.version, review.id, True)
                 session.view.payment_preparation = {
                     "status": "approved_for_preparation_only",
@@ -770,7 +771,6 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
                     "total_paise": fresh.total_paise,
                     "breakdown": breakdown(fresh),
                 }
-                methods = await self.workers.payment_options(session.view, fresh)
                 menu = {
                     "id": uuid4().hex,
                     "review_id": review.id,
@@ -785,7 +785,7 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
             review = session.view.review
             fresh = await self.workers.revalidate(session.view)
             fresh = await self.resolve_bill(session, fresh, progress)
-            if not breakdown(fresh)["reconciled"] or fingerprint(session.view, fresh) != fingerprint(session.view, review):
+            if not can_choose_payment(fresh) or fingerprint(session.view, fresh) != fingerprint(session.view, review):
                 session.accept_review(session.view.version, fresh)
                 state["payment_menu"] = None
                 replies = [
@@ -886,10 +886,10 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
 
     async def resolve_bill(self, session, review, progress=None):
         """Bounded read-only recovery; never repeat cart writes or infer missing charges."""
-        if progress and not breakdown(review)["reconciled"]:
+        if progress and not can_choose_payment(review):
             progress.update("Double-checking the store’s total…")
         for _ in range(2):
-            if breakdown(review)["reconciled"]:
+            if can_choose_payment(review):
                 return review
             try:
                 review = await self.workers.revalidate(session.view)
@@ -905,7 +905,7 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
         items = "\n".join(
             f"• {line.quantity} × {line.offer.name} ({line.offer.pack_size})" for line in session.view.lines
         )
-        reconciled = breakdown(review)["reconciled"]
+        reconciled = can_choose_payment(review)
         next_step = (
             "Tap Choose payment to continue, or tell me what to change."
             if reconciled else
@@ -918,7 +918,7 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
                 f"{next_step}"
             )
         ]
-        if breakdown(review)["reconciled"]:
+        if can_choose_payment(review):
             replies.append(
                 {
                     "type": "interactive",

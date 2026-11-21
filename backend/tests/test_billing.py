@@ -292,3 +292,53 @@ async def test_blocked_bill_buttons_preserve_basket_and_do_not_call_provider(tmp
     with pytest.raises(DomainError):
         await runtime.chat.handle("button", state, action + "old")
     runtime.inbox.close()
+
+
+def test_instamart_disclosed_difference_allows_menu_not_fabricated_rounding():
+    from easydial.billing import can_choose_payment
+    from easydial.controller import Session
+    from easydial.whatsapp.conversation import ShoppingChat
+    bill = review([
+        ("Item Total", "₹85"), ("Handling Fee", "₹12"),
+        ("Small Cart Fee", "₹23.60"), ("Delivery Partner Fee", "₹35.70"),
+        ("To Pay", "₹156"),
+    ], 8500, 15600)
+    bill.provider = Provider.INSTAMART
+    assert not breakdown(bill)["reconciled"]
+    assert can_choose_payment(bill)
+    assert "Listed charges: ₹156.30" in table(bill)
+    assert "rounding" not in table(bill).lower()
+    session = Session(SessionView(id="test", mode="live", address_label="home", review=bill))
+    replies = ShoppingChat.review_messages(session)
+    assert replies[-1]["interactive"]["action"]["buttons"][0]["reply"]["title"] == "Choose payment"
+    bill.bill_lines[1]["value"] = "unknown"
+    assert not can_choose_payment(bill)
+
+
+@pytest.mark.parametrize("text", ["Total: ₹157", "No amount", "Total: ₹156\nTotal: ₹157"])
+def test_instamart_payment_screen_rejects_missing_or_changed_amount(text):
+    from easydial.providers.payments import verify_instamart_payment_total
+    with pytest.raises(DomainError):
+        verify_instamart_payment_total(text, 15600)
+
+
+def test_instamart_payment_screen_confirms_exact_amount():
+    from easydial.providers.payments import verify_instamart_payment_total
+    verify_instamart_payment_total("Payment Options\n1 item. Total: ₹156", 15600)
+
+
+async def test_failed_payment_menu_does_not_record_approval(tmp_path):
+    runtime = make_runtime(tmp_path)
+    state, _ = await runtime.chat.handle("milk", runtime.chat.initial())
+    state, _ = await runtime.chat.handle("1", state)
+    state, _ = await runtime.chat.handle("review", state)
+
+    async def fail(*args):
+        raise DomainError("Payment amount changed")
+
+    runtime.chat.workers.payment_options = fail
+    with pytest.raises(DomainError):
+        await runtime.chat.handle("checkout", state)
+    assert state["view"]["payment_preparation"] is None
+    assert not state.get("payment_menu")
+    runtime.inbox.close()

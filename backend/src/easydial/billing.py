@@ -63,7 +63,13 @@ def breakdown(review):
         and all(value is not None for value in components)
         and subtotal + sum(components) == review.total_paise
     )
-    if not reconciled:
+    if not reconciled and review.provider.value == "instamart" and readable and subtotal is not None and review.total_paise is not None and all(value is not None for value in components):
+        warnings.append(
+            f"Listed charges: {money(subtotal + sum(components))}. "
+            f"Instamart asks for {money(review.total_paise)}. "
+            "We’ll verify this amount on its payment screen before continuing."
+        )
+    elif not reconciled:
         warnings.append(
             "I rechecked, but the store’s charges still don’t match its total. I can’t continue to payment yet."
         )
@@ -71,6 +77,23 @@ def breakdown(review):
         {"label": "TOTAL PAYABLE", "value": money(review.total_paise), "amount_paise": review.total_paise}
     )
     return {"rows": rows, "warnings": warnings, "reconciled": reconciled}
+
+
+def can_choose_payment(review):
+    """A disclosed Instamart discrepancy permits menu inspection, not an inferred adjustment.
+
+    Its payment screen must independently confirm the approved merchant total.
+    """
+    summary = breakdown(review)
+    return summary["reconciled"] or (
+        review.provider.value == "instamart"
+        and review.total_paise is not None
+        and review.total_paise > 0
+        and review.item_subtotal_paise is not None
+        and bool(review.bill_lines)
+        and all(row["amount_paise"] is not None for row in summary["rows"])
+        and all(amount(line["value"]) == review.total_paise for line in review.bill_lines if line["label"].strip().casefold() in TOTALS)
+    )
 
 
 def money(value):

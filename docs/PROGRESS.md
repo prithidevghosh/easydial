@@ -1,3 +1,13 @@
+# Confirmed bill to live payment options — 2026-11-21
+
+Implemented the requested Instamart journey: disclose listed charges versus merchant payable, accept confirmation of the payable amount, then independently verify that exact amount on the merchant payment screen before returning live methods. Do not invent rounding or mark arithmetic reconciled. Unknown charges/conflicting totals remain blocked; cart/address/fingerprint validation remains. Approval state is recorded only after successful method/amount inspection.
+
+Live end-to-end harness test on a private in-memory copy of the current draft reached Cards, Wallets, Netbanking, Pay on delivery at ₹156. No customer draft persisted, no WhatsApp message sent, no method chosen and no payment/order submitted. Method subpages inspected read-only; inputs documented in PAYMENT_HANDOFF.md. Blinkit headless recheck blocked; headed follow-up requested by user.
+
+Validation: 114 tests passed, 7 DOM skipped; Ruff passed. New tests cover disclosed discrepancy, unknown charge rejection, payment-screen amount match/mismatch/missing amounts and no approval on failed menu retrieval.
+
+---
+
 # Instamart bill discrepancy investigation — 2026-11-21
 
 Read-only inspection of the authenticated website and its own cart response confirms the mismatch is upstream of WhatsApp formatting. Visible current fees are ₹85 + ₹12 + ₹23.60 + ₹35.70, with ₹156 To Pay. Cart response billBreakupDetails.subTotal and subtotalWithoutDiscounts are 156.3; bill.toPay is 156.0. No explicit rounding field was found. Handling fee has a struck-out prior price; the DOM correctly excludes it. No inferred adjustment added, no cart mutation or payment operation performed. Do not claim the discrepancy resolved.
