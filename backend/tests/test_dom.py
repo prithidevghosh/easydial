@@ -779,3 +779,59 @@ async def test_blinkit_cart_opens_on_homepage_without_replaying_product_adds(pag
     assert await page.evaluate('localStorage.quantity') == '2'
     # Re-reading an already open cart must not navigate or toggle it closed.
     assert await worker.read_cart(page) == cart
+
+
+@pytest.mark.parametrize("partial_first", [False, True])
+async def test_blinkit_removing_first_row_does_not_read_the_next_products_quantity(page, monkeypatch, partial_first):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from easydial.providers.blinkit import BlinkitProvider
+
+    def row(name, pack):
+        return f'''<div class="DefaultProductCard__Container">
+          <div class="ProductTitle">{name}</div><div class="ProductVariant">{pack}</div>
+          <div class="AddToCart__UpdatedButtonContainer"><div class="AddToCart___StyledDiv-test">-</div>2<div class="AddToCart___StyledDiv2-test">+</div></div>
+        </div>'''
+    await page.set_content('<div class="cart-modal-rn">'+row('Diet Coke', '330 ml')+row('Cookies','100 g')+'<div class="BillCard__BillItemContainer">Items total<br>₹158</div><div class="CheckoutStrip__NetPriceText">₹158</div></div>')
+    await page.evaluate('''() => document.querySelectorAll('[class="AddToCart___StyledDiv-test"]').forEach(button => {
+      button.onclick = () => {
+        const stepper=button.parentElement;
+        const text=[...stepper.childNodes].find(node=>node.nodeType===Node.TEXT_NODE);
+        const count=Number(text.textContent)-1;
+        if (!count) stepper.parentElement.remove(); else text.textContent=String(count);
+        if (!document.querySelector('.DefaultProductCard__Container')) document.querySelector('.cart-modal-rn').append('Your cart is empty');
+      };
+    })''')
+    worker = BlinkitProvider('', 'Test locality')
+    from contextlib import asynccontextmanager
+
+    @asynccontextmanager
+    async def browser_page():
+        yield page, None
+
+    worker.browser_page = browser_page
+    worker.browser.save = AsyncMock()
+    monkeypatch.setattr('easydial.providers.blinkit.goto_with_retry', AsyncMock())
+    coke=SimpleNamespace(offer=SimpleNamespace(name='Diet Coke',pack_size='330 ml'))
+    cookies=SimpleNamespace(offer=SimpleNamespace(name='Cookies',pack_size='100 g'))
+    worker.guard.owner='order'
+    worker.guard.expected=(('dietcoke','330ml',2),('cookies','100g',2))
+    worker.previous_lines=[coke,cookies]
+    await page.evaluate('''() => document.querySelectorAll('[class="AddToCart___StyledDiv2-test"]').forEach(button => {
+      button.onclick = () => {
+        const text=[...button.parentElement.childNodes].find(node=>node.nodeType===Node.TEXT_NODE);
+        text.textContent=String(Number(text.textContent)+1);
+      };
+    })''')
+    await worker.set_quantity(page, coke, 1)
+    await worker.set_quantity(page, coke, 2)
+    if partial_first:
+        await worker.set_quantity(page, coke,0)
+        remaining=await page.locator('.cart-modal-rn').evaluate(blinkit_dom.CART)
+        assert remaining['items']==[{'name':'Cookies','pack':'100 g','quantity':2}]
+    await worker.clear('order')
+    assert not await page.locator('div[class*="DefaultProductCard__Container"]').count()
+    assert worker.guard.expected==()
+    await worker.clear('order')
+    assert worker.browser.save.await_count==2

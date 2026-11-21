@@ -116,3 +116,26 @@ async def test_replacing_pack_within_product_family_removes_previous_sku():
     )
     await worker.review(session)
     assert worker.writes[-2:] == [("127081", 0), ("127081", 2)]
+
+
+@pytest.mark.parametrize('actual,allowed', [
+    ((('milk', '500ml', 1),), True),
+    ((('cookies', '100g', 2),), True),
+    ((), True),
+    ((('milk', '500ml', 3),), False),
+    ((('other', '100g', 1),), False),
+])
+def test_explicit_clear_can_resume_only_reductions_of_owned_checkpoint(actual, allowed):
+    from easydial.providers.cart_guard import CartConflict, CartGuard
+
+    guard = CartGuard()
+    guard.owner = 'order'
+    guard.expected = (('milk', '500ml', 2), ('cookies', '100g', 2))
+    if allowed:
+        guard.check_clear('order', actual)
+    else:
+        with pytest.raises(CartConflict):
+            guard.check_clear('order', actual)
+    if actual:
+        with pytest.raises(CartConflict):
+            guard.check_clear('different-order', actual)

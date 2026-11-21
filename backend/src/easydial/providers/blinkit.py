@@ -259,7 +259,7 @@ class BlinkitProvider:
         ]
         if len(existing) == 1:
             current = existing[0]["quantity"]
-            for _ in range(abs(desired - current)):
+            async def matching_rows():
                 rows = page.locator("div.cart-modal-rn div[class*='DefaultProductCard__Container']")
                 matches = []
                 for i in range(await rows.count()):
@@ -270,6 +270,10 @@ class BlinkitProvider:
                         line.offer.pack_size
                     ):
                         matches.append(row)
+                return matches
+
+            for _ in range(abs(desired - current)):
+                matches = await matching_rows()
                 if len(matches) != 1:
                     raise DomainError("Blinkit's basket item changed. Inspect its cart before retrying.")
                 row = matches[0]
@@ -281,7 +285,12 @@ class BlinkitProvider:
                 expected = current + (1 if desired > current else -1)
                 await click_and_settle(page, row.locator(selector))
                 for _ in range(32):
-                    current = await row.evaluate(blinkit_dom.QUANTITY) if await row.count() else 0
+                    # nth() is positional: after deletion it can point at the
+                    # NEXT product. Re-identify the exact name and pack instead.
+                    remaining = await matching_rows()
+                    if len(remaining) > 1:
+                        raise DomainError("Blinkit's basket variants are ambiguous.")
+                    current = await remaining[0].evaluate(blinkit_dom.QUANTITY) if remaining else 0
                     if current == expected:
                         break
                     await asyncio.sleep(0.25)
@@ -487,7 +496,7 @@ class BlinkitProvider:
                 return await self.read_cart(page, resolve_address=False) if self.provider == Provider.BLINKIT else await self.read_cart(page)
 
             before = cart_signature(await read())
-            self.guard.check(session_id, before)
+            self.guard.check_clear(session_id, before)
             if before and not self.previous_lines:
                 raise DomainError(
                     "The store has a partially changed basket. Clear it in the store browser before continuing."

@@ -25,6 +25,21 @@ class CartGuard:
         if self.owner != session_id or actual not in (self.expected, self.attempted):
             raise CartConflict()
 
+    def check_clear(self, session_id: str, actual: tuple):
+        """Explicit clearing may resume after some owned items were removed.
+
+        Never adopt new products, increased quantities, or another draft's cart.
+        A failed deletion must not prevent clearing the remaining owned rows.
+        """
+        if not actual:
+            return self.check(session_id, actual)
+        expected = {(name, pack): quantity for name, pack, quantity in self.expected}
+        if self.owner != session_id or any(
+            (name, pack) not in expected or quantity > expected[name, pack]
+            for name, pack, quantity in actual
+        ):
+            raise CartConflict()
+
     def before_write(self, desired: tuple):
         self.attempted = desired
 

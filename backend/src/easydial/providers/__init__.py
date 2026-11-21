@@ -176,9 +176,15 @@ class ProviderWorkers:
         worker = self._worker(session.synced_provider)
         try:
             await asyncio.wait_for(worker.clear(session.id), timeout=150)
-        except DomainError:
-            raise
-        except Exception:
+        except Exception as error:
+            frames = traceback.extract_tb(error.__traceback__)
+            log.warning(
+                "Basket clear failed: provider=%s category=%s frames=%s",
+                session.synced_provider.value, type(error).__name__,
+                [(Path(f.filename).name, f.name, f.lineno) for f in frames if "/easydial/" in f.filename],
+            )
+            if isinstance(error, DomainError):
+                raise
             raise DomainError(
                 "The store did not confirm an empty basket. Check it before continuing.", 502
             ) from None

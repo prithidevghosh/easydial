@@ -27,6 +27,13 @@ jobs:
       - run: uvx --from cfn-lint==1.41.0 cfn-lint deploy/aws/infrastructure.yaml deploy/aws/github-oidc.yaml
       - name: Build Linux image
         run: docker build --platform linux/amd64 -f deploy/container/Dockerfile -t easydial:check .
+      - name: Browser cart and onboarding regressions
+        run: >-
+          docker run --rm --platform linux/amd64 --shm-size=1g
+          --entrypoint /bin/sh
+          --mount type=bind,src="$PWD/backend/tests",dst=/app/tests,readonly
+          -e EASYDIAL_DOM_TESTS=1
+          easydial:check -c 'uv run --frozen --group dev pytest -q tests/test_dom.py'
       - name: Verify Chrome in Linux
         run: >-
           docker run --rm --platform linux/amd64 --shm-size=1g
