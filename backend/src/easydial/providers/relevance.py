@@ -6,7 +6,12 @@ import re
 def matches_query(query, name, pack_size=None):
     aliases = {"dahi": "curd", "cokes": "coke", "popcorns": "popcorn",
                "litre": "l", "litres": "l", "liter": "l", "liters": "l",
-               "ltr": "l"}
+               "ltr": "l",
+               "cookies": "cookie", "biscuits": "biscuit", "chips": "chip",
+               "eggs": "egg", "apples": "apple", "bananas": "banana",
+               "oranges": "orange", "tomatoes": "tomato", "potatoes": "potato",
+               "onions": "onion", "chocolates": "chocolate", "bottles": "bottle",
+               "cans": "can", "nuts": "nut", "peanuts": "peanut"}
     stop = {"a", "an", "the", "of", "pack", "packs", "packet", "packets"}
 
     def tokens(value):

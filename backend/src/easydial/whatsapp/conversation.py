@@ -695,7 +695,7 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
                 replies.append(text_message("Looking for: " + "; ".join(
                     f"{q.quantity} × {q.query}" for q in intent.queries
                 ) + "."))
-            if state["unresolved_requests"]:
+            if state["unresolved_requests"] and choices:
                 missing = "; ".join(f"{q['quantity']} × {q['query']}" for q in state["unresolved_requests"])
                 replies.append(text_message(
                     f"I couldn’t find verified options for {missing}. These are still pending. "

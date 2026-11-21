@@ -469,3 +469,11 @@ Replaced the phone-rate-limit text dead end with Retry login, Use another number
 Regression coverage checks all three buttons, encrypted retry storage, no OTP during cooldown, successful retry after expiry/restart, stale-button protection and different-number isolation.
 
 Validation: 232 standard tests passed; 31 opt-in DOM tests skipped (UI browser code unchanged). Lint and diff checks passed. Server restarted with the updated onboarding responses.
+
+## 2026-11-21 — Singular grocery query rejected plural product names
+
+The reported voice request transcribed correctly as “Please order a cookie for me.” Persisted Blinkit search status was ok with zero accepted offers. Relevance filtering compared exact tokens, so cookie did not match cookies. Added explicit common grocery singular/plural normalization applied symmetrically to queries and catalogue names, preserving brand/variant/pack requirements. Removed the redundant unresolved-item text when no choices exist; the concise failure and retry/skip buttons remain, with the queued request retained.
+
+Live read-only search using the customer's consented Blinkit connection now returned multiple cookie products and prices, including chocolate cookies and butter cookies. No cart/address changes or order submission occurred. Added regressions for cookie/cookies, biscuit/biscuits, eggs, tomatoes, diet Coke variants and unrelated-product rejection.
+
+Validation: full standard suite passed (31 opt-in DOM tests skipped); final focused relevance suite passed all 17 tests. Lint/diff checks passed. Server restarted with the fix.

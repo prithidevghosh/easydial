@@ -15,3 +15,18 @@ from easydial.providers.relevance import matches_query
 ])
 def test_query_relevance(query, name, pack, expected):
     assert matches_query(query, name, pack) is expected
+
+
+@pytest.mark.parametrize('query,name,expected', [
+    ('cookie', 'Britannia Good Day Butter Cookies', True),
+    ('cookies', 'Chocolate Chip Cookie', True),
+    ('biscuit', 'Britannia Milk Bikis Biscuits', True),
+    ('egg', 'Farm Fresh Eggs', True),
+    ('tomatoes', 'Fresh Tomato', True),
+    ('diet cokes', 'Coca-Cola Diet Coke', True),
+    ('diet coke', 'Coca-Cola Original Taste', False),
+    ('milk', 'Milk Cookies', False),
+    ('cookie', 'Masala Puffs', False),
+])
+def test_plural_variants_preserve_required_product_tokens(query, name, expected):
+    assert matches_query(query, name) is expected
