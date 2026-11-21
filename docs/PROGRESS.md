@@ -525,3 +525,11 @@ Introduced a distinct not_found outcome after three consecutive successful histo
 The user requested treating absence as failure; the implementation ends the attempt's polling operationally but does not falsely assert merchant failure or automatically authorize duplicate submission. The existing unresolved COD attempt still needs definitive merchant resolution before safe resubmission. A regression verifies three independent clean polls, terminal not_found messaging and no repeated status-button prompt; late-confirmation and outage tests remain.
 
 Validation: 239 standard tests passed; 31 opt-in DOM tests skipped. Lint/diff checks passed; server restarted.
+
+## Checkout submission lifecycle and isolated history reads
+- Found that cash submission returned immediately after the final click; the subsequent five-second status check navigated the same browser tab to history. This could interrupt a merchant checkout still processing.
+- Cash submission now holds the provider lock and waits up to 30 seconds for visible order acknowledgement or a failure response. The timeout leaves the checkout page alive and does not claim failure or repeat the click.
+- All Blinkit/Instamart history reads now use a separate temporary tab in the same customer's browser context and close that tab in a finally block. Checkout and UPI QR pages remain untouched, including while payment completes asynchronously.
+- Existing history identity matching, three-check limits and separate final-order confirmation remain in place.
+- Validation: 244 backend tests passed (31 opt-in DOM tests skipped in that run). Added lifecycle tests for lock retention, single submission, timeout preservation and history-tab cleanup. No live order/payment submitted; actual merchant outcome still requires a customer-authorized test.
+- Opt-in Chrome DOM suite: 32 passed, including delayed order acknowledgement. Ruff and git diff checks passed.

@@ -9,6 +9,7 @@ from urllib.parse import parse_qs, urlsplit
 
 import zxingcpp
 from PIL import Image
+from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
 from ..billing import fingerprint
 from ..controller import DomainError
@@ -263,5 +264,26 @@ async def submit_cash(worker, view, review, before_submit):
         button = await cash_control(worker, view, review, page)
         before_submit()  # Commits the once-only reservation before the irreversible click.
         await button.click()
-        # History reconciliation outside the browser lock establishes success.
+        # A click only dispatches submission. Keep the checkout page and lock
+        # intact while the merchant processes it; never navigate it to history.
+        await wait_for_submission_response(page)
+        # History reconciliation on a separate tab establishes order identity.
         return {"status": "pending"}
+
+
+async def wait_for_submission_response(page):
+    """Wait for visible acknowledgement; timeout is uncertainty, not failure."""
+    try:
+        await page.wait_for_function(
+            r"""() => {
+                const text = document.body?.innerText || "";
+                return /order summary/i.test(text) && /order details/i.test(text)
+                    || /order (?:has been |is )?(?:placed|confirmed)/i.test(text)
+                    || /order (?:could not be placed|failed)/i.test(text)
+                    || /payment failed/i.test(text);
+            }""",
+            timeout=30000,
+        )
+    except PlaywrightTimeoutError:
+        # Leave the page alive: an asynchronous submission may still finish.
+        pass

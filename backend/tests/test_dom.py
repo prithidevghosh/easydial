@@ -607,3 +607,14 @@ async def test_instamart_otp_to_address_selection_ignores_duplicate_overlays(pag
     assert selected['location'] == 'Test locality'
     session.save.assert_awaited_once()
     assert await page.get_by_test_id('modal-overlay').count() == 2
+
+
+async def test_checkout_waits_for_delayed_order_acknowledgement(page):
+    from easydial.providers.payments import wait_for_submission_response
+
+    await page.set_content("<main>Processing your payment…</main>")
+    await page.evaluate("""() => setTimeout(() => {
+        document.querySelector('main').innerText = 'Order summary Arriving in 8 minutes Order details';
+    }, 250)""")
+    await wait_for_submission_response(page)
+    assert "Order summary" in await page.locator("body").inner_text()

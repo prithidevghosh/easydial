@@ -162,64 +162,71 @@ def parse_blinkit(card, text):
 
 
 async def read_history(worker, view, exclude_ids=None):
-    async with worker.lock, worker.browser_page() as (page, context):
-        if worker.provider == Provider.INSTAMART:
-            await page.goto("https://instamart.in", wait_until="domcontentloaded")
+    async with worker.lock, worker.browser_page() as (_checkout_page, context):
+        # Never navigate the live checkout/QR tab while the merchant may still be
+        # completing an order. The isolated tab shares this customer's cookies.
+        page = await context.new_page()
+        try:
+            if worker.provider == Provider.INSTAMART:
+                await page.goto("https://instamart.in", wait_until="domcontentloaded")
+                async with page.expect_response(
+                    lambda r: urlsplit(r.url).path == "/api/instamart/orders" and r.request.method == "GET",
+                    timeout=20000,
+                ) as response:
+                    await page.get_by_test_id("user-account-button").click()
+                payload = await (await response.value).json()
+                rows = payload.get("data", {}).get("orders")
+                if not isinstance(rows, list):
+                    raise DomainError("Order history is unavailable.")
+                ids = [str(r["order_id"]) for r in rows]
+                parsed = []
+                if exclude_ids is not None:
+                    for row in rows:
+                        if str(row["order_id"]) not in exclude_ids:
+                            try:
+                                value = parse_instamart(row)
+                                if value:
+                                    parsed.append(value)
+                            except (KeyError, ValueError, TypeError):
+                                continue
+                return {"ids": ids, "orders": parsed}
             async with page.expect_response(
-                lambda r: urlsplit(r.url).path == "/api/instamart/orders" and r.request.method == "GET",
-                timeout=20000,
+                lambda r: urlsplit(r.url).path == "/v1/layout/order_history", timeout=20000
             ) as response:
-                await page.get_by_test_id("user-account-button").click()
+                await page.goto("https://blinkit.com/account/orders", wait_until="domcontentloaded")
             payload = await (await response.value).json()
-            rows = payload.get("data", {}).get("orders")
-            if not isinstance(rows, list):
+            if not payload.get("is_success"):
                 raise DomainError("Order history is unavailable.")
-            ids = [str(r["order_id"]) for r in rows]
-            parsed = []
+            cards = [s["data"] for s in payload["response"]["snippets"] if s.get("data", {}).get("identity")]
+            ids = [c["identity"]["id"] for c in cards]
+            results = []
+            issues = []
             if exclude_ids is not None:
-                for row in rows:
-                    if str(row["order_id"]) not in exclude_ids:
-                        try:
-                            value = parse_instamart(row)
-                            if value:
-                                parsed.append(value)
-                        except (KeyError, ValueError, TypeError):
-                            continue
-            return {"ids": ids, "orders": parsed}
-        async with page.expect_response(
-            lambda r: urlsplit(r.url).path == "/v1/layout/order_history", timeout=20000
-        ) as response:
-            await page.goto("https://blinkit.com/account/orders", wait_until="domcontentloaded")
-        payload = await (await response.value).json()
-        if not payload.get("is_success"):
-            raise DomainError("Order history is unavailable.")
-        cards = [s["data"] for s in payload["response"]["snippets"] if s.get("data", {}).get("identity")]
-        ids = [c["identity"]["id"] for c in cards]
-        results = []
-        issues = []
-        if exclude_ids is not None:
-            for card in cards:
-                if card["identity"]["id"] in exclude_ids:
-                    continue
-                # This URL is constructed only from the observed history-card deep link.
-                link = urlsplit(card.get("click_action", {}).get("blinkit_deeplink", {}).get("url", ""))
-                params = parse_qs(link.query)
-                cart = params.get("cart_id", [""])[0]
-                order = params.get("order_id", [""])[0]
-                if not cart.isdigit() or not order.isdigit():
-                    issues.append("unreadable_history_link")
-                    continue
-                await page.goto(
-                    f"https://blinkit.com/account/orders/{cart}/{order}", wait_until="domcontentloaded"
-                )
-                await page.get_by_text("Order details", exact=True).wait_for()
-                try:
-                    parsed = parse_blinkit(card, await page.locator("body").inner_text())
-                except (KeyError, ValueError, TypeError, IndexError):
-                    issues.append("unreadable_order_details")
-                    continue
-                if parsed:
-                    results.append(parsed)
-                else:
-                    issues.append("missing_order_items")
-        return {"ids": ids, "orders": results, "issues": sorted(set(issues))}
+                for card in cards:
+                    if card["identity"]["id"] in exclude_ids:
+                        continue
+                    # This URL is constructed only from the observed history-card deep link.
+                    link = urlsplit(card.get("click_action", {}).get("blinkit_deeplink", {}).get("url", ""))
+                    params = parse_qs(link.query)
+                    cart = params.get("cart_id", [""])[0]
+                    order = params.get("order_id", [""])[0]
+                    if not cart.isdigit() or not order.isdigit():
+                        issues.append("unreadable_history_link")
+                        continue
+                    await page.goto(
+                        f"https://blinkit.com/account/orders/{cart}/{order}", wait_until="domcontentloaded"
+                    )
+                    await page.get_by_text("Order details", exact=True).wait_for()
+                    try:
+                        parsed = parse_blinkit(card, await page.locator("body").inner_text())
+                    except (KeyError, ValueError, TypeError, IndexError):
+                        issues.append("unreadable_order_details")
+                        continue
+                    if parsed:
+                        results.append(parsed)
+                    else:
+                        issues.append("missing_order_items")
+            return {"ids": ids, "orders": results, "issues": sorted(set(issues))}
+
+        finally:
+            await page.close()
