@@ -511,7 +511,7 @@ async def test_three_clean_empty_history_reads_stop_without_claiming_failure(tmp
         result = await monitor.check('alice', view.id, worker, max_checks=1)
         assert result['status'] == ('not_found' if index == 2 else 'pending')
     replies = status_messages(result, view)
-    assert 'Automatic checking has stopped' in replies[0]['text']['body']
-    assert 'https://' in replies[0]['text']['body']
-    assert not any(x.get('type') == 'interactive' for x in replies)
+    assert '3 checks' in replies[0]['interactive']['body']['text']
+    buttons = replies[0]['interactive']['action']['buttons']
+    assert [x['reply']['title'] for x in buttons] == ['Retry payment', 'Check status']
     runtime.inbox.close()

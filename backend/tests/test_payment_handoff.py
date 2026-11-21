@@ -260,3 +260,50 @@ async def test_payment_entry_retries_only_pre_submission_store_error(monkeypatch
         with pytest.raises(DomainError):
             await payments.open_options(None, None, None, None)
     assert entry.await_count == (1 if failure == 'bill_changed' else 2)
+
+
+async def test_confirmed_retry_archives_attempt_and_reopens_methods(tmp_path):
+    import json
+
+    runtime = make_runtime(tmp_path)
+    state = await reviewed(runtime)
+    view = SessionView.model_validate(state["view"])
+    payments = runtime.payments
+    await payments.monitor.capture("alice", view, "cash", runtime.chat.workers)
+    with runtime.inbox.db:
+        runtime.inbox.db.execute(
+            "UPDATE order_checks SET status='not_found',result=? WHERE sender=? AND order_id=?",
+            (json.dumps({"status": "not_found", "empty_checks": 3}), "alice", view.id),
+        )
+        runtime.inbox.db.execute(
+            "INSERT INTO cash_orders VALUES (?,?,?,?,?,?)",
+            ("alice", view.id, "unknown", "old-bill", None, int(time.time())),
+        )
+    state, replies = await runtime.chat.handle("checkout", state, customer="alice")
+    button = replies[-1]["interactive"]["action"]["buttons"][0]["reply"]["id"]
+    assert "duplicate" in replies[-1]["interactive"]["body"]["text"]
+    assert payments.existing("alice", view.id) is not None
+    state, replies = await runtime.chat.handle("", state, button, customer="alice")
+    assert payments.existing("alice", view.id) is None
+    assert payments.monitor.get("alice", view.id) is None
+    archive = runtime.inbox.db.execute("SELECT * FROM retried_order_attempts").fetchone()
+    assert json.loads(archive["payload"])["cash_orders"][0]["status"] == "unknown"
+    assert state["payment_menu"]
+    assert replies[-1]["interactive"]["type"] == "list"
+    with pytest.raises(DomainError):
+        await runtime.chat.handle("", state, button, customer="alice")
+    runtime.inbox.close()
+
+
+async def test_retry_release_rejects_pending_or_other_customer(tmp_path):
+    runtime = make_runtime(tmp_path)
+    state = await reviewed(runtime)
+    view = SessionView.model_validate(state["view"])
+    await runtime.payments.monitor.capture("alice", view, "cash", runtime.chat.workers)
+    runtime.payments.monitor.activate("alice", view.id)
+    for sender in ("alice", "bob"):
+        with pytest.raises(DomainError):
+            runtime.payments.release_for_confirmed_retry(sender, view.id)
+    assert runtime.payments.monitor.get("alice", view.id)["status"] == "pending"
+    assert not runtime.inbox.db.execute("SELECT * FROM retried_order_attempts").fetchall()
+    runtime.inbox.close()

@@ -31,6 +31,9 @@ class PaymentRequests:
             sender TEXT NOT NULL, order_id TEXT NOT NULL, due_at REAL NOT NULL,
             attempts INTEGER NOT NULL DEFAULT 0, done INTEGER NOT NULL DEFAULT 0,
             PRIMARY KEY(sender,order_id))""")
+        self.inbox.db.execute("""CREATE TABLE IF NOT EXISTS retried_order_attempts (
+            id TEXT PRIMARY KEY, sender TEXT NOT NULL, order_id TEXT NOT NULL,
+            payload TEXT NOT NULL, confirmed_at INTEGER NOT NULL)""")
         with self.inbox.db:
             self.inbox.db.execute("UPDATE cash_orders SET status='unknown' WHERE status='submitting'")
             self.inbox.db.execute("UPDATE payment_requests SET status='unknown' WHERE status='creating'")
@@ -61,6 +64,24 @@ class PaymentRequests:
             "SELECT * FROM payment_requests WHERE sender=? AND order_id=? ORDER BY created_at DESC LIMIT 1",
             (sender, order_id),
         ).fetchone()
+
+    def release_for_confirmed_retry(self, sender, order_id):
+        """Archive an unresolved attempt only after explicit retry confirmation."""
+        db = self.inbox.db
+        with db:
+            row = self.monitor.get(sender, order_id)
+            if not row or row["status"] != "not_found":
+                raise DomainError("This attempt is not ready to retry. Check its latest status.")
+            payload = {}
+            for table in ("order_checks", "cash_orders", "payment_requests", "automatic_order_checks"):
+                payload[table] = [dict(r) for r in db.execute(
+                    f"SELECT * FROM {table} WHERE sender=? AND order_id=?", (sender, order_id)
+                ).fetchall()]
+            encoded = self.inbox.secret_box.seal(payload) if self.inbox.secret_box else json.dumps(payload)
+            db.execute("INSERT INTO retried_order_attempts VALUES (?,?,?,?,?)",
+                       (secrets.token_hex(16), sender, order_id, encoded, int(time.time())))
+            for table in payload:
+                db.execute(f"DELETE FROM {table} WHERE sender=? AND order_id=?", (sender, order_id))
 
     async def create(self, sender, view, review, workers):
         parsed = urlsplit(self.public_url)

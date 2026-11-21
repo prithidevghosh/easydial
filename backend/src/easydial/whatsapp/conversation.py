@@ -126,7 +126,8 @@ Use status for requests to check an order/payment or claims of payment completio
 Distinguish a request TO PROCEED with payment from a claim of completed payment using meaning
 and NEXT_STEP, not the presence of payment/confirm words. With items but no reviewed bill,
 use review so the customer sees complete charges and Choose payment. With an already reviewed
-bill, use checkout to show methods. Never infer authorization to submit an order or pay.
+bill, use checkout to show methods. A request to retry payment is checkout, not status.
+Never infer authorization to submit an order or pay.
 RECENT_SELECTION preserves the last selected line and its numbered menu, even after active choices clear.
 "first wla nhi, ap second wla choose kro" after selecting option 1 means select option 2 from
 RECENT_CHOICES and set replaces_line_id to RECENT_SELECTION.line_id. Preserve its quantity unless changed.
@@ -359,6 +360,22 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
         return intent
 
     @staticmethod
+    def retry_payment_confirmation(state, view):
+        pending = {"id": uuid4().hex, "order_id": view.id, "created_at": now().isoformat()}
+        state["retry_confirmation"] = pending
+        return [{
+            "type": "interactive",
+            "interactive": {
+                "type": "button",
+                "body": {"text": "Retry payment? No order was found, but a late confirmation could mean a duplicate. I’ll recheck your bill and show payment options."},
+                "action": {"buttons": [
+                    {"type": "reply", "reply": {"id": f"confirm_retry:{view.version}:{pending['id']}", "title": "Retry payment"}},
+                    {"type": "reply", "reply": {"id": f"status:{view.version}:{view.id}", "title": "Check status"}},
+                ]},
+            },
+        }]
+
+    @staticmethod
     def recent_choices(session, state):
         recent = state.get("recent_selection") or {}
         target = next((line for line in session.view.lines if line.id == recent.get("line_id")), None)
@@ -485,6 +502,26 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
                 ]
             elif parts[0] == "pick":
                 intent = ChatIntent(action="select", **{**kwargs, "offer_id": parts[2]})
+            elif parts[0] == "retry_payment":
+                if parts[2] != session.view.id:
+                    raise DomainError("That retry belongs to another basket.")
+                intent = ChatIntent(action="checkout", **kwargs)
+            elif parts[0] == "confirm_retry":
+                pending = state.get("retry_confirmation")
+                if (
+                    not pending or parts[2] != pending["id"]
+                    or pending["order_id"] != session.view.id
+                    or now() - datetime.fromisoformat(pending["created_at"]) > timedelta(minutes=5)
+                    or not customer or not payments
+                ):
+                    raise DomainError("That retry confirmation expired. Ask to retry payment again.")
+                payments.release_for_confirmed_retry(customer, session.view.id)
+                state.pop("retry_confirmation", None)
+                state.pop("cash_confirmation", None)
+                state.pop("payment_menu", None)
+                session.view.payment_preparation = None
+                state["view"] = session.view.model_dump(mode="json")
+                return await self.handle("checkout", state, progress=progress, customer=customer)
             elif parts[0] == "place_cod":
                 pending = state.get("cash_confirmation")
                 if (
@@ -568,8 +605,10 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
                 progress.update("Checking your previous order attempt…")
             previous = payments.monitor.get(customer, session.view.id)
             if previous and previous["status"] == "not_found":
-                return state, status_messages(json.loads(previous["result"]), session.view)
+                return state, self.retry_payment_confirmation(state, session.view)
             result = await payments.monitor.check(customer, session.view.id, self.workers)
+            if result["status"] == "not_found":
+                return state, self.retry_payment_confirmation(state, session.view)
             return state, status_messages(result, session.view)
         if (
             customer

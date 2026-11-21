@@ -197,13 +197,17 @@ def status_messages(result, view):
 
     order = result.get("order", {})
     if result["status"] == "not_found":
-        store = view.review.provider.value
-        url = "https://blinkit.com/account/orders" if store == "blinkit" else "https://instamart.in"
-        return [text_message(
-            "No matching order appeared after 3 checks. Automatic checking has stopped. "
-            "The store hasn’t confirmed failure, so don’t place a duplicate yet. "
-            f"Check your {store.title()} orders here: {url}"
-        )]
+        return [{
+            "type": "interactive",
+            "interactive": {
+                "type": "button",
+                "body": {"text": "No matching order appeared after 3 checks. You can retry payment or check again."},
+                "action": {"buttons": [
+                    {"type": "reply", "reply": {"id": f"retry_payment:{view.version}:{view.id}", "title": "Retry payment"}},
+                    {"type": "reply", "reply": {"id": f"status:{view.version}:{view.id}", "title": "Check status"}},
+                ]},
+            },
+        }]
     if result.get("stale"):
         return [text_message("I couldn’t refresh delivery status from the store. Tap Check status to retry. Don’t pay or order again."), status_button(view)]
     if result["status"] == "confirmed":
