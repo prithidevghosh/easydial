@@ -107,3 +107,5 @@ Read actual provider payment categories and let the customer choose. Generate Bl
 2026-11-21: Unclear transcripts must not imply deletion. Verify proposed removals separately, ground forward references in the actual next step, and support explicit previous-basket restoration from customer/order-scoped revisions with fresh product checks. Keep existing dictation until a real same-recording comparison supports a change.
 
 2026-11-21: Unclear speech must elicit a neutral English request to repeat, without suggesting a guessed action. Structured unclear_request overrides every proposed action before execution; separate deletion rejection uses the same repeat prompt. Clear contextual requests still work.
+
+2026-11-21: Review actions must match bill validity. Unreconciled totals offer Recheck total, never Choose payment. Do not infer rounding or promise website-to-mobile cart synchronization without evidence.

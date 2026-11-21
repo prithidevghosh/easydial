@@ -877,11 +877,17 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
         items = "\n".join(
             f"• {line.quantity} × {line.offer.name} ({line.offer.pack_size})" for line in session.view.lines
         )
+        reconciled = breakdown(review)["reconciled"]
+        next_step = (
+            "Tap Choose payment to continue, or tell me what to change."
+            if reconciled else
+            "Tap Recheck total to check the bill again, or tell me what to change."
+        )
         replies = [
             text_message(
                 f"{review.provider.value.title()} — live cart review\n{items}\n\n"
                 f"{table(review)}\n\nDelivery: {review.address_label}\n"
-                "Check the total, then choose how to pay."
+                f"{next_step}"
             )
         ]
         if breakdown(review)["reconciled"]:
@@ -905,6 +911,18 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
                     },
                 }
             )
+        else:
+            replies.append({
+                "type": "interactive",
+                "interactive": {
+                    "type": "button",
+                    "body": {"text": "Let’s recheck the total before continuing."},
+                    "action": {"buttons": [{
+                        "type": "reply",
+                        "reply": {"id": f"review:{session.view.version}:current", "title": "Recheck total"},
+                    }]},
+                },
+            })
         return replies
 
     @staticmethod

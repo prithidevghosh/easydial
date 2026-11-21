@@ -1,3 +1,13 @@
+# Actionable cart review — 2026-11-21
+
+Fixed contradictory review UX: a bill whose components fail reconciliation now ends with a versioned Recheck total button and an invitation to change items; it does not invite payment. Reconciled bills retain Choose payment. Simplified mismatch wording. Regression verifies the reported ₹85 + ₹12 + ₹23.60 + ₹35.70 versus ₹156 case stays blocked; never invent a rounding adjustment.
+
+Read-only headless inspection confirmed the persisted Instamart website cart has one Britannia Milk Bikis Biscuits 500 g. The same fee discrepancy persists; no rounding text was observed. Review already synchronizes and reads back the website cart before presenting the bill. Mobile-app account/cart synchronization is unverified, so do not promise that confirmation will populate it. No cart writes or payment actions during this inspection. Server restarted after inspection.
+
+Validation: 103 tests passed, 7 DOM skipped; Ruff and diff checks passed. Actual mobile-app synchronization and missing ₹0.30 explanation remain unresolved.
+
+---
+
 # Ask to repeat unclear speech — 2026-11-21
 
 User explicitly requested no guessed action when speech or intent is unclear. Added structured unclear_request output with a deterministic clarification override before action validation/execution. All proposed searches, edits, selections, review, checkout, restoration and payment actions are discarded when flagged. Rejected deletion checks now also ask to repeat instead of suggesting checkout or removal. Reply: "I couldn't understand that clearly. Could you say it again?" Basket remains unchanged. Detecting uncertainty remains model-dependent; ASR is unchanged.

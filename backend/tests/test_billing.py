@@ -186,3 +186,23 @@ async def test_failed_recheck_revokes_previous_preparation(tmp_path):
         await runtime.chat.handle("checkout", state)
     assert state["view"]["payment_preparation"] is None
     runtime.inbox.close()
+
+
+def test_unreconciled_review_offers_retry_not_payment():
+    from easydial.controller import Session
+    from easydial.whatsapp.conversation import ShoppingChat
+
+    bill = review([
+        ("Item Total", "₹85"), ("Handling Fee", "₹12"),
+        ("Small Cart Fee", "₹23.60"), ("Delivery Partner Fee", "₹35.70"),
+    ], 8500, 15600)
+    session = Session(SessionView(id="test", mode="live", address_label="test", review=bill))
+    replies = ShoppingChat.review_messages(session)
+    assert not breakdown(bill)["reconciled"]
+    assert "choose how to pay" not in replies[0]["text"]["body"]
+    button = replies[-1]["interactive"]["action"]["buttons"][0]["reply"]
+    assert button["title"] == "Recheck total"
+    assert button["id"].startswith("review:")
+    bill.total_paise = 15630
+    replies = ShoppingChat.review_messages(session)
+    assert replies[-1]["interactive"]["action"]["buttons"][0]["reply"]["title"] == "Choose payment"
