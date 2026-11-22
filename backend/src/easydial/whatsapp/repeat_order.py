@@ -83,7 +83,7 @@ async def repeat(chat, session, request, progress=None, state=None):
     if any(line.offer.provider != Provider.BLINKIT for line in session.view.lines):
         raise DomainError('Your current basket is from another store. Please finish or clear it before repeating a Blinkit order.')
     if progress:
-        progress.update('Checking up to 20 recent Blinkit orders…')
+        progress.update('Checking up to 10 recent Blinkit orders…')
     selection = None
     checked_batches = False
     async def first_match(batch):
@@ -107,7 +107,7 @@ async def repeat(chat, session, request, progress=None, state=None):
     if state is not None:
         state.pop('repeat_question', None)
     if not items:
-        return session, ('I can access only your latest 20 Blinkit orders. '
+        return session, ('I check only the first page of your Blinkit history (up to 10 recent orders). '
                          f'I checked {history["scanned_count"]} orders and couldn’t find a matching purchase'
                          + (' in the requested period.' if request.start_date or request.end_date else '.'))
     if progress:

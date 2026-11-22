@@ -13,7 +13,7 @@ from .browser import goto_with_retry
 from .history_cache import HistoryCache
 from .order_history import blinkit_placed_at, order_status, parse_blinkit
 
-LIMIT = 20
+LIMIT = 10
 CONCURRENCY = 3
 log = logging.getLogger(__name__)
 
@@ -55,36 +55,22 @@ async def read_past_orders(worker, start=None, end=None, on_batch=None):
                 return urlsplit(r.url).path == '/v1/layout/order_history'
             async with page.expect_response(predicate, timeout=20000) as response:
                 await goto_with_retry(page, 'https://blinkit.com/account/orders', wait_until='domcontentloaded')
-            cards, more = history_page(await (await response.value).json())
+            cards, _ = history_page(await (await response.value).json())
             unique = {str(c['identity']['id']): c for c in cards}
             issues = []
             if cards:
                 title = cards[0]['items'][0]['data'].get('title', {}).get('text', '')
                 if title:
                     await page.get_by_text(title, exact=True).first.wait_for(timeout=20000)
-            # Pagination is driven by the visible browser, never by replaying a private API.
-            for _ in range(3):
-                if len(unique) >= LIMIT or not more:
-                    break
-                before = len(unique)
-                try:
-                    async with page.expect_response(predicate, timeout=10000) as response:
-                        await page.evaluate('window.scrollTo(0, document.body.scrollHeight)')
-                    cards, more = history_page(await (await response.value).json())
-                    unique.update((str(c['identity']['id']), c) for c in cards)
-                except Exception:
-                    issues.append('history_pagination_unavailable')
-                    break
-                if len(unique) == before:
-                    issues.append('history_pagination_stalled')
-                    break
+            # Repeat orders are deliberately limited to the first history response.
+            # Never scroll or follow pagination, even when no product matches.
             selected = list(unique.values())[:LIMIT]
             cache = HistoryCache(worker)
             cache.prune(selected)
             orders = []
             async def read_one(card):
                 nonlocal cache_hits, detail_reads
-                # These still count toward the latest 20, but were not completed purchases.
+                # These still count toward the first 10, but were not completed purchases.
                 title = card['items'][0]['data'].get('title', {}).get('text', '')
                 if order_status(title) in {'cancelled', 'failed'}:
                     return None, None

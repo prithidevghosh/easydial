@@ -64,7 +64,7 @@ def payload(cards, more=True):
                                            'pagination': {'next_url': 'private-not-replayed' if more else ''}}}
 
 
-async def test_pagination_never_opens_twenty_first_order(monkeypatch):
+async def test_first_page_never_loads_more_or_opens_eleventh_order(monkeypatch):
     page = Page([payload([card(i) for i in range(10)]), payload([card(i) for i in range(10, 25)])])
     navigate = AsyncMock()
     monkeypatch.setattr('easydial.providers.past_orders.goto_with_retry', navigate)
@@ -73,13 +73,13 @@ async def test_pagination_never_opens_twenty_first_order(monkeypatch):
         yield None, SimpleNamespace(new_page=AsyncMock(return_value=page))
     worker = SimpleNamespace(lock=asyncio.Lock(), browser_page=browser_page)
     result = await read_past_orders(worker)
-    assert result['scanned_count'] == 20
-    assert len(result['orders']) == 20
+    assert result['scanned_count'] == 10
+    assert len(result['orders']) == 10
     assert not result['issues']
-    assert navigate.await_count == 21  # One list page, twenty detail pages.
+    assert navigate.await_count == 11  # One list page, ten detail pages.
     assert all('private-not-replayed' not in call.args[1] for call in navigate.await_args_list)
-    page.evaluate.assert_awaited_once()
-    assert page.close.await_count == 21  # List plus twenty independently closed detail tabs.
+    page.evaluate.assert_not_awaited()
+    assert page.close.await_count == 11  # List plus ten independently closed detail tabs.
 
 
 async def test_date_filter_does_not_expand_limit_to_older_orders(monkeypatch):
@@ -91,12 +91,12 @@ async def test_date_filter_does_not_expand_limit_to_older_orders(monkeypatch):
         yield None, SimpleNamespace(new_page=AsyncMock(return_value=page))
     worker = SimpleNamespace(lock=asyncio.Lock(), browser_page=browser_page)
     result = await read_past_orders(worker, date(2025, 1, 1), date(2025, 1, 31))
-    assert result == {'scanned_count': 20, 'orders': [], 'issues': []}
+    assert result == {'scanned_count': 10, 'orders': [], 'issues': []}
     assert navigate.await_count == 1
 
 
 async def test_cancelled_cards_count_toward_limit_but_are_not_repeated(monkeypatch):
-    cards = [card(i) for i in range(20)]
+    cards = [card(i) for i in range(10)]
     cards[0]['items'][0]['data']['title']['text'] = 'Order cancelled'
     page = Page([payload(cards)])
     navigate = AsyncMock()
@@ -105,14 +105,14 @@ async def test_cancelled_cards_count_toward_limit_but_are_not_repeated(monkeypat
     async def browser_page():
         yield None, SimpleNamespace(new_page=AsyncMock(return_value=page))
     result = await read_past_orders(SimpleNamespace(lock=asyncio.Lock(), browser_page=browser_page))
-    assert result['scanned_count'] == 20
-    assert len(result['orders']) == 19
+    assert result['scanned_count'] == 10
+    assert len(result['orders']) == 9
     assert not result['issues']
     page.evaluate.assert_not_awaited()
 
 
 async def test_first_match_stops_after_one_bounded_batch_and_preserves_newest_order(monkeypatch):
-    listing = Page([payload([card(i) for i in range(20)])])
+    listing = Page([payload([card(i) for i in range(10)])])
     pages = [listing]
     active = peak = 0
     async def new_page():
@@ -146,14 +146,14 @@ async def test_first_match_stops_after_one_bounded_batch_and_preserves_newest_or
     assert all(page.close.await_count == 1 for page in pages)
 
 
-async def test_encrypted_cache_reuses_details_but_still_refreshes_latest_twenty(tmp_path, monkeypatch):
+async def test_encrypted_cache_reuses_details_but_still_refreshes_first_ten(tmp_path, monkeypatch):
     from cryptography.fernet import Fernet
 
     from easydial.providers.history_cache import HistoryCache
     from easydial.whatsapp.security import SecretBox
 
     pages = []
-    cards = [card(i) for i in range(20)]
+    cards = [card(i) for i in range(10)]
     async def new_page():
         page = Page([payload(cards, more=False)])
         pages.append(page)
@@ -166,7 +166,7 @@ async def test_encrypted_cache_reuses_details_but_still_refreshes_latest_twenty(
     worker = SimpleNamespace(lock=asyncio.Lock(), browser_page=browser_page,
                              browser=SimpleNamespace(storage_state=str(tmp_path/'session.enc'), secret_box=SecretBox(Fernet.generate_key())))
     first = await read_past_orders(worker)
-    assert len(first['orders']) == 20
+    assert len(first['orders']) == 10
     path = tmp_path/'session.enc.history'
     assert path.exists() and 'Milk' not in path.read_text()
     cached = HistoryCache(worker).entries['0']['order']
@@ -174,15 +174,15 @@ async def test_encrypted_cache_reuses_details_but_still_refreshes_latest_twenty(
     navigate.reset_mock()
     # A fresh worker/session can reuse encrypted records; the list is still fetched.
     second = await read_past_orders(worker)
-    assert len(second['orders']) == 20
+    assert len(second['orders']) == 10
     assert navigate.await_count == 1
     # A new latest order displaces the oldest; never reuse cached records outside the cap.
     cards.insert(0, card(99))
     navigate.reset_mock()
     third = await read_past_orders(worker)
     assert third['orders'][0]['history_id'] == '99'
-    assert len(third['orders']) == 20 and navigate.await_count == 2
-    assert '19' not in HistoryCache(worker).entries
+    assert len(third['orders']) == 10 and navigate.await_count == 2
+    assert '9' not in HistoryCache(worker).entries
     # Terminal status changes invalidate the old item entry and cancelled cards are excluded.
     cards[1]['items'][0]['data']['title']['text'] = 'Order cancelled'
     fourth = await read_past_orders(worker)
@@ -194,7 +194,7 @@ async def test_encrypted_cache_reuses_details_but_still_refreshes_latest_twenty(
 async def test_unreadable_newer_order_cannot_be_skipped_for_older_match(monkeypatch):
     pages = []
     async def new_page():
-        page = Page([payload([card(i) for i in range(20)], more=False)])
+        page = Page([payload([card(i) for i in range(10)], more=False)])
         pages.append(page)
         return page
     async def navigate(page, url, **kwargs):
@@ -215,7 +215,7 @@ async def test_cancelling_scan_closes_all_detail_tabs_and_releases_lock(monkeypa
     pages = []
     started = asyncio.Event()
     async def new_page():
-        page = Page([payload([card(i) for i in range(20)], more=False)])
+        page = Page([payload([card(i) for i in range(10)], more=False)])
         pages.append(page)
         return page
     async def navigate(page, url, **kwargs):
@@ -258,7 +258,7 @@ def test_invalid_cached_payload_cannot_break_live_history(tmp_path):
 async def test_newest_match_cancels_slower_older_reads_without_waiting(monkeypatch):
     pages = []
     async def new_page():
-        page = Page([payload([card(i) for i in range(20)], more=False)])
+        page = Page([payload([card(i) for i in range(10)], more=False)])
         pages.append(page)
         return page
     async def navigate(page, url, **kwargs):

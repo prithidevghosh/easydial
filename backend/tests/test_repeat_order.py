@@ -15,7 +15,7 @@ async def setup(runtime, *, decision='match', quantity=None):
     state = await reviewed(runtime)
     view = SessionView.model_validate(state['view'])
     offer = view.lines[0].offer
-    history = {'scanned_count': 20, 'issues': [], 'orders': [
+    history = {'scanned_count': 10, 'issues': [], 'orders': [
         {'status': 'delivered', 'placed_at': time.time(), 'items': [
             {'name': offer.name, 'pack': offer.pack_size, 'quantity': 2}]}]}
     runtime.chat.workers.past_orders = AsyncMock(return_value=history)
@@ -60,7 +60,7 @@ async def test_no_match_and_ambiguity_do_not_search_or_mutate(tmp_path, decision
     runtime.chat.workers.search = AsyncMock()
     result, message = await repeat(runtime.chat, session, request)
     assert result is session
-    assert ('20' in message) if decision == 'not_found' else message == 'Which pack?'
+    assert ('up to 10' in message and 'first page' in message) if decision == 'not_found' else message == 'Which pack?'
     runtime.chat.workers.search.assert_not_called()
     runtime.inbox.close()
 

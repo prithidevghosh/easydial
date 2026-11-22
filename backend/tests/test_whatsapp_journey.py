@@ -1,6 +1,9 @@
 """One connected runtime journey; external login/catalogue/payment are controlled fakes."""
+import time
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
+
+import pytest
 
 from easydial.models import Provider, RequestedProduct, SessionView
 from easydial.providers.payments import decode_qr
@@ -11,7 +14,8 @@ from tests.test_payment_handoff import qr
 from tests.test_whatsapp import intent
 
 
-async def test_onboarding_to_confirmation_and_fresh_basket(tmp_path):
+@pytest.mark.parametrize('repeat_purchase', [False, True])
+async def test_onboarding_to_confirmation_and_fresh_basket(tmp_path, repeat_purchase):
     r = runtime(tmp_path)
     sender = '919999999999'
     await connect(r, provider='blinkit')
@@ -28,8 +32,27 @@ async def test_onboarding_to_confirmation_and_fresh_basket(tmp_path):
     chat.workers.generate_upi = AsyncMock(return_value=decode_qr(
         qr('upi://pay?pa=test@bank&tr=journey&am=56&cu=INR'), 5600) | {'ttl_seconds': 300})
 
-    await turn(r, 'two milk')
-    await turn(r, '1')
+    if repeat_purchase:
+        from easydial.whatsapp.repeat_order import PastSelection, RepeatRequest
+        history = {'scanned_count': 1, 'issues': [], 'orders': [{
+            'status': 'delivered', 'placed_at': time.time(), 'items': [{
+                'name': 'Amul Taaza Toned Milk', 'pack': '500 ml', 'quantity': 2}]}]}
+        async def past_orders(start, end, on_batch):
+            assert await on_batch(history)
+            return history
+        chat.workers.past_orders = past_orders
+        chat.master = SimpleNamespace(require_client=lambda: SimpleNamespace(responses=SimpleNamespace(
+            parse=AsyncMock(return_value=SimpleNamespace(output_parsed=PastSelection(
+                decision='match', item_keys=['0:0'], question=''))))))
+        chat.interpret.return_value = intent('repeat_order', target_provider=Provider.BLINKIT,
+                                            repeat_request=RepeatRequest(product_query='milk'))
+        await turn(r, 'repeat my milk')
+        chat.workers.ranker.rank.assert_not_awaited()
+        chat.interpret.return_value = intent('search', queries=[
+            RequestedProduct(query='milk', quantity=2, replaces_line_id=None)])
+    else:
+        await turn(r, 'two milk')
+        await turn(r, '1')
     assert r.inbox.load(sender)['view']['lines'][0]['quantity'] == 2
     await turn(r, 'review')
     view = SessionView.model_validate(r.inbox.load(sender)['view'])
