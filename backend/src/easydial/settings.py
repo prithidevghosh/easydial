@@ -23,12 +23,16 @@ class Settings(BaseSettings):
     blinkit_storage_state: str = ""
     blinkit_verified_location: str = ""
     blinkit_verified_address: str = ""
-    # WhatsApp is a single-account pilot; exactly one allowed sender, never a wildcard.
     whatsapp_phone_number_id: str = ""
     whatsapp_access_token: str = ""
     whatsapp_verify_token: str = ""
     meta_app_secret: str = ""
     whatsapp_allowed_sender: str = ""
+    whatsapp_allowed_sender_1: str = ""
+    whatsapp_allowed_sender_2: str = ""
+    whatsapp_allowed_sender_3: str = ""
+    whatsapp_allowed_sender_4: str = ""
+    whatsapp_allowed_sender_5: str = ""
     whatsapp_api_version: str = "v27.0"
     whatsapp_public_url: str = ""
     whatsapp_database: str = ".state/whatsapp/pilot.sqlite3"
@@ -39,3 +43,16 @@ class Settings(BaseSettings):
     customer_session_key: str = ""
     customer_session_directory: str = ".state/customers"
     onboarding_max_customers: int = 100
+
+    @property
+    def numbered_senders(self) -> tuple[str, ...]:
+        return tuple(filter(None, (
+            self.whatsapp_allowed_sender_1, self.whatsapp_allowed_sender_2,
+            self.whatsapp_allowed_sender_3, self.whatsapp_allowed_sender_4,
+            self.whatsapp_allowed_sender_5,
+        )))
+
+    @property
+    def allowed_senders(self) -> frozenset[str]:
+        senders = frozenset(self.numbered_senders)
+        return senders.union([self.whatsapp_allowed_sender]) if self.whatsapp_allowed_sender else senders

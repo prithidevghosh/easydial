@@ -32,11 +32,12 @@ def missing_settings(settings):
         "whatsapp_access_token",
         "whatsapp_verify_token",
         "meta_app_secret",
-        "whatsapp_allowed_sender",
         "whatsapp_support_contact",
     )
     if settings.whatsapp_multiuser:
-        fields = tuple(x for x in fields if x != "whatsapp_allowed_sender") + ("customer_session_key",)
+        fields += ("customer_session_key",)
+    elif not settings.allowed_senders:
+        fields += ("whatsapp_allowed_sender",)
     return [name.upper() for name in fields if not getattr(settings, name).strip()]
 
 
@@ -342,6 +343,17 @@ def create_whatsapp_app(settings=None):
         if value and not re.fullmatch(r"[0-9]{5,30}", value):
             raise ValueError(f"{name.upper()} must contain only digits, without + or spaces")
 
+    senders = settings.allowed_senders
+    for sender in settings.numbered_senders:
+        if not re.fullmatch(r"[1-9][0-9]{7,14}", sender):
+            raise ValueError("Numbered WhatsApp senders must contain 8–15 international digits without + or spaces")
+    if len(senders) > 5:
+        raise ValueError("Configure at most five distinct WhatsApp senders across all sender settings")
+    if len(senders) > 1 and not settings.whatsapp_multiuser:
+        raise ValueError("Multiple WhatsApp senders require WHATSAPP_MULTIUSER=true and isolated customer sessions")
+    # Older multi-user installations use open onboarding, even with the legacy sender set.
+    restrict_senders = not settings.whatsapp_multiuser or bool(settings.numbered_senders)
+
     @asynccontextmanager
     async def lifespan(app):
         if missing:
@@ -501,7 +513,7 @@ def create_whatsapp_app(settings=None):
                         sender = message.get("from")
                         if not isinstance(sender, str) or not re.fullmatch(r"[0-9]{5,20}", sender):
                             continue
-                        if not settings.whatsapp_multiuser and sender != settings.whatsapp_allowed_sender:
+                        if restrict_senders and sender not in senders:
                             continue  # No message, media fetch, AI request or cart access for strangers.
                         timestamp = int(message.get("timestamp", 0))
                         if not time.time() - 86400 < timestamp <= time.time() + 60:

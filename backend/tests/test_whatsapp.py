@@ -564,3 +564,47 @@ async def test_blinkit_address_failure_instructs_reconnect_without_retry_loop(tm
     assert not state['choices']
     await workers.close()
     runtime.inbox.close()
+
+
+@pytest.mark.parametrize("numbered", [True, False])
+async def test_multiuser_sender_slots_filter_signed_webhook(tmp_path, monkeypatch, numbered):
+    from unittest.mock import Mock
+
+    testers = [f"91900000000{i}" for i in range(5)]
+    if numbered:
+        for i, number in enumerate(testers, start=1):
+            monkeypatch.setenv(f"WHATSAPP_ALLOWED_SENDER_{i}", number)
+    config = settings(tmp_path, whatsapp_multiuser=True, customer_session_key="test-key",
+                      whatsapp_allowed_sender=testers[0])
+    app = create_whatsapp_app(config)
+    enqueue = Mock()
+    app.state.runtime = SimpleNamespace(inbox=SimpleNamespace(enqueue=enqueue), wake=Mock())
+    candidates = testers + ["919000000009"]
+    messages = [message(id=f"in-{i}", **{"from": sender}) for i, sender in enumerate(candidates)]
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        assert (await post(client, event(messages))).status_code == 200
+    assert [call.args[0]["from"] for call in enqueue.call_args_list] == (testers if numbered else candidates)
+
+
+def test_sender_slots_require_valid_isolated_configuration(tmp_path):
+    config = settings(tmp_path, whatsapp_allowed_sender_5="919000000005")
+    with pytest.raises(ValueError, match="MULTIUSER"):
+        create_whatsapp_app(config)
+    with pytest.raises(ValueError, match="international digits"):
+        create_whatsapp_app(settings(tmp_path, whatsapp_allowed_sender_3="*"))
+    with pytest.raises(ValueError, match="five distinct"):
+        create_whatsapp_app(settings(tmp_path, whatsapp_multiuser=True, **{
+            f"whatsapp_allowed_sender_{i}": f"91900000000{i}" for i in range(1, 6)
+        }))
+
+
+async def test_single_owner_can_move_legacy_number_to_sparse_slot(tmp_path):
+    config = settings(tmp_path)
+    original = create_whatsapp_app(config)
+    async with original.router.lifespan_context(original):
+        assert original.state.runtime is not None
+    moved = create_whatsapp_app(config.model_copy(update={
+        "whatsapp_allowed_sender": "", "whatsapp_allowed_sender_4": config.whatsapp_allowed_sender,
+    }))
+    async with moved.router.lifespan_context(moved):
+        assert moved.state.runtime is not None

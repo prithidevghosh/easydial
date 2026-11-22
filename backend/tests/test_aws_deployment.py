@@ -83,3 +83,32 @@ def test_proxy_credentials_export_real_secret_and_reach_runtime():
     assert "BLINKIT_PROXY_USERNAME='test-in-rotate'" in rendered
     assert "BLINKIT_PROXY_PASSWORD='private-proxy-password'" in rendered
     assert '**********' not in rendered
+
+
+@pytest.mark.parametrize("with_paths", [True, False])
+def test_existing_multiuser_database_survives_tester_list_changes(with_paths):
+    import hashlib
+    import json
+
+    db = sqlite3.connect(":memory:")
+    db.execute("CREATE TABLE binding(id INTEGER PRIMARY KEY, fingerprint TEXT)")
+    config = Settings(_env_file=None, whatsapp_multiuser=True, whatsapp_phone_number_id="12345",
+                      customer_session_key="test-key", whatsapp_allowed_sender_2="919000000002")
+    previous = ["12345", "919000000002"]
+    if with_paths:
+        previous += ["", "", ""]
+    previous += ["multiuser-v1", hashlib.sha256(b"test-key").hexdigest()]
+    db.execute("INSERT INTO binding VALUES (1,?)", (hashlib.sha256(json.dumps(previous).encode()).hexdigest(),))
+    bind(db, config)
+    bind(db, config.model_copy(update={"whatsapp_allowed_sender_2": "919000000003"}))
+    db.close()
+
+
+def test_numbered_senders_reach_aws_runtime():
+    slots = {f"WHATSAPP_ALLOWED_SENDER_{i}": f"91900000000{i}" for i in range(1, 6)}
+    settings = Settings(_env_file=None, **{key.lower(): value for key, value in slots.items()})
+    data = DEPLOY["runtime_credentials"](settings, ENV["ALLOWED"])
+    data.update(dict.fromkeys(ENV["REQUIRED"], "test-value"))
+    rendered = ENV["render"](data)
+    for key, value in slots.items():
+        assert f"{key}='{value}'" in rendered
