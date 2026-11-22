@@ -23,6 +23,9 @@ class ContractBlinkit(BlinkitProvider):
     async def browser_page(self):
         yield None, None
 
+    async def navigate_cart(self, page):
+        pass
+
     async def navigate(self, page, query):
         pass
 

@@ -837,8 +837,9 @@ async def test_blinkit_removing_first_row_does_not_read_the_next_products_quanti
     assert worker.browser.save.await_count==2
 
 
+@pytest.mark.parametrize('already_open', [False, True])
 @pytest.mark.parametrize('bill_changed,delayed_handler', [(False, False), (False, True), (True, True)])
-async def test_blinkit_payment_entry_rechecks_full_page_checkout_before_advancing(page, monkeypatch, bill_changed, delayed_handler):
+async def test_blinkit_payment_entry_rechecks_full_page_checkout_before_advancing(page, monkeypatch, bill_changed, delayed_handler, already_open):
     from unittest.mock import AsyncMock
 
     from easydial.controller import DomainError
@@ -877,7 +878,9 @@ async def test_blinkit_payment_entry_rechecks_full_page_checkout_before_advancin
     async def navigate(*_):
         await page.goto('https://blinkit.test/')
 
-    worker.navigate = AsyncMock(side_effect=navigate)
+    worker.navigate_cart = AsyncMock(side_effect=navigate)
+    if already_open:
+        await navigate()
     if bill_changed:
         with pytest.raises(DomainError, match='bill changed'):
             await payments.open_options(worker, view, review, page)
@@ -889,6 +892,7 @@ async def test_blinkit_payment_entry_rechecks_full_page_checkout_before_advancin
         assert await payments.open_options(worker, view, review, page) is scope
         assert await page.evaluate('window.advance') == 1
     assert not await page.evaluate('window.paid')
+    assert worker.navigate_cart.await_count == (0 if already_open else 1)
 
 
 @pytest.mark.parametrize("notice,blocked", [
@@ -1019,3 +1023,77 @@ async def test_past_history_waits_for_render_before_scroll_and_detail_read(page)
     assert result['scanned_count'] == 20
     assert len(result['orders']) == len(visited) == 20
     assert not result['issues']
+
+
+async def test_fresh_blinkit_cart_does_not_treat_loading_placeholder_as_empty(page):
+    import asyncio
+
+    from easydial.providers.blinkit import BlinkitProvider
+
+    async def route(request):
+        if request.request.url.endswith('/cart-data'):
+            await asyncio.sleep(1)
+            await request.fulfill(body='{}', content_type='application/json')
+        else:
+            await request.fulfill(content_type='text/html', body='''
+              <div class="CartButton__Button" disabled onclick="document.querySelector('.cart-modal-rn').style.display='block'">My Cart</div>
+              <div class="cart-modal-rn" style="display:none">
+                <div class="DefaultProductCard__Container">
+                  <div class="ProductTitle">Old popcorn</div><div class="ProductVariant">120 g</div>
+                  <div class="AddToCart__UpdatedButtonContainer"><div>-</div>1<div>+</div></div>
+                </div>
+                <div class="BillCard__BillItemContainer">Items total<br>₹30</div>
+                <div class="CheckoutStrip__NetPriceText">₹30</div>
+              </div>
+              <script>fetch('/cart-data').then(() => document.querySelector('.CartButton__Button').removeAttribute('disabled'));</script>''')
+    await page.route('https://blinkit.test/**', route)
+    await page.goto('https://blinkit.test/', wait_until='domcontentloaded')
+    worker = BlinkitProvider('', 'Test locality')
+    assert worker.guard.owner is None and worker.guard.expected == ()
+    cart = await worker.read_cart(page, resolve_address=False)
+    assert cart['items'] == [{'name': 'Old popcorn', 'pack': '120 g', 'quantity': 1}]
+
+
+async def test_blinkit_loading_timeout_is_not_empty_cart_evidence(page, monkeypatch):
+    from unittest.mock import AsyncMock
+
+    from playwright.async_api import TimeoutError
+
+    from easydial.controller import DomainError
+    from easydial.providers.blinkit import BlinkitProvider
+
+    await page.set_content('<div class="CartButton__Button" disabled>My Cart</div>')
+    monkeypatch.setattr(page, 'wait_for_load_state', AsyncMock(side_effect=TimeoutError('loading')))
+    worker = BlinkitProvider('', 'Test locality')
+    with pytest.raises(DomainError, match='basket is still loading'):
+        await worker.read_cart(page)
+    assert worker.guard.owner is None
+
+
+async def test_ready_blinkit_cart_does_not_wait_for_background_network(page, monkeypatch):
+    import asyncio
+
+    from easydial.providers.blinkit import BlinkitProvider
+
+    await page.set_content('''
+      <div class="CartButton__Button" disabled onclick="document.querySelector('.cart-modal-rn').style.display='block'">Cart</div>
+      <div class="cart-modal-rn" style="display:none">
+        <div class="DefaultProductCard__Container">
+          <div class="ProductTitle">Milk</div><div class="ProductVariant">500 ml</div>
+          <div class="AddToCart__UpdatedButtonContainer">1</div>
+        </div>
+        <div class="BillCard__BillItemContainer">Items total<br>₹30</div>
+        <div class="CheckoutStrip__NetPriceText">₹30</div>
+      </div>
+      <script>setTimeout(() => document.querySelector('.CartButton__Button').removeAttribute('disabled'), 150);</script>''')
+    cancelled = []
+    async def background_network(*args, **kwargs):
+        try:
+            await asyncio.sleep(10)
+        finally:
+            cancelled.append(True)
+    monkeypatch.setattr(page, 'wait_for_load_state', background_network)
+    worker = BlinkitProvider('', 'Locality')
+    cart = await asyncio.wait_for(worker.read_cart(page, resolve_address=False), timeout=2)
+    assert cart['items'] == [{'name': 'Milk', 'pack': '500 ml', 'quantity': 1}]
+    assert cancelled == [True]

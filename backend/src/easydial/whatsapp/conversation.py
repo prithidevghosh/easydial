@@ -1177,6 +1177,12 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
                 try:
                     review = await self.workers.review(session.view)
                 except CartConflict as conflict:
+                    # A completed purchase may still be visible in the merchant's
+                    # browser cart after restart. Its receipt supplies verified SKU
+                    # identity for the explicit Update cart comparison, not consent.
+                    receipt = self.status_view(state, customer, state.get("last_order_id")) if state.get("last_order_id") else None
+                    if receipt and receipt.review and receipt.review.provider == session.view.synced_provider == Provider.BLINKIT:
+                        conflict.previous_lines = [*conflict.previous_lines, *receipt.lines]
                     pending = reconciliation.proposal(session.view, conflict)
                     if not pending:
                         raise

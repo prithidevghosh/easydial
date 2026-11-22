@@ -97,3 +97,40 @@ async def test_chat_confirmation_checks_token_expiry_and_saves_checkpoint(tmp_pa
     with pytest.raises(DomainError):
         await runtime.chat.handle("Update cart", state, action)
     runtime.inbox.close()
+
+
+async def test_completed_receipt_allows_preview_of_leftover_item_without_implicit_removal(tmp_path):
+    from types import SimpleNamespace
+
+    runtime = make_runtime(tmp_path)
+    state = runtime.chat.initial()
+    view = basket()
+    state['view'] = view.model_dump(mode='json')
+    state['last_order_id'] = 'completed-order'
+    popcorn = view.lines[0].model_copy(deep=True)
+    popcorn.offer = popcorn.offer.model_copy(update={'id': 'old-popcorn', 'product_id': 'popcorn',
+                                                    'sku_id': 'popcorn', 'name': 'Old popcorn', 'pack_size': '120 g'})
+    popcorn.quantity = 1
+    receipt = SimpleNamespace(review=SimpleNamespace(provider=Provider.BLINKIT), lines=[popcorn])
+    runtime.chat.status_view = lambda state, customer, requested_id: receipt if requested_id == 'completed-order' else None
+    worker = ContractBlinkit()
+    existing(worker, view, quantity=2)
+    worker.cart['items'].append({'name': 'Old popcorn', 'pack': '120 g', 'quantity': 1})
+    runtime.chat.workers.workers[0] = worker
+    state, replies = await runtime.chat.handle('review', state, customer='alice')
+    assert worker.writes == []
+    assert len(state['cart_reconciliation']['checkpoint']['lines']) == 2
+    action = replies[1]['interactive']['action']['buttons'][0]['reply']['id']
+    state, _ = await runtime.chat.handle('Update cart', state, action, customer='alice')
+    assert worker.writes == [('popcorn', 0), ('127081', 2)]
+    assert state['view']['review'] is not None
+    assert state['cart_reconciliation'] is None
+    runtime.inbox.close()
+
+
+def test_partial_update_preview_does_not_claim_nothing_changed():
+    view = basket()
+    view.synced_provider = Provider.BLINKIT
+    replies = reconciliation.messages(view, {'items': [], 'checkpoint': {}, 'changed': True})
+    assert 'partially updated' in replies[0]['text']['body']
+    assert 'Nothing has changed yet' not in replies[0]['text']['body']

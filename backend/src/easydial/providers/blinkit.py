@@ -107,7 +107,10 @@ class BlinkitProvider:
         page, context = await self.browser.open()
         yield page, context
 
-    async def navigate(self, page, query):
+    async def navigate_cart(self, page):
+        if self.provider != Provider.BLINKIT:
+            # Keep Instamart's existing navigation and location checks unchanged.
+            return await self.navigate(page, "milk")
         for attempt in range(3):
             try:
                 await self.verify_location(page)
@@ -117,6 +120,9 @@ class BlinkitProvider:
                 if attempt == 2:
                     raise BlinkitAddressLoadingError() from None
                 await asyncio.sleep(0.5 * (attempt + 1))
+
+    async def navigate(self, page, query):
+        await self.navigate_cart(page)
         await goto_with_retry(page,
             f"https://blinkit.com/s/?q={quote(query)}", wait_until="domcontentloaded", timeout=20000
         )
@@ -215,14 +221,29 @@ class BlinkitProvider:
                 await self.browser.check_page(page)
             button = page.locator("div[class*='CartButton__Button']").first
             await button.wait_for(state="visible")
-            # During hydration Blinkit renders a disabled, apparently empty cart
-            # before restoring its contents. A known nonempty cart must get time
-            # to load before absence is treated as evidence.
-            if self.guard.expected or self.guard.attempted:
-                for _ in range(20):
-                    if await button.get_attribute("disabled") is None:
-                        break
-                    await asyncio.sleep(0.25)
+            # A newly opened context also renders a disabled empty placeholder.
+            # Wait for the navigation's requests to settle before trusting absence,
+            # even when this fresh draft has no previous cart checkpoint.
+            if await button.get_attribute("disabled") is not None:
+                readiness = [
+                    asyncio.create_task(page.wait_for_load_state("networkidle", timeout=12000)),
+                    asyncio.create_task(page.wait_for_function(
+                        "document.querySelector(\"div[class*='CartButton__Button']\")?.hasAttribute('disabled') === false",
+                        timeout=12000,
+                    )),
+                ]
+                try:
+                    done, _ = await asyncio.wait(readiness, return_when=asyncio.FIRST_COMPLETED)
+                    for task in done:
+                        await task
+                except PlaywrightTimeoutError:
+                    if await button.get_attribute("disabled") is not None:
+                        raise DomainError("Blinkit's basket is still loading. Your basket is saved; please retry shortly.", 503) from None
+                finally:
+                    for task in readiness:
+                        if not task.done():
+                            task.cancel()
+                    await asyncio.gather(*readiness, return_exceptions=True)
             if await button.get_attribute("disabled") is not None:
                 return {
                     "items": [],
@@ -390,7 +411,7 @@ class BlinkitProvider:
         if len({(n, p) for n, p, _ in desired}) != len(desired):
             raise DomainError("Two variants have indistinguishable names and packs. Choose one.")
         async with self.lock, self.browser_page() as (page, context):
-            await self.navigate(page, "milk")
+            await self.navigate_cart(page)
             before = await self.read_cart(page)
             required_address = self.verified_address or session.address_label
             address_before = before.get("address") or before.get("header_address") or ""
@@ -419,14 +440,19 @@ class BlinkitProvider:
                 await self.set_quantity(page, line, line.quantity)
             after = await self.read_cart(page)
             actual = cart_signature(after)
+            if actual != desired and self.provider == Provider.BLINKIT:
+                # Never adopt an unexpected cart as our checkpoint. A late-loaded
+                # old item must enter explicit reconciliation, not an endless retry.
+                conflict = CartConflict()
+                conflict.cart = after
+                conflict.previous_lines = self.previous_lines
+                conflict.changed = actual != cart_signature(before)
+                raise conflict
             self.guard.accepted(actual)
             self.previous_lines = [x.model_copy(deep=True) for x in session.lines]
-            # Persist session cookies/local storage after cart changes for subsequent worker contexts.
             await self.browser.save()
             if actual != desired:
-                raise DomainError(
-                    "The store's basket does not match the requested items and quantities. Review it in the store browser."
-                )
+                raise DomainError("The store's basket does not match the requested items and quantities. Review it in the store browser.")
             if not after.get("address") or normalized(required_address) not in normalized(after["address"]):
                 raise DomainError("The store's delivery address changed during basket review.")
             return self.verified_review(session, after)
@@ -469,7 +495,7 @@ class BlinkitProvider:
             if separate:
                 page = await context.new_page()
             try:
-                await self.navigate(page, "milk")
+                await self.navigate_cart(page)
                 actual = await self.read_cart(page)
                 # Retry read-only snapshots before declaring a real change. Never
                 # let a transient empty snapshot erase the verified cart checkpoint.
@@ -498,7 +524,7 @@ class BlinkitProvider:
             )
         )
         async with self.lock, self.browser_page() as (page, context):
-            await self.navigate(page, "milk")
+            await self.navigate_cart(page)
             actual = await self.read_cart(page)
             if cart_signature(actual) != desired or actual.get("address") != expected_address:
                 raise DomainError(

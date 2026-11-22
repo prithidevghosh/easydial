@@ -106,7 +106,20 @@ async def open_options(worker, view, review, page):
 
 
 async def open_options_once(worker, view, review, page):
-    await worker.navigate(page, "milk")
+    if worker.provider == Provider.BLINKIT:
+        # Revalidation has usually just opened this cart on the same page.
+        # Re-read and verify it below instead of discarding it with another load.
+        drawer = page.locator(
+            "div[class*='CartDrawer'], div[class*='CartSidebar'], div.cart-modal-rn, div[class*='CartWrapper__CartContainer']"
+        ).first
+        payment_frame = any(
+            urlsplit(frame.url).hostname == "www.zomato.com"
+            and urlsplit(frame.url).path.startswith("/zpaykit/") for frame in page.frames
+        )
+        if urlsplit(page.url).path not in {"", "/"} or payment_frame or not await drawer.is_visible():
+            await worker.navigate_cart(page)
+    else:
+        await worker.navigate(page, "milk")
     cart = await worker.read_cart(page)
     verify_checkout_cart(worker, view, review, cart)
     label = "Proceed To Pay" if worker.provider == Provider.BLINKIT else "Proceed to Pay"

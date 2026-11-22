@@ -148,7 +148,7 @@ async def test_revalidate_does_not_call_cart_mutations():
         raise AssertionError("mutation called")
 
     worker.browser_page = page
-    worker.navigate = navigate
+    worker.navigate_cart = navigate
     worker.read_cart = cart
     worker.set_quantity = forbid
     assert (await worker.revalidate(view)).total_paise == 2800

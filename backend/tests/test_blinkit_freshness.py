@@ -35,7 +35,7 @@ async def test_revalidate_retries_without_erasing_checkpoint(monkeypatch, outcom
         yield checkout, context
 
     worker.browser_page = browser_page
-    worker.navigate = AsyncMock()
+    worker.navigate_cart = AsyncMock()
     worker.read_cart = AsyncMock(
         side_effect=[empty, good]
         if outcome == "restored"
@@ -52,7 +52,7 @@ async def test_revalidate_retries_without_erasing_checkpoint(monkeypatch, outcom
         with pytest.raises(DomainError, match="store cart changed"):
             await worker.revalidate(session)
         assert worker.read_cart.await_count == 3
-    worker.navigate.assert_awaited_once_with(inspection if payment_open else checkout, "milk")
+    worker.navigate_cart.assert_awaited_once_with(inspection if payment_open else checkout)
     assert inspection.close.await_count == (1 if payment_open else 0)
     assert worker.guard.owner == session.id
     assert worker.guard.expected == original
@@ -180,3 +180,59 @@ async def test_inventory_reload_is_read_only_and_bounded(monkeypatch, persistent
         await worker.wait_for_products(page, cards, 'milk')
     assert ready.await_count == 2
     goto.assert_awaited_once_with(page, 'https://blinkit.com/s/?q=milk', wait_until='domcontentloaded', timeout=20000)
+
+
+async def test_review_mismatch_preserves_checkpoint_and_proposes_reconciliation(monkeypatch, tmp_path):
+    from easydial.models import SessionView
+    from easydial.providers.cart_guard import CartConflict
+    from tests.test_payment_handoff import reviewed
+    from tests.test_whatsapp import make_runtime
+
+    runtime = make_runtime(tmp_path)
+    view = SessionView.model_validate((await reviewed(runtime))['view'])
+    worker = BlinkitProvider('', 'Locality', view.address_label)
+    before = {'items': [], 'text': 'Your cart is empty', 'header_address': 'Locality'}
+    after = {'items': [{'name': line.offer.name, 'pack': line.offer.pack_size, 'quantity': line.quantity}
+                       for line in view.lines] + [{'name': 'Old popcorn', 'pack': '120 g', 'quantity': 1}],
+             'address': view.address_label}
+    @asynccontextmanager
+    async def browser_page():
+        yield object(), None
+    worker.browser_page = browser_page
+    worker.navigate_cart = AsyncMock()
+    worker.read_cart = AsyncMock(side_effect=[before, after])
+    worker.set_quantity = AsyncMock()
+    worker.browser.save = AsyncMock()
+    with pytest.raises(CartConflict) as caught:
+        await worker.review(view)
+    assert caught.value.cart == after
+    assert caught.value.changed
+    assert worker.guard.expected == ()
+    assert worker.previous_lines == []
+    worker.browser.save.assert_not_awaited()
+    runtime.inbox.close()
+
+
+async def test_cart_navigation_avoids_search_but_keeps_location_check(monkeypatch):
+    worker = BlinkitProvider('', 'Locality', 'Home')
+    worker.verify_location = AsyncMock()
+    worker.browser.check_page = AsyncMock()
+    goto = AsyncMock()
+    monkeypatch.setattr('easydial.providers.blinkit.goto_with_retry', goto)
+    page = object()
+    await worker.navigate_cart(page)
+    worker.verify_location.assert_awaited_once_with(page)
+    goto.assert_not_awaited()
+    await worker.navigate(page, 'Diet Coke')
+    assert worker.verify_location.await_count == 2
+    assert goto.await_count == 1
+    assert '/s/?q=Diet%20Coke' in goto.call_args.args[1]
+
+
+async def test_instamart_keeps_existing_navigation():
+    from easydial.providers.instamart import InstamartProvider
+
+    worker = InstamartProvider()
+    worker.navigate = AsyncMock()
+    await worker.navigate_cart('page')
+    worker.navigate.assert_awaited_once_with('page', 'milk')

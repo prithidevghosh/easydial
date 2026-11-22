@@ -20,7 +20,7 @@ def proposal(view, conflict):
     for name, pack, quantity in signature:
         candidates = known.get((name, pack), {})
         if len(candidates) != 1:
-            return {"items": cart["items"], "checkpoint": None}
+            return {"items": cart["items"], "checkpoint": None, "changed": getattr(conflict, "changed", False)}
         line = next(iter(candidates.values())).model_copy(deep=True)
         line.quantity = quantity
         existing.append(line)
@@ -29,6 +29,7 @@ def proposal(view, conflict):
     checkpoint.review = None
     checkpoint.payment_preparation = None
     return {
+        "changed": getattr(conflict, "changed", False),
         "id": uuid4().hex,
         "version": view.version,
         "created_at": now().isoformat(),
@@ -41,8 +42,11 @@ def proposal(view, conflict):
 def messages(view, pending):
     current = "\n".join(f"• {x['quantity']} × {x['name']} ({x['pack']})" for x in pending["items"])
     target = "\n".join(f"• {x.quantity} × {x.offer.name} ({x.offer.pack_size})" for x in view.lines)
+    intro = ("The store cart was only partially updated. Please review the differences."
+             if pending.get("changed") else
+             f"I found an existing {view.synced_provider.value.title()} cart. Nothing has changed yet.")
     body = (
-        f"I found an existing {view.synced_provider.value.title()} cart. Nothing has changed yet.\n\n"
+        intro + "\n\n"
         f"Currently in the store:\n{current}\n\nYour requested basket:\n{target}\n\n"
     )
     replies = []
@@ -73,9 +77,8 @@ def messages(view, pending):
             }
         )
     else:
-        body += (
-            "Some existing products cannot be matched safely to saved product records. "
-            "I have kept the store cart untouched. Search for those exact products first so their variants can be verified."
-        )
+        body += "Some existing products cannot be matched safely to saved product records. "
+        body += "Further changes have been stopped. " if pending.get("changed") else "I have kept the store cart untouched. "
+        body += "Search for those exact products first so their variants can be verified."
         replies.append({"type": "text", "text": {"body": body}})
     return replies
