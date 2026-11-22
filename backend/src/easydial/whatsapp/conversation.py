@@ -1242,6 +1242,9 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
                             BasketLine.model_validate(line) for line in state.get("store_cleanup_lines", [])
                             if line.get("offer", {}).get("provider") == Provider.BLINKIT.value
                         ]]
+                    if session.view.synced_provider == Provider.BLINKIT:
+                        worker = self.workers._worker(Provider.BLINKIT)
+                        await worker.resolve_conflict(conflict, session.view)
                     pending = reconciliation.proposal(session.view, conflict)
                     if not pending:
                         raise

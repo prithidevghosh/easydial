@@ -4,6 +4,7 @@ from uuid import uuid4
 
 from ..models import now
 from ..providers.blinkit import cart_signature, normalized
+from ..providers.blinkit_identity import offer_cart_name
 
 
 def proposal(view, conflict):
@@ -13,7 +14,7 @@ def proposal(view, conflict):
     signature = cart_signature(cart)
     known = {}
     for line in [*conflict.previous_lines, *view.lines]:
-        key = (normalized(line.offer.name), normalized(line.offer.pack_size))
+        key = (normalized(offer_cart_name(line.offer)), normalized(line.offer.pack_size))
         variants = known.setdefault(key, {})
         variants[(line.offer.product_id, line.offer.sku_id)] = line
     existing = []

@@ -8,6 +8,7 @@ from ..models import Provider, SearchResult, SessionView
 from ..observability import emit, error_fields, traced
 from ..settings import Settings
 from .blinkit import BlinkitProvider, normalized
+from .blinkit_identity import offer_cart_name
 from .blinkit_location import BlinkitAddressError
 from .instamart import InstamartProvider
 from .proxy import configure_blinkit_proxy
@@ -65,7 +66,7 @@ class ProviderWorkers:
             worker.guard.owner = view.id
             worker.guard.expected = tuple(
                 sorted(
-                    (normalized(x.offer.name), normalized(x.offer.pack_size), x.quantity) for x in view.lines
+                    (normalized(offer_cart_name(x.offer)), normalized(x.offer.pack_size), x.quantity) for x in view.lines
                 )
             )
             worker.previous_lines = [x.model_copy(deep=True) for x in view.lines]

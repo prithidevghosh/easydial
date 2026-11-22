@@ -17,6 +17,7 @@ from ..controller import DomainError
 from ..models import Provider
 from ..observability import emit, error_fields, traced
 from .blinkit import cart_signature, normalized
+from .blinkit_identity import offer_cart_name
 from .browser import click_and_settle
 from .money import paise
 
@@ -152,7 +153,7 @@ async def open_options_once(worker, view, review, page):
 def verify_checkout_cart(worker, view, review, cart):
     worker.guard.check(view.id, cart_signature(cart))
     desired = tuple(
-        sorted((normalized(x.offer.name), normalized(x.offer.pack_size), x.quantity) for x in view.lines)
+        sorted((normalized(offer_cart_name(x.offer)), normalized(x.offer.pack_size), x.quantity) for x in view.lines)
     )
     if cart_signature(cart) != desired or normalized(
         worker.verified_address or view.address_label

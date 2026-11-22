@@ -21,6 +21,8 @@ class Offer(BaseModel):
     product_id: str
     sku_id: str
     name: str
+    # Exact alternate label verified on this Blinkit product ID and pack page.
+    cart_name: str | None = Field(default=None, min_length=1, max_length=500)
     image_url: str | None = None
     brand: str | None = None
     variant: str | None = None

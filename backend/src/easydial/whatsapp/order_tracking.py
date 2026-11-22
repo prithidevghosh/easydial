@@ -8,6 +8,7 @@ from ..controller import DomainError
 from ..models import SessionView
 from ..observability import emit, error_fields, traced
 from ..providers.blinkit import normalized
+from ..providers.blinkit_identity import offer_cart_name
 
 
 def mismatch_reason(order, view, method, baseline, started_at):
@@ -34,12 +35,24 @@ def mismatch_reason(order, view, method, baseline, started_at):
         )
     else:
         expected = sorted(
-            (normalized(x.offer.name), normalized(x.offer.pack_size), x.quantity) for x in view.lines
+            (normalized(offer_cart_name(x.offer)), normalized(x.offer.pack_size), x.quantity) for x in view.lines
         )
-        actual = sorted(
-            (normalized(x.get("name", "")), normalized(x.get("pack", "")), x.get("quantity", 0))
-            for x in order.get("items", [])
-        )
+        # History can use either the catalogue or the verified product-page label.
+        # Resolve only unique exact labels; never strip variant/translation text.
+        labels = {}
+        for line in view.lines:
+            pack = normalized(line.offer.pack_size)
+            canonical = normalized(offer_cart_name(line.offer))
+            for name in (line.offer.name, offer_cart_name(line.offer)):
+                labels.setdefault((normalized(name), pack), set()).add(canonical)
+        actual = []
+        for item in order.get("items", []):
+            key = (normalized(item.get("name", "")), normalized(item.get("pack", "")))
+            candidates = labels.get(key, set())
+            if len(candidates) != 1:
+                return "items"
+            actual.append((next(iter(candidates)), key[1], item.get("quantity", 0)))
+        actual.sort()
     if not expected or actual != expected:
         return "items"
     if order.get("method") not in ({"cash", "upi", "online"} if method == "observe" else {"cash"} if method == "cash" else {"upi", "online"}):

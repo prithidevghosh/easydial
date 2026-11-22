@@ -10,6 +10,7 @@ from ..controller import DomainError
 from ..models import Offer, Provider, Review, SearchResult, SessionView
 from ..observability import emit, traced
 from . import blinkit_dom
+from .blinkit_identity import lines_signature, offer_cart_name, resolve_cart_names
 from .blinkit_location import BlinkitAddressError, BlinkitAddressLoadingError, restore_saved_address
 from .browser import BrowserSession, click_and_settle, goto_with_retry
 from .cart_guard import CartConflict, CartGuard
@@ -325,10 +326,11 @@ class BlinkitProvider:
     async def set_quantity(self, page, line, desired):
         # Existing items must remain removable even if search inventory stops returning them.
         before_cart = await self.read_cart(page, resolve_address=desired != 0)
+        await resolve_cart_names(self, page, [*self.previous_lines, line], before_cart)
         existing = [
             x
             for x in before_cart["items"]
-            if normalized(x["name"]) == normalized(line.offer.name)
+            if normalized(x["name"]) == normalized(offer_cart_name(line.offer))
             and normalized(x["pack"]) == normalized(line.offer.pack_size)
         ]
         if len(existing) == 1:
@@ -340,7 +342,7 @@ class BlinkitProvider:
                     row = rows.nth(i)
                     name = await row.locator("div[class*='ProductTitle']").inner_text()
                     pack = await row.locator("div[class*='ProductVariant']").inner_text()
-                    if normalized(name) == normalized(line.offer.name) and normalized(pack) == normalized(
+                    if normalized(name) == normalized(offer_cart_name(line.offer)) and normalized(pack) == normalized(
                         line.offer.pack_size
                     ):
                         matches.append(row)
@@ -430,7 +432,7 @@ class BlinkitProvider:
             raise DomainError("Choose products with a verified pack size first.")
         desired = tuple(
             sorted(
-                (normalized(x.offer.name), normalized(x.offer.pack_size), x.quantity) for x in session.lines
+                (normalized(offer_cart_name(x.offer)), normalized(x.offer.pack_size), x.quantity) for x in session.lines
             )
         )
         if len({(n, p) for n, p, _ in desired}) != len(desired):
@@ -438,6 +440,8 @@ class BlinkitProvider:
         async with self.lock, self.browser_page() as (page, context):
             await self.navigate_cart(page)
             before = await self.read_cart(page)
+            await resolve_cart_names(self, page, [*self.previous_lines, *session.lines], before)
+            desired = lines_signature(session.lines)
             required_address = self.verified_address or session.address_label
             address_before = before.get("address") or before.get("header_address") or ""
             # Empty carts expose only the selected location header. It must exactly match
@@ -464,6 +468,8 @@ class BlinkitProvider:
             for line in session.lines:
                 await self.set_quantity(page, line, line.quantity)
             after = await self.read_cart(page)
+            await resolve_cart_names(self, page, [*self.previous_lines, *session.lines], after)
+            desired = lines_signature(session.lines)
             actual = cart_signature(after)
             if actual != desired and self.provider == Provider.BLINKIT:
                 # Never adopt an unexpected cart as our checkpoint. A late-loaded
@@ -512,7 +518,7 @@ class BlinkitProvider:
         """Read-only freshness check: never repairs or changes a store cart."""
         desired = tuple(
             sorted(
-                (normalized(x.offer.name), normalized(x.offer.pack_size), x.quantity) for x in session.lines
+                (normalized(offer_cart_name(x.offer)), normalized(x.offer.pack_size), x.quantity) for x in session.lines
             )
         )
         async with self.lock, self.browser_page() as (page, context):
@@ -523,6 +529,8 @@ class BlinkitProvider:
             try:
                 await self.navigate_cart(page)
                 actual = await self.read_cart(page)
+                await resolve_cart_names(self, page, [*self.previous_lines, *session.lines], actual)
+                desired = lines_signature(session.lines)
                 # Retry read-only snapshots before declaring a real change. Never
                 # let a transient empty snapshot erase the verified cart checkpoint.
                 for _ in range(2):
@@ -530,6 +538,8 @@ class BlinkitProvider:
                         break
                     await asyncio.sleep(0.5)
                     actual = await self.read_cart(page)
+                    await resolve_cart_names(self, page, [*self.previous_lines, *session.lines], actual)
+                    desired = lines_signature(session.lines)
                 if cart_signature(actual) != desired:
                     raise DomainError("The store cart changed. Review the basket again before continuing.")
                 self.guard.check(session.id, cart_signature(actual))
@@ -541,18 +551,30 @@ class BlinkitProvider:
                 if separate:
                     await page.close()
 
+    async def resolve_conflict(self, conflict, view):
+        """Read-only identity recovery for an already captured cart conflict."""
+        if self.provider != Provider.BLINKIT or not conflict.cart:
+            return
+        lines = [*conflict.previous_lines, *view.lines]
+        if not lines:
+            return
+        async with self.lock, self.browser_page() as (page, context):
+            await resolve_cart_names(self, page, lines, conflict.cart)
+
     @traced('blinkit.reconcile')
     async def adopt_checkpoint(self, checkpoint, expected_address):
         """Explicitly approved recovery: verify the unchanged cart, then adopt without writes."""
         desired = tuple(
             sorted(
-                (normalized(x.offer.name), normalized(x.offer.pack_size), x.quantity)
+                (normalized(offer_cart_name(x.offer)), normalized(x.offer.pack_size), x.quantity)
                 for x in checkpoint.lines
             )
         )
         async with self.lock, self.browser_page() as (page, context):
             await self.navigate_cart(page)
             actual = await self.read_cart(page)
+            await resolve_cart_names(self, page, [*self.previous_lines, *checkpoint.lines], actual)
+            desired = lines_signature(checkpoint.lines)
             if cart_signature(actual) != desired or actual.get("address") != expected_address:
                 raise DomainError(
                     "The store cart or address changed again. Send review for a fresh comparison; nothing was updated."
@@ -578,7 +600,9 @@ class BlinkitProvider:
             async def read():
                 return await self.read_cart(page, resolve_address=False) if self.provider == Provider.BLINKIT else await self.read_cart(page)
 
-            before = cart_signature(await read())
+            before_cart = await read()
+            await resolve_cart_names(self, page, self.previous_lines, before_cart)
+            before = cart_signature(before_cart)
             self.guard.check_clear(session_id, before)
             if before and not self.previous_lines:
                 raise DomainError(
@@ -587,7 +611,7 @@ class BlinkitProvider:
             self.guard.before_write(())
             remaining_keys = {(name, pack) for name, pack, _ in before}
             for line in self.previous_lines:
-                if self.provider == Provider.BLINKIT and (normalized(line.offer.name), normalized(line.offer.pack_size)) not in remaining_keys:
+                if self.provider == Provider.BLINKIT and (normalized(offer_cart_name(line.offer)), normalized(line.offer.pack_size)) not in remaining_keys:
                     continue
                 await self.set_quantity(page, line, 0)
             # Every owned row has just reached zero in this already hydrated page.
