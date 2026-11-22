@@ -5,6 +5,7 @@ from urllib.parse import quote
 
 from ..controller import DomainError
 from ..models import Offer, Provider, SearchResult
+from ..observability import emit, traced
 from . import instamart_dom
 from .blinkit import BlinkitProvider, cart_signature, normalized
 from .browser import click_and_settle, goto_with_retry
@@ -18,12 +19,15 @@ class InstamartProvider(BlinkitProvider):
     def __init__(self, browser_profile: str = "", verified_address: str = "", verified_location: str = ""):
         super().__init__("", verified_location, verified_address, browser_profile)
 
+    @traced('instamart.catalogue_navigation')
     async def navigate(self, page, query):
         await goto_with_retry(page, "https://instamart.in/", wait_until="domcontentloaded", timeout=25000)
         location = await page.get_by_test_id("address-bar").get_by_test_id("address-line").inner_text()
         if normalized(self.verified_location) != normalized(location):
+            emit('address.verification_failed', provider=self.provider.value, error_code='delivery_location_changed')
             raise DomainError("Instamart's delivery location changed. Select your intended address.")
         self.header_address = location
+        emit('address.verified', provider=self.provider.value, status='ok')
         await goto_with_retry(page,
             f"https://instamart.in/search?custom_back=true&query={quote(query)}",
             wait_until="domcontentloaded",
@@ -31,6 +35,7 @@ class InstamartProvider(BlinkitProvider):
         )
         await self.browser.check_page(page)
 
+    @traced('instamart.search')
     async def search(self, query: str, address: str) -> SearchResult:
         if not self.browser.configured or not self.verified_location:
             return SearchResult(
@@ -50,6 +55,7 @@ class InstamartProvider(BlinkitProvider):
                 if offer and offer.id not in {x.id for x in offers}:
                     offers.append(offer)
                     self.known[offer.product_id] = query
+            emit('catalogue.observed', provider=self.provider.value, offer_count=len(offers), status='ok')
             return SearchResult(
                 provider=Provider.INSTAMART,
                 query=query,
@@ -58,6 +64,7 @@ class InstamartProvider(BlinkitProvider):
                 message="Live Instamart item prices. Final fees require basket review.",
             )
 
+    @traced('instamart.cart_read')
     async def read_cart(self, page):
         go_cart = page.get_by_text("Go to Cart", exact=True)
         if not page.url.endswith("/cart") and await go_cart.is_visible():
@@ -84,6 +91,7 @@ class InstamartProvider(BlinkitProvider):
                 raise DomainError("Instamart's bill and payable amount do not match yet. Review again.")
         return data
 
+    @traced('instamart.set_quantity')
     async def set_quantity(self, page, line, desired):
         before = await self.read_cart(page)
         matching = [

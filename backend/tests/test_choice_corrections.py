@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from easydial.controller import Session
 from easydial.models import SessionView
 from easydial.whatsapp.conversation import ShoppingChat
+from tests.fakes import intent_tool_responses
 from tests.test_whatsapp import intent, make_runtime, settings
 
 
@@ -52,7 +53,7 @@ async def test_hindi_model_clarification_is_not_sent_to_customer(tmp_path):
         assert "in the user's language" not in kwargs["instructions"]
         return SimpleNamespace(output_parsed=intent("clarify", clarification="कृपया फिर से बोलें"))
 
-    master = SimpleNamespace(require_client=lambda: SimpleNamespace(responses=SimpleNamespace(parse=parse)))
+    master = SimpleNamespace(require_client=lambda: SimpleNamespace(responses=intent_tool_responses(parse)))
     chat = ShoppingChat(settings(tmp_path), None, master)
     session = Session(SessionView(id="test", mode="live", address_label="test"))
     result = await chat.interpret("second wala", session, {"choices": []})

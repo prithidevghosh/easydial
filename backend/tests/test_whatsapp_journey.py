@@ -2,16 +2,19 @@
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
+import pytest
+
 from easydial.models import Provider, RequestedProduct, SessionView
 from easydial.providers.payments import decode_qr
-from tests.fakes import FixtureProvider
+from tests.fakes import FixtureProvider, intent_tool_responses
 from tests.test_onboarding import connect, runtime, turn
 from tests.test_order_tracking import merchant_order
 from tests.test_payment_handoff import qr
 from tests.test_whatsapp import intent
 
 
-async def test_onboarding_to_confirmation_and_fresh_basket(tmp_path):
+@pytest.mark.parametrize('use_tool_harness', [False, True])
+async def test_onboarding_to_confirmation_and_fresh_basket(tmp_path, use_tool_harness):
     r = runtime(tmp_path)
     sender = '919999999999'
     await connect(r, provider='blinkit')
@@ -22,6 +25,12 @@ async def test_onboarding_to_confirmation_and_fresh_basket(tmp_path):
         rank=AsyncMock(side_effect=lambda query, offers: offers), close=AsyncMock())
     chat.interpret = AsyncMock(return_value=intent(
         'search', queries=[RequestedProduct(query='milk', quantity=2, replaces_line_id=None)]))
+    if use_tool_harness:
+        from easydial.whatsapp.conversation import ShoppingChat
+        parse = AsyncMock(return_value=SimpleNamespace(output_parsed=chat.interpret.return_value))
+        responses = intent_tool_responses(parse)
+        chat.master = SimpleNamespace(require_client=lambda: SimpleNamespace(responses=responses))
+        chat.interpret = ShoppingChat.interpret.__get__(chat)
     chat.workers.payment_options = AsyncMock(return_value=[{'id': 'upi', 'title': 'UPI', 'note': ''}])
     chat.workers.order_history = AsyncMock(return_value={'ids': [], 'orders': []})
     r.payments.public_url = 'https://example.test'
@@ -74,4 +83,7 @@ async def test_onboarding_to_confirmation_and_fresh_basket(tmp_path):
     assert fresh['view']['lines'][0]['quantity'] == 2
     assert fresh['view']['payment_preparation'] is None
     assert r.payments.existing(sender, fresh['view']['id']) is None
+    if use_tool_harness:
+        # Both ordinary discovery turns hand off in one model call each.
+        assert parse.await_count == 2
     r.inbox.close()

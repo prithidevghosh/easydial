@@ -6,6 +6,7 @@ import pytest
 from easydial.controller import DomainError, Session
 from easydial.models import IntentEdit, SessionView, now
 from easydial.whatsapp.conversation import RemovalCheck, ShoppingChat
+from tests.fakes import intent_tool_responses
 from tests.test_choice_corrections import selected
 from tests.test_whatsapp import intent, make_runtime, message, settings
 
@@ -29,7 +30,7 @@ async def test_unclear_removal_gets_independent_check_before_any_edit(tmp_path):
     chat = ShoppingChat(
         settings(tmp_path),
         None,
-        SimpleNamespace(require_client=lambda: SimpleNamespace(responses=SimpleNamespace(parse=parse))),
+        SimpleNamespace(require_client=lambda: SimpleNamespace(responses=intent_tool_responses(parse))),
     )
     result = await chat.interpret("हरके के मूव कीजिए", Session(view), state)
     assert result.action == "clarify" and result.edits == []
@@ -157,7 +158,7 @@ async def test_selection_verifier_recovers_missing_replacement_target(tmp_path):
     chat = ShoppingChat(
         settings(tmp_path),
         None,
-        SimpleNamespace(require_client=lambda: SimpleNamespace(responses=SimpleNamespace(parse=parse))),
+        SimpleNamespace(require_client=lambda: SimpleNamespace(responses=intent_tool_responses(parse))),
     )
     result = await chat.interpret("first nahi second", session, state)
     assert result.replaces_line_id == session.view.lines[0].id
@@ -177,7 +178,7 @@ async def test_unclear_request_blocks_every_action(tmp_path, action):
         return SimpleNamespace(output_parsed=proposed)
 
     runtime.chat.master = SimpleNamespace(
-        require_client=lambda: SimpleNamespace(responses=SimpleNamespace(parse=parse))
+        require_client=lambda: SimpleNamespace(responses=intent_tool_responses(parse))
     )
     del runtime.chat.interpret  # Remove the fixture interpreter; exercise the real harness.
     state, replies = await runtime.chat.handle("garbled request", state)

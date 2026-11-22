@@ -10,6 +10,7 @@ from uuid import uuid4
 
 from ..controller import DomainError
 from ..models import SessionView
+from ..observability import emit, traced
 from .accounts import CONSENT_TEXT
 from .conversation import text_message
 from .presentation import onboarding_card, plain, text_messages
@@ -115,6 +116,7 @@ class Onboarding:
             button["reply"]["id"] = button["reply"]["id"].replace("onboard:", "account-logout:", 1)
         return [reply]
 
+    @traced('account.intent')
     async def account_request(self, sender, event_id, text, shopping_state, action=None):
         pending = shopping_state.get("logout_confirmation")
         if pending and pending["expires"] < time.time():
@@ -135,7 +137,9 @@ class Onboarding:
             return await self.logout(sender, event_id, shopping_state, disconnect[1])
         return None
 
+    @traced('account.logout')
     async def logout(self, sender, event_id, shopping_state, provider=None):
+        emit('account.logout_requested', provider=provider if provider in {'blinkit', 'instamart'} else 'unknown')
         # Revoke access before awaiting browser cleanup; no active draft or stale
         # payment button may survive logout, even with a pending merchant order.
         targets = (provider,) if provider else ("blinkit", "instamart")
@@ -166,6 +170,7 @@ class Onboarding:
             await self.chats.close_customer(sender, save=False)
         return replies
 
+    @traced('onboarding.handle')
     async def handle(self, row, message, shopping_state):
         sender, event_id = row["sender"], row["id"]
         text, action = content(message)
@@ -176,6 +181,10 @@ class Onboarding:
         if account_status_requested(text):
             return self.account_status(sender)
         state = self.accounts.state(sender)
+        observed_stage = state.get('stage') if state else 'new'
+        emit('onboarding.state', stage='onboarding.' + (observed_stage if observed_stage in {
+            'new', 'store', 'consent', 'phone', 'requesting', 'otp_wait', 'otp', 'address', 'same_address', 'ready'
+        } else 'unknown'))
         connections = self.accounts.connections(sender)
         if not state:
             count = self.accounts.db.execute("SELECT COUNT(*) FROM onboarding").fetchone()[0]
@@ -423,6 +432,7 @@ class Onboarding:
         lines = "\n\n".join(f"*{i}.* {plain(a['label'])}" for i, a in enumerate(addresses, 1))
         return text_messages("📍 *Choose your delivery address*\n\n" + lines + "\n\nReply with the address number.")
 
+    @traced('onboarding.complete')
     async def complete(self, sender, provider, address):
         data = await self.adapter.select_address(sender, provider, address)
         self.accounts.save_connection(sender, provider, data)

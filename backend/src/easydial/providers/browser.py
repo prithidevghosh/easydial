@@ -6,6 +6,7 @@ from pathlib import Path
 from playwright.async_api import async_playwright
 
 from ..controller import DomainError
+from ..observability import emit, error_fields, traced
 
 log = logging.getLogger(__name__)
 
@@ -28,11 +29,13 @@ class BrowserSession:
             or (self.storage_state and Path(self.storage_state).is_file())
         )
 
+    @traced('browser.open')
     async def open(self):
         await self._open_context()
         await self._verify_proxy()
         return self.page, self.context
 
+    @traced('browser.context_open')
     async def _open_context(self):
         if self.context and self.page and not self.page.is_closed():
             return
@@ -73,20 +76,25 @@ class BrowserSession:
         except DomainError:
             await self.close()
             raise
-        except Exception:
+        except Exception as error:
+            emit('browser.context_failed', error_code='browser_context_failed', **error_fields(error))
             await self.close()
             raise DomainError(
                 "Close the store's setup browser, then retry. Chrome must be installed.", 503
             ) from None
 
+    @traced('browser.proxy_verify')
     async def _verify_proxy(self):
         if not self.proxy:
             return
         for attempt in range(1, 4):
+            emit('proxy.attempt', provider='blinkit', attempt=attempt, max_attempts=3, pinned=bool(self.proxy.exit_ip))
             try:
                 await self.proxy.verify(self)
                 return
             except Exception as error:
+                emit('proxy.attempt_failed', provider='blinkit', attempt=attempt, max_attempts=3,
+                     pinned=bool(self.proxy.exit_ip), error_code='proxy_verification_failed', **error_fields(error))
                 log.warning("Blinkit proxy verification failed: attempt=%s max_attempts=3 pinned=%s category=%s",
                             attempt, bool(self.proxy.exit_ip), type(error).__name__)
                 if attempt == 3:
@@ -107,11 +115,14 @@ class BrowserSession:
                 # sticky session, preserving the live page, cart and OTP form.
 
     @staticmethod
+    @traced('browser.check_page')
     async def check_page(page):
         text = (await page.locator("body").inner_text()).casefold()
         if any(x in text for x in ["we'll be back shortly", "temporary glitch", "something’s not right"]):
+            emit('browser.store_unavailable', error_code='store_temporary_unavailable')
             raise DomainError("The store website is temporarily unavailable. Try again later.", 503)
         if any(x in text for x in ["verify you are human", "access denied", "unusual traffic"]):
+            emit('browser.access_blocked', error_code='store_access_blocked')
             raise DomainError(
                 "The store needs attention in its browser. Complete its check manually before retrying.", 503
             )
@@ -126,6 +137,7 @@ class BrowserSession:
                 await self.context.storage_state(path=self.storage_state)
                 Path(self.storage_state).chmod(0o600)
 
+    @traced('browser.close')
     async def close(self):
         try:
             if self.context:
@@ -139,6 +151,7 @@ class BrowserSession:
             self._network_session = None
 
 
+@traced('browser.cart_save_wait')
 async def click_and_settle(page, button):
     """Wait for requests started by this UI action, without waiting on unrelated page traffic.
 
@@ -187,6 +200,7 @@ async def click_and_settle(page, button):
         page.remove_listener("requestfailed", finished)
 
 
+@traced('browser.navigation')
 async def goto_with_retry(page, url, **kwargs):
     """Retry transient read-only navigation, never a payment/order click."""
     import asyncio
@@ -208,6 +222,7 @@ async def goto_with_retry(page, url, **kwargs):
                 *markers, "err_connection_reset", "err_connection_closed", "err_empty_response",
             )):
                 raise
+        emit('browser.navigation_retry', attempt=attempt + 1, max_attempts=3, error_code='transient_navigation_failure')
         if attempt < 2:
             await asyncio.sleep(attempt + 1)
     raise DomainError("The store is temporarily busy. Your basket is saved; please retry shortly.", 503)

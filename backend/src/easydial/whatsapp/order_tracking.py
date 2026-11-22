@@ -2,11 +2,11 @@
 
 import asyncio
 import json
-import logging
 import time
 
 from ..controller import DomainError
 from ..models import SessionView
+from ..observability import emit, error_fields, traced
 from ..providers.blinkit import normalized
 
 
@@ -65,6 +65,7 @@ class OrderMonitor:
             "SELECT * FROM order_checks WHERE sender=? AND order_id=?", (sender, order_id)
         ).fetchone()
 
+    @traced('order.capture')
     async def capture(self, sender, view, method, workers):
         old = self.get(sender, view.id)
         if old and old["status"] != "prepared" and not (old["method"] == "observe" and old["status"] == "pending"):
@@ -93,6 +94,7 @@ class OrderMonitor:
                 (sender, order_id),
             )
 
+    @traced('order.refresh')
     async def refresh_confirmed(self, row, workers, *, sleep=asyncio.sleep, max_checks=3):
         saved = json.loads(row["result"])
         view = SessionView.model_validate_json(row["snapshot"])
@@ -123,14 +125,17 @@ class OrderMonitor:
                                 "UPDATE order_checks SET status=?,result=?,checks=checks+? WHERE sender=? AND order_id=?",
                                 (result["status"], json.dumps(result), attempts, row["sender"], row["order_id"]),
                             )
+                        emit('order.status_observed', provider=getattr(view.review, 'provider', None),
+                             status=result['status'], attempt=attempts, max_attempts=max_checks)
                         return result
                     diagnostic["refresh_reason"] = "unreadable_status"
                 elif len(candidates) > 1:
                     diagnostic["refresh_reason"] = "ambiguous_matches"
             except Exception as exc:
+                emit('order.history_read_failed', provider=getattr(view.review, 'provider', None), **error_fields(exc))
                 diagnostic = {"refresh_reason": "history_read_error", "refresh_error_type": type(exc).__name__}
-            logging.getLogger(__name__).warning("Order status refresh incomplete: provider=%s attempt=%s details=%s",
-                                              view.review.provider.value, attempts, diagnostic)
+            emit('order.refresh_incomplete', provider=getattr(view.review, 'provider', None), attempt=attempts,
+                 max_attempts=max_checks, status='unknown', cached=True, error_code=diagnostic.get('refresh_reason'))
             if time.monotonic() + 1 >= deadline:
                 break
             if attempt < max_checks - 1 and view.review.provider.value == "blinkit":
@@ -143,9 +148,11 @@ class OrderMonitor:
                             (json.dumps(result), attempts, row["sender"], row["order_id"]))
         return result
 
+    @traced('order.check')
     async def check(self, sender, order_id, workers, *, sleep=asyncio.sleep, max_checks=3):
         row = self.get(sender, order_id)
         if not row or row["status"] == "prepared":
+            emit('order.status_observed', status='pending', error_code='no_verified_attempt')
             return {"status": "pending", "reason": "no_verified_attempt"}
         if row["status"] in {"confirmed", "failed"}:
             return await self.refresh_confirmed(row, workers, sleep=sleep, max_checks=max_checks)
@@ -189,6 +196,7 @@ class OrderMonitor:
                     else:
                         result = {"status": "pending", "order": order, "reason": "awaiting_store_or_payment"}
             except Exception as exc:
+                emit('order.history_read_failed', provider=getattr(view.review, 'provider', None), **error_fields(exc))
                 # A blocked browser, timeout, or unreadable history is not a failed payment.
                 result = {
                     "status": "pending",
@@ -210,6 +218,8 @@ class OrderMonitor:
                     "UPDATE order_checks SET status=?,result=?,checks=checks+1 WHERE sender=? AND order_id=?",
                     (result["status"], json.dumps(result), sender, order_id),
                 )
+            emit('order.status_observed', provider=getattr(view.review, 'provider', None), status=result['status'],
+                 attempt=attempt + 1, max_attempts=max_checks, error_code=result.get('reason'))
             if result["status"] != "pending":
                 return result
             if time.monotonic() + 3 >= deadline:

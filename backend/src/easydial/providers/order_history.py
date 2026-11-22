@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo
 
 from ..controller import DomainError
 from ..models import Provider
+from ..observability import emit, error_fields, traced
 from .browser import goto_with_retry
 from .money import paise
 
@@ -165,6 +166,7 @@ def parse_blinkit(card, text):
     }
 
 
+@traced('history.order_details')
 async def read_blinkit_details(page, card, *, timeout=8):
     """The order heading can render before items, payment and delivery details."""
     deadline = time.monotonic() + timeout
@@ -184,6 +186,7 @@ async def read_blinkit_details(page, card, *, timeout=8):
         await asyncio.sleep(0.25)
 
 
+@traced('history.order_status')
 async def read_history(worker, view, exclude_ids=None):
     async with worker.lock, worker.browser_page() as (_checkout_page, context):
         # Never navigate the live checkout/QR tab while the merchant may still be
@@ -214,6 +217,7 @@ async def read_history(worker, view, exclude_ids=None):
                                     parsed.append(value)
                             except (KeyError, ValueError, TypeError):
                                 continue
+                emit('history.orders_observed', provider=getattr(worker, 'provider', None), order_count=len(parsed), count=len(ids), status='ok')
                 return {"ids": ids, "orders": parsed}
             async with page.expect_response(
                 lambda r: urlsplit(r.url).path == "/v1/layout/order_history", timeout=20000
@@ -250,9 +254,12 @@ async def read_history(worker, view, exclude_ids=None):
                         results.append(parsed)
                     else:
                         issues.append(issue)
+            emit('history.orders_observed', provider=getattr(worker, 'provider', None), order_count=len(results), count=len(ids),
+                 status='partial' if issues else 'ok')
             return {"ids": ids, "orders": results, "issues": sorted(set(issues))}
 
         except (Exception, asyncio.CancelledError) as error:
+            emit('history.read_interrupted', provider=getattr(worker, 'provider', None), stage=stage, error_code='history_read_interrupted', **error_fields(error))
             logging.getLogger(__name__).warning("Order history read interrupted: provider=%s stage=%s category=%s",
                                                worker.provider.value, stage, type(error).__name__)
             raise

@@ -12,6 +12,7 @@ from urllib.parse import urlparse
 import httpx
 
 from ..controller import DomainError
+from ..observability import emit, error_fields, traced
 from .presentation import prepare_outbound, qr_caption
 
 log = logging.getLogger(__name__)
@@ -26,6 +27,7 @@ class MetaTransport:
         self.base = f"https://graph.facebook.com/{settings.whatsapp_api_version}"
         self.headers = {"Authorization": f"Bearer {settings.whatsapp_access_token}"}
 
+    @traced('meta.send')
     async def send(self, sender, payload, *, image_fallback=True):
         payload = prepare_outbound(payload)
         response = await self.http.post(
@@ -41,6 +43,7 @@ class MetaTransport:
             and payload.get("type") == "image"
             and payload["image"].get("caption")
         ):
+            emit('meta.image_fallback', http_status=response.status_code, image_fallback=True)
             return await self.send(sender, {"type": "text", "text": {"body": payload["image"]["caption"]}})
         if response.is_error:
             # Log only numeric diagnostics, never recipient, token, URL, or message content.
@@ -48,6 +51,9 @@ class MetaTransport:
                 error = response.json().get("error", {})
                 code = error.get("code")
                 subcode = error.get("error_subcode")
+                emit('meta.send_rejected', http_status=response.status_code,
+                     api_code=code if isinstance(code, int) else None,
+                     api_subcode=subcode if isinstance(subcode, int) else None)
                 log.warning(
                     "Meta send rejected: HTTP %s, code %s, subcode %s",
                     response.status_code,
@@ -56,9 +62,11 @@ class MetaTransport:
                 )
             except (ValueError, AttributeError):
                 log.warning("Meta send rejected: HTTP %s", response.status_code)
+        emit('meta.http_response', http_status=response.status_code)
         response.raise_for_status()
         return response.json()["messages"][0]["id"]
 
+    @traced('meta.send_payment_qr')
     async def send_payment_qr(self, sender, artifact):
         # Upload the exact verified merchant PNG; never redraw or regenerate a payment request.
         if artifact["expires_at"] <= time.time():
@@ -76,9 +84,11 @@ class MetaTransport:
                 data={"messaging_product": "whatsapp", "type": "image/png"},
                 files={"file": ("blinkit-payment.png", raw, "image/png")},
             )
+            emit('meta.http_response', http_status=response.status_code)
             response.raise_for_status()
             media_id = response.json()["id"]
-        except Exception:
+        except Exception as error:
+            emit('meta.upload_failed', **error_fields(error))
             # Uploading media cannot deliver a chat message, so a failure notice is safe here.
             raise DomainError(
                 "I couldn’t attach the payment QR. Please check order status before trying again."
@@ -97,6 +107,7 @@ class MetaTransport:
             image_fallback=False,
         )
 
+    @traced('meta.typing')
     async def typing(self, message_id):
         response = await self.http.post(
             f"{self.base}/{self.settings.whatsapp_phone_number_id}/messages",
@@ -108,8 +119,10 @@ class MetaTransport:
                 "typing_indicator": {"type": "text"},
             },
         )
+        emit('meta.http_response', http_status=response.status_code)
         response.raise_for_status()
 
+    @traced('meta.audio')
     async def audio(self, media):
         media_id = media.get("id", "")
         if not re.fullmatch(r"[0-9]+", media_id):
@@ -119,6 +132,7 @@ class MetaTransport:
             headers=self.headers,
             params={"phone_number_id": self.settings.whatsapp_phone_number_id},
         )
+        emit('meta.http_response', http_status=response.status_code)
         response.raise_for_status()
         meta = response.json()
         if int(meta.get("file_size", MAX_AUDIO + 1)) > MAX_AUDIO:
@@ -132,6 +146,7 @@ class MetaTransport:
             raise DomainError("Please send an audio recording, up to 60 seconds.")
         data = bytearray()
         async with self.http.stream("GET", meta["url"], headers=self.headers) as download:
+            emit('meta.audio_response', http_status=download.status_code)
             download.raise_for_status()
             async for part in download.aiter_bytes():
                 data.extend(part)
@@ -146,6 +161,7 @@ class MetaTransport:
         await self.http.aclose()
 
 
+@traced('audio.normalize')
 async def normalize_audio(data: bytes) -> bytes:
     executable = shutil.which("ffmpeg")
     if not executable:

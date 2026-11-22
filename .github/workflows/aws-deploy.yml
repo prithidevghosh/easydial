@@ -33,7 +33,7 @@ jobs:
           --entrypoint /bin/sh
           --mount type=bind,src="$PWD/backend/tests",dst=/app/tests,readonly
           -e EASYDIAL_DOM_TESTS=1
-          easydial:check -c 'uv run --frozen --group dev pytest -q tests/test_dom.py'
+          easydial:check -c 'uv run --frozen --group dev pytest -q tests/test_dom.py tests/test_product_details.py tests/test_product_details_dom.py tests/test_exploration_provider_failures.py'
       - name: Verify Chrome in Linux
         run: >-
           docker run --rm --platform linux/amd64 --shm-size=1g

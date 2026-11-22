@@ -110,3 +110,20 @@ class FixtureProvider:
 
     async def revalidate(self, session):
         return await self.review(session)
+
+
+def intent_tool_responses(parse):
+    """Adapt intent fixtures to the model's action tool while retaining repair-call fixtures."""
+    import json
+    from types import SimpleNamespace
+
+    from easydial.whatsapp.conversation import ChatIntent
+
+    async def create(**kwargs):
+        parsed = await parse(instructions=kwargs['instructions'], input=kwargs['input'][0]['content'],
+                             text_format=ChatIntent)
+        return SimpleNamespace(output_text='', output=[SimpleNamespace(
+            type='function_call', name='execute_shopping_action', call_id='action',
+            arguments=json.dumps(parsed.output_parsed.model_dump(mode='json')))])
+
+    return SimpleNamespace(parse=parse, create=create)

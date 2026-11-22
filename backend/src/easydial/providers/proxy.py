@@ -7,6 +7,7 @@ import secrets
 from pathlib import Path
 
 from ..controller import DomainError
+from ..observability import emit, traced
 
 
 class BlinkitProxy:
@@ -67,21 +68,25 @@ class BlinkitProxy:
             with os.fdopen(fd, "w") as file:
                 json.dump(data, file)
 
+    @traced('proxy.verify')
     async def verify(self, browser):
         # A real page uses exactly the browser's proxy, including CONNECT authentication.
         probe = await browser.context.new_page()
         try:
             response = await probe.goto("https://ipv4.webshare.io/", timeout=20000)
             if not response or not response.ok:
+                emit('proxy.verification_failed', provider='blinkit', error_code='proxy_probe_http_error', pinned=bool(self.exit_ip))
                 raise ValueError("Proxy check failed")
             observed = str(ipaddress.IPv4Address((await response.text()).strip()))
             if self.exit_ip and observed != self.exit_ip:
+                emit('proxy.verification_failed', provider='blinkit', error_code='proxy_ip_changed', pinned=True)
                 raise DomainError(
                     "Blinkit's proxy IP changed or its sticky session expired. "
                     "Reconnect Blinkit to start a new journey; this journey was stopped.", 503
                 )
             self.exit_ip = observed
             self.save(browser)
+            emit('proxy.verified', provider='blinkit', status='ok', pinned=True)
         finally:
             await probe.close()
 

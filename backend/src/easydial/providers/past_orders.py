@@ -8,6 +8,7 @@ from urllib.parse import parse_qs, urlsplit
 from zoneinfo import ZoneInfo
 
 from ..controller import DomainError
+from ..observability import emit, traced
 from .browser import goto_with_retry
 from .order_history import blinkit_placed_at, order_status, parse_blinkit
 
@@ -41,6 +42,7 @@ def in_period(placed, start, end):
     return (start is None or day >= start) and (end is None or day <= end)
 
 
+@traced('history.past_orders')
 async def read_past_orders(worker, start=None, end=None):
     async with worker.lock, worker.browser_page() as (_, context):
         page = await context.new_page()
@@ -113,6 +115,8 @@ async def read_past_orders(worker, start=None, end=None):
                     issues.append('unknown_order_date')
                 elif in_period(parsed['placed_at'], start, end):
                     orders.append(parsed)
+            emit('history.past_orders_observed', provider='blinkit', order_count=len(orders),
+                 count=len(selected), status='partial' if issues else 'ok')
             return {'orders': orders, 'scanned_count': len(selected), 'issues': sorted(set(issues))}
         finally:
             await page.close()

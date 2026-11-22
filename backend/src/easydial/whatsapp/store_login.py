@@ -13,6 +13,7 @@ import time
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
 from ..controller import DomainError
+from ..observability import emit, traced
 from ..providers.blinkit import normalized
 from ..providers.blinkit_location import select_and_verify_address
 from ..providers.browser import BrowserSession, goto_with_retry
@@ -63,7 +64,9 @@ class StoreLogin:
             raise DomainError("Your login session expired. Please connect again.")
         return session
 
+    @traced('login.request_otp')
     async def request_otp(self, sender, provider, phone):
+        emit('login.request_started', provider=provider if provider in {'blinkit', 'instamart'} else 'unknown')
         if not self.accounts.consented(sender, provider):
             raise DomainError("Permission is required before signing in.")
         await self.expire()
@@ -104,6 +107,7 @@ class StoreLogin:
         # Do not claim an OTP was sent just because the phone submit button was clicked.
         await self.wait_for_otp(sender, provider)
 
+    @traced('login.wait_otp')
     async def wait_for_otp(self, sender, provider, timeout=30):
         session = self.session(sender, provider)
         page, _ = await session.open()
@@ -113,12 +117,14 @@ class StoreLogin:
                 return
             body = (await page.locator("body").inner_text()).casefold()
             if re.search(r"\btoo many (?:(?:login|otp|sign[ -]?in) )?(?:requests|attempts)\b", body):
-                log.warning("Merchant login observation: provider=%s signal=explicit_request_limit", provider)
+                emit('login.observation', provider=provider if provider in {'blinkit', 'instamart'} else 'unknown',
+                     status='error', error_code='explicit_request_limit')
                 raise LoginRateLimited("The store is limiting login requests.")
             # Observed Instamart phone-form error: this is not a countdown,
             # a proven rate limit, or a still-loading OTP form.
             if "something went wrong, please try again after sometime" in body:
-                log.warning("Merchant login observation: provider=%s signal=phone_submission_error", provider)
+                emit('login.observation', provider=provider if provider in {'blinkit', 'instamart'} else 'unknown',
+                     status='error', error_code='phone_submission_error')
                 raise LoginSubmissionRejected("The store could not start login.")
             # A resend countdown alone is not evidence of rate limiting.
             if re.search(r"(?:invalid|incorrect) (?:mobile|phone) number", body):
@@ -132,6 +138,7 @@ class StoreLogin:
             await asyncio.sleep(0.5)
 
     @staticmethod
+    @traced('login.instamart_screen')
     async def open_instamart_login(page):
         phone = page.locator('input[name="auth-sidebar-mobile"]')
         deadline = time.monotonic() + 35
@@ -158,6 +165,7 @@ class StoreLogin:
         raise DomainError("Instamart’s login screen isn’t loading right now. Please try again shortly.")
 
     @staticmethod
+    @traced('login.blinkit_screen')
     async def open_blinkit_login(page):
         # DOMContentLoaded precedes Blinkit's client-rendered location gate. An
         # immediate is_visible() skips it on fresh customer contexts.
@@ -200,6 +208,7 @@ class StoreLogin:
             )
         )
 
+    @traced('login.verify_otp')
     async def verify_otp(self, sender, provider, otp):
         session = self.session(sender, provider)
         page, _ = await session.open()
@@ -223,12 +232,15 @@ class StoreLogin:
             else:
                 authenticated = await page.get_by_text("Account", exact=True).is_visible()
             if authenticated:
+                emit('login.otp_result', provider=provider if provider in {'blinkit', 'instamart'} else 'unknown', status='success')
                 return await self.addresses(sender, provider)
             if re.search(
                 r"(incorrect|invalid|expired)\s+(otp|code)", await page.locator("body").inner_text(), re.I
             ):
+                emit('login.otp_result', status='rejected', error_code='otp_rejected')
                 return None
             await asyncio.sleep(0.5)
+        emit('login.otp_result', status='pending', error_code='otp_not_confirmed')
         return None
 
     @staticmethod
@@ -237,6 +249,7 @@ class StoreLogin:
         # Only the visible saved-address rows define the customer's choices.
         return page.locator(".FObAQ > ._1gcSd").filter(visible=True)
 
+    @traced('login.list_addresses')
     async def addresses(self, sender, provider):
         page, _ = await self.session(sender, provider).open()
         if provider == "blinkit":
@@ -291,6 +304,7 @@ class StoreLogin:
             entry["id"] = hashlib.sha256(f"{snapshot}:{entry['card_index']}".encode()).hexdigest()
         return entries
 
+    @traced('login.select_address')
     async def select_address(self, sender, provider, address):
         session = self.session(sender, provider)
         page, _ = await session.open()

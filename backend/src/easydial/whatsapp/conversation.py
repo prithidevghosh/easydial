@@ -1,6 +1,7 @@
 import asyncio
 import json
 import re
+from copy import deepcopy
 from datetime import datetime, timedelta
 from typing import Literal
 from uuid import uuid4
@@ -12,6 +13,7 @@ from ..billing import breakdown, can_choose_payment, fingerprint
 from ..controller import DomainError, Session, exact_comparison
 from ..master import INSTRUCTIONS
 from ..models import BasketLine, EditRequest, IntentEdit, Offer, Provider, RequestedProduct, SessionView, now
+from ..observability import emit, traced
 from ..providers.cart_guard import CartConflict
 from . import presentation, reconciliation
 from .repeat_order import RepeatRequest, repeat
@@ -19,6 +21,7 @@ from .repeat_order import RepeatRequest, repeat
 
 class ChatIntent(BaseModel):
     action: Literal[
+        "respond",
         "search",
         "edit",
         "select",
@@ -84,13 +87,16 @@ class ShoppingChat:
             "last_timestamp": 0,
         }
 
+    @traced("master.interpret")
     async def interpret(self, text, session, state, *, repair=False):
+        research_active = state.get("exploration", {}).get("active", False)
         # A number after a completed selection does not distinguish add from replace.
         # Ask rather than let stochastic model output choose a destructive interpretation.
         if (
             text.strip().isascii()
             and text.strip().isdigit()
             and not state["choices"]
+            and not state.get("exploration", {}).get("active")
             and self.recent_choices(session, state)
         ):
             return ChatIntent(
@@ -101,9 +107,11 @@ class ShoppingChat:
                 quantity=None,
                 clarification="Should that option replace your selected item, or be added as well?",
             )
+        from .exploration import run_agent
+
         client = self.master.require_client()
-        result = await client.responses.parse(
-            model=self.settings.openai_text_model,
+        result = await run_agent(
+            self, text, session, state,
             instructions=INSTRUCTIONS.replace("in\nthe user's language", "in English").replace(
                 "If the request needs both edits and discovery, clarify which to do first rather than silently dropping part.",
                 "For explicit edits plus discovery, return action search with both edits and queries. Never drop either part.",
@@ -228,7 +236,7 @@ for curd/dahi, not set_quantity or remove. Translate generic Indian-language gro
 searchable catalogue terms while preserving brands, quantity and variants. Never edit a missing item.
 Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET line ID.
 """,
-            input=json.dumps(
+            context={**json.loads(json.dumps(
                 {
                     "request": text,
                     "PENDING_REPEAT_QUESTION": state.get("repeat_question"),
@@ -279,13 +287,18 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
                     ],
                 },
                 ensure_ascii=False,
-            ),
-            text_format=ChatIntent,
-            store=False,
+            )), "EXPLORATION_ACTIVE": state.get("exploration", {}).get("active", False)},
         )
-        if result.output_parsed is None:
-            raise DomainError("I couldn't understand that. Please say it another way.", 422)
-        intent = result.output_parsed
+        state["exploration"] = result["context"]
+        state["exploration"]["active"] = result["action"] is None or result["action"].action == "clarify"
+        state["agent_replies"] = result["replies"]
+        if result["action"] is None:
+            return ChatIntent(action="respond", queries=[], edits=[], offer_id=None, quantity=None, clarification="")
+        intent = result["action"]
+        if research_active and intent.action == "select":
+            state["exploration"]["active"] = True
+            return ChatIntent(action="clarify", queries=[], edits=[], offer_id=None, quantity=None,
+                              clarification="Which product from our discussion would you like? Please send its name.")
         if intent.unclear_request and intent.action != "account_clarify":
             return ChatIntent(
                 action="clarify",
@@ -554,7 +567,24 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
             progress.update("Checking your cart and fees…")
         return await self.handle("review", state, progress=progress, customer=customer)
 
+    @traced("conversation.handle")
     async def handle(self, text, state, action_id=None, progress=None, customer=None, _intent=None):
+        previous_exploration = deepcopy(state.get("exploration"))
+        state.pop("agent_replies", None)
+        try:
+            state, replies = await self._handle(text, state, action_id, progress, customer, _intent)
+            return state, state.pop("agent_replies", []) + replies
+        except BaseException:
+            # Failed/cancelled execution must not persist unsent images as delivered,
+            # or leak their payload into the next unrelated button/turn.
+            state.pop("agent_replies", None)
+            if previous_exploration is None:
+                state.pop("exploration", None)
+            else:
+                state["exploration"] = previous_exploration
+            raise
+
+    async def _handle(self, text, state, action_id=None, progress=None, customer=None, _intent=None):
         session = Session(
             view=SessionView.model_validate(state["view"]),
             offers={id: Offer.model_validate(value) for id, value in state["offers"].items()},
@@ -735,12 +765,20 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
             intent = ChatIntent(action="stop", **kwargs)
         elif normalized in {"basket", "review", "checkout"}:
             intent = ChatIntent(action=normalized, **kwargs)
-        elif normalized.isascii() and normalized.isdigit() and 1 <= int(normalized) <= len(state["choices"]):
+        elif (normalized.isascii() and normalized.isdigit() and 1 <= int(normalized) <= len(state["choices"])
+              and not state.get("exploration", {}).get("active")):
             intent = ChatIntent(
                 action="select", **{**kwargs, "offer_id": state["choices"][int(normalized) - 1]}
             )
         else:
             intent = await self.interpret(text, session, state)
+        emit("conversation.action_selected", action=intent.action, query_count=len(intent.queries),
+             edit_count=len(intent.edits), phase=session.view.phase)
+        if intent.action == "respond":
+            # Product exploration is read-only and must not alter active checkout/menu state.
+            return state, state.pop("agent_replies", [text_message("Please tell me which product you mean.")])
+        if intent.action != "clarify" and state.get("exploration", {}).get("active"):
+            state["exploration"]["active"] = False
         if intent.action == "edit" and session.view.lines and customer and payments and payments.existing(customer, session.view.id) and (
             {edit.line_id for edit in intent.edits if edit.kind == "remove"}
             == {line.id for line in session.view.lines}

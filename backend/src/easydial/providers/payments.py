@@ -15,6 +15,7 @@ from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 from ..billing import fingerprint
 from ..controller import DomainError
 from ..models import Provider
+from ..observability import emit, error_fields, traced
 from .blinkit import cart_signature, normalized
 from .browser import click_and_settle
 from .money import paise
@@ -60,6 +61,7 @@ async def current_payment_scope(worker, page):
     return None
 
 
+@traced('payment.open_options')
 async def open_options(worker, view, review, page):
     checkpoint = getattr(worker, "_payment_checkpoint", None)
     if (
@@ -83,6 +85,8 @@ async def open_options(worker, view, review, page):
             }
             return scope
         except (CheckoutTemporarilyUnavailable, PlaywrightTimeoutError) as error:
+            emit('payment.options_retry', provider=getattr(worker, 'provider', None), attempt=attempt + 1, max_attempts=2,
+                 error_code='payment_options_not_ready', **error_fields(error))
             if isinstance(error, PlaywrightTimeoutError):
                 # Payment widgets can receive the proxy error inside an iframe.
                 transient = False
@@ -105,6 +109,7 @@ async def open_options(worker, view, review, page):
     raise AssertionError("Unreachable")
 
 
+@traced('payment.open_options_attempt')
 async def open_options_once(worker, view, review, page):
     if worker.provider == Provider.BLINKIT:
         # Revalidation has usually just opened this cart on the same page.
@@ -158,6 +163,7 @@ def verify_checkout_cart(worker, view, review, cart):
         raise DomainError("The bill changed. Review it again before choosing payment.")
 
 
+@traced('payment.address_continue')
 async def continue_blinkit_address(worker, view, review, page):
     """Follow bounded address/cart/payment transitions without submitting an order."""
     heading = page.get_by_text("Select Payment Method", exact=True)
@@ -220,6 +226,7 @@ async def select_blinkit_method(scope, label):
         await target.click()
 
 
+@traced('payment.options')
 async def options(worker, view, review):
     async with worker.lock, worker.browser_page() as (page, context):
         scope = await open_options(worker, view, review, page)
@@ -240,7 +247,9 @@ async def options(worker, view, review):
                     {"id": key, "title": "Pay on delivery" if key == "cash" else "UPI QR", "note": note}
                 )
         if not found:
+            emit('payment.options_unavailable', provider=getattr(worker, 'provider', None), error_code='payment_options_empty')
             raise DomainError("Payment options could not be read. Please try again.")
+        emit('payment.options_observed', provider=getattr(worker, 'provider', None), count=len(found), status='ok')
         return found
 
 
@@ -275,6 +284,7 @@ def decode_qr(source, expected_paise):
     return {"upi_uri": uri, "qr_data": source, "total_paise": expected_paise}
 
 
+@traced('payment.generate_upi')
 async def generate_upi(worker, view, review):
     if worker.provider != Provider.BLINKIT:
         raise DomainError("UPI QR is not available on this store’s current payment screen.")
@@ -336,12 +346,14 @@ async def cash_control(worker, view, review, page):
     return button
 
 
+@traced('payment.prepare_cash')
 async def prepare_cash(worker, view, review):
     async with worker.lock, worker.browser_page() as (page, context):
         await cash_control(worker, view, review, page)
         return {"total_paise": review.total_paise}
 
 
+@traced('payment.submit_cash')
 async def submit_cash(worker, view, review, before_submit):
     async with worker.lock, worker.browser_page() as (page, context):
         button = await cash_control(worker, view, review, page)
@@ -355,6 +367,7 @@ async def submit_cash(worker, view, review, before_submit):
         return {"status": "pending"}
 
 
+@traced('payment.submission_response')
 async def wait_for_submission_response(page):
     """Wait for visible acknowledgement; timeout is uncertainty, not failure."""
     try:

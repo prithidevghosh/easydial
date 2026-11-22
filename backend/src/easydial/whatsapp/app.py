@@ -14,6 +14,7 @@ from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse,
 
 from ..controller import DomainError
 from ..master import OpenAIMaster
+from ..observability import configure_logging, emit, error_fields, stable_ref, trace_scope, traced
 from ..providers import ProviderWorkers
 from ..settings import Settings
 from .account_requests import TRANSCRIPTION_PROMPT
@@ -44,6 +45,7 @@ def missing_settings(settings):
 class Runtime:
     def __init__(self, settings, inbox, transport, chat):
         self.settings, self.inbox, self.transport, self.chat = settings, inbox, transport, chat
+        configure_logging(key=settings.customer_session_key or settings.meta_app_secret)
         self.wake = asyncio.Event()
         self.payments = PaymentRequests(inbox, settings.whatsapp_public_url)
         self.chat.payments = self.payments
@@ -69,8 +71,15 @@ class Runtime:
         row = self.inbox.claim()
         if not row:
             return False
+        with trace_scope(stable_ref(row["id"])):
+            return await self._process(row)
+
+    @traced("whatsapp.turn")
+    async def _process(self, row):
         state = self.inbox.load(row["sender"]) or self.chat.initial()
         message = self.inbox.decode_event(row)
+        emit("turn.received", message_type=message.get("type"), phase=state.get("view", {}).get("phase"),
+             customer_ref=stable_ref("customer:" + row["sender"]), session_ref=stable_ref(state["view"]["id"]))
         chat = self.chat
         replies = []
         status = "done"
@@ -78,6 +87,7 @@ class Runtime:
         completion = None
         try:
             if not self.inbox.window_open(row["sender"]):
+                emit("turn.result", result="expired", reply_count=0)
                 self.inbox.finish(row, state, [], "expired")
                 return True
             if row["timestamp"] < state.get("last_timestamp", 0):
@@ -98,6 +108,7 @@ class Runtime:
                         state = self.chat.initial()
                     state["last_timestamp"] = max(row["timestamp"], state.get("last_timestamp", 0))
                     state["last_reply_event"] = row["id"]
+                    emit("turn.result", result="onboarding", reply_count=len(onboarding_replies))
                     self.inbox.finish(row, state, onboarding_replies)
                     return True
                 chat = await self.customer_chats.get(row["sender"])
@@ -196,10 +207,12 @@ class Runtime:
             if replies:
                 state["last_reply_event"] = row["id"]
         except DomainError as error:
+            emit("turn.rejected", **error_fields(error), status_code=error.status)
             status = "rejected"
             replies = [text_message(error.message)]
         except Exception as error:
             # Never print payloads, URLs, tokens, provider addresses or exception details.
+            emit("turn.failed", **error_fields(error))
             log.warning("WhatsApp turn failed (%s); no automatic replay", type(error).__name__)
             status = "failed"
             replies = [
@@ -236,17 +249,25 @@ class Runtime:
             from .order_completion import release_checkpoint
             release_checkpoint(chat.workers, completion["order_id"])
         self.inbox.finish(row, state, replies, status, completed_order=completion)
+        emit("turn.result", result=status, reply_count=len(replies), phase=state["view"].get("phase"))
         return True
 
     async def send_one(self):
         row = self.inbox.claim_reply()
         if not row:
             return False
+        with trace_scope(stable_ref(row["event_id"])):
+            return await self._send_one(row)
+
+    @traced("whatsapp.delivery")
+    async def _send_one(self, row):
         if not self.inbox.window_open(row["sender"]):
+            emit("delivery.result", result="expired")
             self.inbox.mark_reply(row["id"], "expired")
             return True
         try:
             payload = json.loads(row["payload"])
+            emit("delivery.started", message_type=payload.get("type"), customer_ref=stable_ref("customer:" + row["sender"]))
             watch_order_id = payload.pop("_watch_order_id", None)
             if payload.get("type") == "payment_qr":
                 try:
@@ -255,29 +276,39 @@ class Runtime:
                     request = self.inbox.db.execute("SELECT order_id FROM payment_requests WHERE id=? AND sender=?", (payload["request_id"], row["sender"])).fetchone()
                     self.payments.schedule_check(row["sender"], request["order_id"], reset=True)
                 except DomainError as error:
+                    emit("delivery.qr_unavailable", **error_fields(error))
                     remote_id = await self.transport.send(row["sender"], text_message(error.message))
             else:
                 remote_id = await self.transport.send(row["sender"], payload)
             if watch_order_id:
                 self.payments.schedule_check(row["sender"], watch_order_id, reset=True)
             self.inbox.mark_reply(row["id"], "sent", remote_id)
+            emit("delivery.result", result="sent")
         except Exception as error:
             # A timeout can occur after Meta accepted a message. Do not duplicate it blindly.
+            emit("delivery.result", result="uncertain", **error_fields(error))
             log.warning("WhatsApp reply uncertain (%s); inspect local status", type(error).__name__)
             self.inbox.mark_reply(row["id"], "uncertain")
         return True
 
     async def check_due_order(self):
-        from ..models import SessionView
-        from .order_tracking import status_messages
-
         job = self.inbox.db.execute(
             "SELECT * FROM automatic_order_checks WHERE done=0 AND due_at<=? ORDER BY due_at LIMIT 1",
             (time.time(),),
         ).fetchone()
         if not job:
             return False
+        with trace_scope(stable_ref("auto-status:" + job["order_id"])):
+            return await self._check_due_order(job)
+
+    @traced("whatsapp.automatic_order_check")
+    async def _check_due_order(self, job):
+        from ..models import SessionView
+        from .order_tracking import status_messages
+
         sender, order_id = job["sender"], job["order_id"]
+        emit("order_check.started", attempt=job["attempts"] + 1, max_attempts=3,
+             customer_ref=stable_ref("customer:" + sender), order_ref=stable_ref(order_id))
         attempt = self.payments.monitor.get(sender, order_id)
         state = self.inbox.load(sender)
         allowed = bool(state and not state.get("paused") and self.inbox.window_open(sender))
@@ -286,6 +317,7 @@ class Runtime:
             provider = json.loads(attempt["snapshot"])["review"]["provider"] if attempt else ""
             allowed = allowed and provider in connections and self.onboarding.accounts.consented(sender, provider)
         if not allowed or not attempt or attempt["status"] not in {"pending", "confirmed", "failed"}:
+            emit("order_check.result", result="skipped", error_code="monitor_not_eligible")
             with self.inbox.db:
                 self.inbox.db.execute("UPDATE automatic_order_checks SET done=1 WHERE sender=? AND order_id=?", (sender, order_id))
             return True
@@ -293,8 +325,10 @@ class Runtime:
             chat = await self.customer_chats.get(sender) if self.customer_chats else self.chat
             result = (json.loads(attempt["result"]) if attempt["status"] in {"confirmed", "failed"}
                       else await self.payments.monitor.check(sender, order_id, chat.workers, max_checks=1))
-        except Exception:
+        except Exception as error:
+            emit("order_check.failed", **error_fields(error))
             result = {"status": "pending"}
+        emit("order_check.result", result=result["status"], attempt=job["attempts"] + 1)
         final = result["status"] != "pending"
         exhausted = job["attempts"] + 1 >= 3
         if final:
@@ -328,6 +362,7 @@ class Runtime:
                 if await self.process():
                     continue
             except Exception as error:
+                emit("worker.paused", **error_fields(error))
                 log.error("WhatsApp worker paused (%s)", type(error).__name__)
             with suppress(TimeoutError):
                 await asyncio.wait_for(self.wake.wait(), timeout=1)

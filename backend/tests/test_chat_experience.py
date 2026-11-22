@@ -9,6 +9,7 @@ from easydial.providers.instamart import parse_card
 from easydial.whatsapp.conversation import ShoppingChat
 from easydial.whatsapp.progress import TurnProgress
 from easydial.whatsapp.transport import MetaTransport
+from tests.fakes import intent_tool_responses
 from tests.test_whatsapp import make_runtime, message, settings
 
 
@@ -142,7 +143,7 @@ async def test_hindi_new_product_reinterprets_invalid_edit_without_old_history(t
             )
         )
 
-    client = SimpleNamespace(responses=SimpleNamespace(parse=parse))
+    client = SimpleNamespace(responses=intent_tool_responses(parse))
     chat = ShoppingChat(settings(tmp_path), None, SimpleNamespace(require_client=lambda: client))
     session = Session(SessionView(id="test", mode="live", address_label="home"))
     session.say("Clear the cart now.", "user")
@@ -171,7 +172,7 @@ async def test_repeated_invalid_edit_clarifies_without_mutation(tmp_path):
     chat = ShoppingChat(
         settings(tmp_path),
         None,
-        SimpleNamespace(require_client=lambda: SimpleNamespace(responses=SimpleNamespace(parse=parse))),
+        SimpleNamespace(require_client=lambda: SimpleNamespace(responses=intent_tool_responses(parse))),
     )
     session = Session(SessionView(id="test", mode="live", address_label="home"))
     result = await chat.interpret("remove it", session, {"choices": []})

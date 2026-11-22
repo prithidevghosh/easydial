@@ -8,6 +8,7 @@ from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
 from ..controller import DomainError
 from ..models import Offer, Provider, Review, SearchResult, SessionView
+from ..observability import emit, traced
 from . import blinkit_dom
 from .blinkit_location import BlinkitAddressError, BlinkitAddressLoadingError, restore_saved_address
 from .browser import BrowserSession, click_and_settle, goto_with_retry
@@ -115,6 +116,7 @@ class BlinkitProvider:
         page, context = await self.browser.open()
         yield page, context
 
+    @traced('blinkit.cart_navigation')
     async def navigate_cart(self, page):
         if self.provider != Provider.BLINKIT:
             # Keep Instamart's existing navigation and location checks unchanged.
@@ -124,11 +126,14 @@ class BlinkitProvider:
                 await self.verify_location(page)
                 break
             except (BlinkitAddressLoadingError, PlaywrightTimeoutError):
+                emit('address.retry', provider=self.provider.value, attempt=attempt + 1, max_attempts=3,
+                     error_code='address_not_ready')
                 logging.getLogger(__name__).warning("Blinkit address restoration not ready: attempt=%s max_attempts=3", attempt + 1)
                 if attempt == 2:
                     raise BlinkitAddressLoadingError() from None
                 await asyncio.sleep(0.5 * (attempt + 1))
 
+    @traced('blinkit.catalogue_navigation')
     async def navigate(self, page, query):
         await self.navigate_cart(page)
         await goto_with_retry(page,
@@ -136,6 +141,7 @@ class BlinkitProvider:
         )
         await self.browser.check_page(page)
 
+    @traced('blinkit.address_verify')
     async def verify_location(self, page):
         # The search layout has no LocationBar. Verify locality on the homepage first.
         await goto_with_retry(page, "https://blinkit.com/", wait_until="domcontentloaded", timeout=20000)
@@ -150,6 +156,7 @@ class BlinkitProvider:
             await asyncio.sleep(0.25)
             location = await subtitle.inner_text()
         if normalized(self.verified_location) != normalized(location):
+            emit('address.restoration_needed', provider=self.provider.value, error_code='location_label_changed')
             # Checkout can replace the short locality label with an expanded
             # address label. Verify the actual delivery address, never infer
             # identity from truncated header text or select a different address.
@@ -165,7 +172,9 @@ class BlinkitProvider:
                 self.on_location_verified(location)
             self.verified_location = location
         self.header_address = location
+        emit('address.verified', provider=self.provider.value, status='ok')
 
+    @traced('blinkit.products_render')
     async def wait_for_products(self, page, cards, query):
         # Retry only inventory reads, before any cart mutation. A temporarily
         # blank client-rendered search page must not cause an ADD to be replayed.
@@ -174,6 +183,8 @@ class BlinkitProvider:
                 await cards.first.wait_for(state="visible", timeout=10000)
                 return
             except PlaywrightTimeoutError:
+                emit('products.render_retry', provider=self.provider.value, attempt=attempt + 1, max_attempts=2,
+                     error_code='product_render_timeout')
                 if attempt:
                     raise DomainError("Blinkit's products did not finish loading. Your basket is saved; please retry shortly.", 503) from None
                 await goto_with_retry(page, f"https://blinkit.com/s/?q={quote(query)}",
@@ -183,6 +194,7 @@ class BlinkitProvider:
     async def close(self):
         await self.browser.close()
 
+    @traced('blinkit.search')
     async def search(self, query: str, address: str) -> SearchResult:
         if not self.connected():
             return SearchResult(
@@ -208,6 +220,7 @@ class BlinkitProvider:
                 ):
                     offers.append(parsed)
                     self.known[parsed.product_id] = query
+            emit('catalogue.observed', provider=self.provider.value, offer_count=len(offers), status='ok')
             return SearchResult(
                 provider=Provider.BLINKIT,
                 query=query,
@@ -216,6 +229,7 @@ class BlinkitProvider:
                 message="Live Blinkit prices; final bill is checked during basket review.",
             )
 
+    @traced('blinkit.cart_read')
     async def read_cart(self, page, *, resolve_address=True, after_verified_removal=False):
         drawer = page.locator(
             "div[class*='CartDrawer'], div[class*='CartSidebar'], div.cart-modal-rn, div[class*='CartWrapper__CartContainer']"
@@ -287,6 +301,7 @@ class BlinkitProvider:
         cart_signature(data)  # Do not interpret missing selectors as an empty basket.
         return data
 
+    @traced('blinkit.checkout_address')
     async def select_checkout_address(self, page):
         """Apply only the address explicitly chosen at onboarding, never a default row."""
         rows = page.locator("div[class*='AddressList__AddressItemWrapper-']")
@@ -306,6 +321,7 @@ class BlinkitProvider:
         await matches[0].click()
         await rows.first.wait_for(state="hidden")
 
+    @traced('blinkit.set_quantity')
     async def set_quantity(self, page, line, desired):
         # Existing items must remain removable even if search inventory stops returning them.
         before_cart = await self.read_cart(page, resolve_address=desired != 0)
@@ -408,6 +424,7 @@ class BlinkitProvider:
                     "Blinkit did not confirm the requested quantity. Check its basket before retrying."
                 )
 
+    @traced('blinkit.review')
     async def review(self, session: SessionView) -> Review:
         if any(not x.offer.pack_size for x in session.lines):
             raise DomainError("Choose products with a verified pack size first.")
@@ -490,6 +507,7 @@ class BlinkitProvider:
             bill_lines=bill,
         )
 
+    @traced('blinkit.revalidate')
     async def revalidate(self, session: SessionView) -> Review:
         """Read-only freshness check: never repairs or changes a store cart."""
         desired = tuple(
@@ -523,6 +541,7 @@ class BlinkitProvider:
                 if separate:
                     await page.close()
 
+    @traced('blinkit.reconcile')
     async def adopt_checkpoint(self, checkpoint, expected_address):
         """Explicitly approved recovery: verify the unchanged cart, then adopt without writes."""
         desired = tuple(
@@ -546,6 +565,7 @@ class BlinkitProvider:
             self.guard.accepted(desired)
             self.previous_lines = [x.model_copy(deep=True) for x in checkpoint.lines]
 
+    @traced('blinkit.clear')
     async def clear(self, session_id: str):
         async with self.lock, self.browser_page() as (page, context):
             # Removing an owned cart does not need search inventory or delivery
