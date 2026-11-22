@@ -10,7 +10,15 @@
 
 Easy Dial lets someone order from a quick commerce store by sending a voice note in WhatsApp. Try a mixed shopping list, change your mind about a product, review the actual store fees and choose how to pay. User-facing replies are in English. The hosted pilot uses a Meta **test** number. A tester must verify their WhatsApp number in the owner's Meta recipient list to receive replies. Scanning the QR alone does not register a tester. The hosted URL depends on the workshop AWS account remaining active.
 
-**For independent judging, use your own Meta app and follow steps 1–7.** WhatsApp is the product entry point. The QR and join link are two ways into the same chat. The older iOS project is a separate client and is not needed to run the submission. AWS credentials are not required.
+**Choose your review path**
+
+| If you have… | Start here | Evidence you can see |
+|---|---|---|
+| A fresh server and no accounts | Run the unattended walkthrough below | Actual application replies from consent through checkout and order confirmation, using simulated external services |
+| Your own Meta app, OpenAI key and merchant login | Follow steps 1–7 | Your own WhatsApp chat, voice transcription, live catalog, cart and fees |
+| A WhatsApp number already verified for the hosted pilot | Open the pilot chat above and send **Start** | The hosted shopping experience while the workshop deployment is active |
+
+The QR and join link open the same chat. Linux reviewers can run the entire WhatsApp backend without Xcode or AWS credentials.
 
 ## Start here if reviewing the ZIP without accounts
 
@@ -21,10 +29,10 @@ Extract the archive and open a shell in the directory containing this file. Comm
 ```bash
 uv python install 3.11
 uv --directory backend sync --locked --python 3.11
-uv --directory backend run --locked python -m tools.review_walkthrough
+uv --directory backend run --locked python -m tools.review_walkthrough --auto
 ```
 
-Press Enter at each shopper turn, or append `--auto` for an unattended run. The command drives the WhatsApp backend's real onboarding, cart, fee review, payment selection and order-history confirmation logic. Replies come from the application. The transport, model, catalogue, merchant login and payment are fixtures. This guided text journey runs locally and uses no API keys. It does not open a real WhatsApp chat or transcribe audio. For those touch points use the live path below.
+Success ends with **“Verified: simulated payment confirmed in order history and a fresh basket started.”** Remove `--auto` to press Enter at each shopper turn. The command drives the WhatsApp backend's real onboarding, cart, fee review, payment selection and order-history confirmation logic. Replies come from the application. The transport, model, catalogue, merchant login and payment are fixtures. This guided text journey runs locally and uses no API keys. It does not open a real WhatsApp chat or transcribe audio. For those touch points use the live path below.
 
 **Test identity and seed data.** There is one end-user role, the shopper. The mock starts with a new temporary database on each run, seeds its fixture catalogue automatically, and supplies the synthetic merchant phone `9999999999`, OTP `123456` and saved address option `1`. In live mode each reviewer uses their own verified WhatsApp and consenting merchant login. SQLite creates its schema on first boot, and products and addresses come from the store. There is no separate seed command, admin login or web frontend. The WhatsApp worker starts with the server in step 5.
 
@@ -204,4 +212,4 @@ The expected output confirms both headed Chrome on Xvfb and headless Chrome. For
 
 ### Fresh-clone verification
 
-On 22 November 2026 we built the Linux/amd64 image from a clean public clone at `077e3ad`, booted it with a new data volume and disposable test settings, and reached it over a public HTTPS tunnel. We decoded its QR to the configured test chat, verified the webhook challenge, checked that a signed event was accepted and an unsigned event rejected, and launched Chrome in both modes. The full backend suite on the clean checkout reported 514 passed and 82 skipped. The onboarding-to-order test uses controlled external services. A judge using new accounts must still verify Meta delivery, complete the merchant OTP and check availability at their own address. The reference paid order shown in the slides came from the earlier live pilot.
+On 22 November 2026 we built the Linux/amd64 image from a clean public clone at `077e3ad`, booted it with a new data volume and disposable test settings, and reached it over a public HTTPS tunnel. We decoded its QR to the configured test chat, verified the webhook challenge, checked that a signed event was accepted and an unsigned event rejected, and launched Chrome in both modes. A later run from the extracted submission ZIP reported 526 passed and 89 skipped in the full backend suite. The onboarding-to-order test uses controlled external services. A judge using new accounts must still verify Meta delivery, complete the merchant OTP and check availability at their own address. The reference paid order shown in the slides came from the earlier live pilot.

@@ -1,20 +1,10 @@
-# EasyDial
+# Easy Dial
 
-Voice-assisted grocery ordering for older adults and people who find commerce apps difficult to use.
+Easy Dial is a WhatsApp voice assistant for quick commerce. A shopper describes what they want, picks products from a connected store, reviews the itemized bill and approves checkout. The project grew out of the friction of ordering groceries at home, and supports other goods available in the store catalog.
 
-**Phase: WhatsApp-first pilot. Updated: 2026-11-21.** Send voice notes to an EasyDial WhatsApp business chat; the Python backend searches Blinkit and Instamart and manages a reviewable basket. The channel implementation is locally tested; real WhatsApp delivery awaits Meta credentials and an OpenAI key. Checkout stops at Pending. Native iOS development is paused, with existing code retained.
+**Start with [AGENTS.md](AGENTS.md)** for the unattended, credential-free walkthrough, the live setup with your own Meta app, and step-by-step shopper journeys. The [pitch deck](docs/assets/Easy-Dial.pdf) and [original demo video](VIDEO.md) accompany the submission.
 
-Start with the [WhatsApp setup guide](docs/WHATSAPP_SETUP.md). Existing store-browser evidence and limitations are in the [verification ledger](docs/BROWSER_VERIFICATION.md).
-
-Repository: [prithidevghosh/easydial](https://github.com/prithidevghosh/easydial) (public).
-
-Connect accounts with [the exact credential guide](docs/CREDENTIALS.md).
-
-Start with [plan.md](plan.md) for the detailed execution checklist and [the runbook](docs/RUNBOOK.md) to run the project. Research below records the evidence that informed the build.
-
-## Research verdict
-
-The concept is feasible as a bounded hackathon prototype. The full promise—any Indian language, reliable comparison across both providers, and completed orders—is not yet validated. Both providers remain in scope; no demo catalogue is shipped. Provider automation uses dedicated Chrome profiles for Blinkit and instamart.in. A measured language set and full dictation-to-paid-order validation remain outstanding. Payment remains deferred.
+The Blinkit pilot completed a paid order verified against store history. Instamart login can be intermittent. The earlier iOS client is included as an optional touch point. The planning and research documents below record earlier stages of the project.
 
 ## Read in this order
 
