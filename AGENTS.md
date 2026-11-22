@@ -10,6 +10,8 @@
 
 Easy Dial lets someone order from a quick commerce store by sending a voice note in WhatsApp. Try a mixed shopping list, change your mind about a product, review the actual store fees and choose how to pay. User-facing replies are in English. The hosted pilot uses a Meta **test** number. A tester must verify their WhatsApp number in the owner's Meta recipient list to receive replies. Scanning the QR alone does not register a tester. The hosted URL depends on the workshop AWS account remaining active.
 
+**Verified in the live pilot.** A WhatsApp voice request for four Diet Cokes and one popcorn became a paid Blinkit order. Blinkit’s order history matched both quantities and the ₹270 total (₹257 in items and ₹13 handling). For Instamart, the pilot also read a real ₹156 cart bill and its cash payment option. The evidence for Instamart covers the cart and payment menu; fresh login has been intermittent. [Pilot verification log](docs/PROGRESS.md)
+
 **Choose your review path**
 
 | If you have… | Start here | Evidence you can see |
