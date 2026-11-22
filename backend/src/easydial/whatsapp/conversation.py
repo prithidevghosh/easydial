@@ -4,6 +4,7 @@ import re
 from datetime import datetime, timedelta
 from typing import Literal
 from uuid import uuid4
+from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, Field
 
@@ -13,6 +14,7 @@ from ..master import INSTRUCTIONS
 from ..models import BasketLine, EditRequest, IntentEdit, Offer, Provider, RequestedProduct, SessionView, now
 from ..providers.cart_guard import CartConflict
 from . import presentation, reconciliation
+from .repeat_order import RepeatRequest, repeat
 
 
 class ChatIntent(BaseModel):
@@ -27,6 +29,7 @@ class ChatIntent(BaseModel):
         "stop",
         "payment",
         "restore",
+        "repeat_order",
         "status",
         "logout",
         "account_status",
@@ -43,6 +46,7 @@ class ChatIntent(BaseModel):
     target_provider: Provider | None = None
     switch_store: bool = False
     clear_cart: bool = False
+    repeat_request: RepeatRequest | None = None
 
 
 class SelectionDecision(BaseModel):
@@ -105,6 +109,20 @@ class ShoppingChat:
                 "For explicit edits plus discovery, return action search with both edits and queries. Never drop either part.",
             )
             + """
+Use repeat_order for requests to find/repeat purchases from merchant order history, including
+products bought last month or a previous order, in any Indian language or mixed language.
+Set repeat_request with product_query preserving the user's meaning, inclusive start_date/end_date
+only when a period is requested, quantity only for an explicit new count (otherwise null to reuse
+historical quantity), and whole_order=true only for an entire past order. Resolve relative dates
+using TODAY_INDIA. For last month use the previous calendar month. Keep queries/edits empty.
+This is supported only for Blinkit. Preserve explicitly named target_provider; do not substitute stores.
+PENDING_REPEAT_QUESTION is a previous clarification about a past purchase. An answer to it
+continues repeat_order, preserving its original date range and requested quantity while resolving
+the product ambiguity. An unrelated new request supersedes it.
+Historical ordering intent takes precedence over generic search and restore. Restore is only for
+undoing a local basket removal; a past merchant purchase requires repeat_order.
+A request to book a repeat order adds verified available items to a draft, then requires the normal
+bill review and payment steps. It never authorizes direct payment or purchase.
 This is the WhatsApp channel. Additional actions: select, basket, checkout, restore, logout, account_status, account_clarify.
 Use cancel_checkout for an explicit request to cancel the current checkout/order/payment.
 Set clear_cart=true if the user also wants the basket emptied, including "order cancel kr dijiye
@@ -213,6 +231,8 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
             input=json.dumps(
                 {
                     "request": text,
+                    "PENDING_REPEAT_QUESTION": state.get("repeat_question"),
+                    "TODAY_INDIA": datetime.now(ZoneInfo("Asia/Kolkata")).date().isoformat(),
                     "ACCOUNT_CONTEXT": {"connected_stores": state.get("connected_stores", []),
                                         "pending_logout": state.get("logout_confirmation")},
                     "UNRESOLVED_REQUESTS": state.get("unresolved_requests", []),
@@ -385,6 +405,18 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
             )
         return intent
 
+    def status_view(self, state, customer, requested_id=None):
+        payments = getattr(self, "payments", None)
+        if not payments or not customer:
+            return None
+        ids = [requested_id] if requested_id else [state["view"]["id"], state.get("last_order_id")]
+        for order_id in ids:
+            if order_id:
+                row = payments.monitor.get(customer, order_id)
+                if row and row["status"] != "prepared":
+                    return SessionView.model_validate_json(row["snapshot"])
+        return None
+
     async def cancel_checkout(self, state, session, customer, clear_cart, progress):
         from .order_tracking import status_button
 
@@ -528,16 +560,18 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
             "payment completed",
         }
         if (action_id and action_id.startswith("status:")) or checking:
-            if action_id and action_id.split(":", 2)[-1] != session.view.id:
-                raise DomainError("That button belongs to another basket. Ask to check your current order.")
-            if not customer or not payments or not payments.existing(customer, session.view.id):
+            requested_id = action_id.split(":", 2)[-1] if action_id else None
+            tracked = self.status_view(state, customer, requested_id)
+            if not tracked:
+                if requested_id and requested_id != session.view.id:
+                    raise DomainError("That button belongs to another basket. Ask to check your current order.")
                 return await self.review_before_payment(state, progress, customer)
             if progress:
                 progress.update("Checking your order with the store…")
             if normalized in {"paid", "payment done", "i paid", "payment completed"}:
                 await asyncio.sleep(5)
-            result = await payments.monitor.check(customer, session.view.id, self.workers)
-            return state, status_messages(result, session.view)
+            result = await payments.monitor.check(customer, tracked.id, self.workers)
+            return state, status_messages(result, tracked)
         if state["paused"]:
             if normalized not in {"start", "resume", "hi", "hello"}:
                 return state, []
@@ -702,12 +736,15 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
             return state, [{"type": "account_action", "action": intent.action,
                             "provider": intent.target_provider.value if intent.target_provider else None}]
         state.pop("logout_confirmation", None)
+        if intent.action not in {"repeat_order", "clarify"}:
+            state.pop("repeat_question", None)
         if intent.action == "status":
-            if customer and payments and payments.existing(customer, session.view.id):
+            tracked = self.status_view(state, customer)
+            if tracked:
                 if progress:
                     progress.update("Checking your order with the store…")
-                result = await payments.monitor.check(customer, session.view.id, self.workers)
-                return state, status_messages(result, session.view)
+                result = await payments.monitor.check(customer, tracked.id, self.workers)
+                return state, status_messages(result, tracked)
             return await self.review_before_payment(state, progress, customer)
         if customer and payments and intent.action in {"review", "checkout", "payment"} and payments.existing(customer, session.view.id):
             if progress:
@@ -723,7 +760,7 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
             customer
             and getattr(self, "payments", None)
             and (
-                intent.action in {"edit", "select", "review", "checkout", "payment", "restore"}
+                intent.action in {"edit", "select", "review", "checkout", "payment", "restore", "repeat_order"}
                 or intent.edits
                 or intent.switch_store
             )
@@ -1046,6 +1083,16 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
                 session.edit(EditRequest(**edit.model_dump(), expected_version=session.view.version))
             state["choices"] = []
             replies.extend(self.basket_messages(session))
+        elif intent.action == "repeat_order":
+            if intent.target_provider not in {None, Provider.BLINKIT}:
+                raise DomainError("Repeating past orders is currently available only for Blinkit.")
+            session, message = await repeat(self, session, intent.repeat_request, progress, state)
+            replies.append(text_message(message))
+            if session.view.lines:
+                state["choices"] = []
+                state["recent_selection"] = None
+                state["request_queue"] = []
+                replies.extend(self.basket_messages(session))
         elif intent.action == "restore":
             if session.view.lines:
                 raise DomainError("Your basket already has items. Would you like to replace them?")
@@ -1189,7 +1236,11 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
                     "methods": methods,
                 }
                 state["payment_menu"] = menu
-                replies.append(self.payment_choices(session, menu))
+                payload = self.payment_choices(session, menu)
+                if customer and payments and fresh.provider == Provider.BLINKIT:
+                    await payments.watch_menu(customer, session.view, self.workers)
+                    payload["_watch_order_id"] = session.view.id
+                replies.append(payload)
         elif intent.action == "payment":
             if not selected_method or not session.view.review:
                 raise DomainError("Please choose a payment method from the menu.")

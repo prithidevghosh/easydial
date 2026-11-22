@@ -22,6 +22,9 @@ class Inbox:
         self.db.row_factory = sqlite3.Row
         self.db.executescript("""
             PRAGMA journal_mode=DELETE;
+            CREATE TABLE IF NOT EXISTS completed_orders (
+                sender TEXT NOT NULL, order_id TEXT NOT NULL, merchant_order_id TEXT NOT NULL,
+                completed_at INTEGER NOT NULL, PRIMARY KEY(sender,order_id));
             CREATE TABLE IF NOT EXISTS progress_events (event_id TEXT PRIMARY KEY);
             CREATE TABLE IF NOT EXISTS events (
                 id TEXT PRIMARY KEY, sender TEXT NOT NULL, timestamp INTEGER NOT NULL,
@@ -136,7 +139,7 @@ class Inbox:
                 )
         return bool(row)
 
-    def finish(self, row, state, replies, status="done"):
+    def finish(self, row, state, replies, status="done", *, completed_order=None):
         expanded = []
         for reply in replies:
             if reply.get("type") == "text":
@@ -156,6 +159,13 @@ class Inbox:
                 return  # Finishing the same inbound event must not duplicate replies or revisions.
             snapshot = json.dumps(view)
             timestamp = int(time.time())
+            if completed_order:
+                self.db.execute("INSERT OR IGNORE INTO completed_orders VALUES (?,?,?,?)",
+                                (row["sender"], completed_order["order_id"], completed_order["merchant_order_id"], timestamp))
+                self.db.execute("UPDATE order_drafts SET status='completed' WHERE sender=? AND order_id=?",
+                                (row["sender"], completed_order["order_id"]))
+                self.db.execute("UPDATE automatic_order_checks SET done=1 WHERE sender=? AND order_id=?",
+                                (row["sender"], completed_order["order_id"]))
             self.db.execute(
                 "INSERT OR REPLACE INTO order_drafts VALUES (?,?,?,?,?,?,?)",
                 (row["sender"], view["id"], view["version"], view["phase"], snapshot, row["id"], timestamp),

@@ -37,13 +37,45 @@ class PaymentRequests:
         with self.inbox.db:
             self.inbox.db.execute("UPDATE cash_orders SET status='unknown' WHERE status='submitting'")
             self.inbox.db.execute("UPDATE payment_requests SET status='unknown' WHERE status='creating'")
+            # Recover confirmations that were persisted before basket cleanup or notification.
+            for row in self.inbox.db.execute("""SELECT o.sender,o.order_id,c.state FROM order_checks o
+                    JOIN customers c ON c.sender=o.sender LEFT JOIN completed_orders d
+                    ON d.sender=o.sender AND d.order_id=o.order_id
+                    WHERE o.status='confirmed' AND d.order_id IS NULL""").fetchall():
+                if json.loads(row["state"])["view"]["id"] == row["order_id"]:
+                    self.inbox.db.execute("""INSERT INTO automatic_order_checks(sender,order_id,due_at) VALUES (?,?,?)
+                        ON CONFLICT(sender,order_id) DO UPDATE SET done=0,due_at=excluded.due_at""",
+                        (row["sender"], row["order_id"], time.time()))
 
-    def schedule_check(self, sender, order_id):
+    def completion(self, sender, state):
+        from ..models import SessionView
+        from .order_completion import completed_state
+
+        row = self.monitor.get(sender, state["view"]["id"])
+        if not row or row["status"] != "confirmed":
+            return state, None
+        result = json.loads(row["result"] or "{}")
+        if not result.get("order", {}).get("order_id"):
+            return state, None
+        purchased = SessionView.model_validate_json(row["snapshot"])
+        return completed_state(state, purchased), {
+            "order_id": purchased.id, "merchant_order_id": result["order"]["order_id"],
+        }
+
+    async def watch_menu(self, sender, view, workers):
+        if not self.existing(sender, view.id):
+            await self.monitor.capture(sender, view, "observe", workers)
+            self.monitor.activate(sender, view.id)
+
+    def schedule_check(self, sender, order_id, *, reset=False):
         with self.inbox.db:
             self.inbox.db.execute(
                 "INSERT OR IGNORE INTO automatic_order_checks(sender,order_id,due_at) VALUES (?,?,?)",
                 (sender, order_id, time.time() + 5),
             )
+            if reset:
+                self.inbox.db.execute("UPDATE automatic_order_checks SET attempts=0,done=0,due_at=? WHERE sender=? AND order_id=?",
+                                      (time.time() + 5, sender, order_id))
 
     def revoke_customer(self, sender):
         """Expire EasyDial-hosted artifacts; never claim to cancel merchant requests/orders."""
@@ -166,7 +198,7 @@ class PaymentRequests:
                 )
             self.monitor.activate(sender, view.id)
             reserved = True
-            self.schedule_check(sender, view.id)
+            self.schedule_check(sender, view.id, reset=True)
 
         try:
             result = await workers.submit_cash(view, review, reserve)

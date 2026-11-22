@@ -263,3 +263,14 @@ class ProviderWorkers:
 
         worker = self._worker(view.review.provider)
         return await asyncio.wait_for(read_history(worker, view, exclude_ids), timeout=45)
+
+    async def past_orders(self, start=None, end=None):
+        from .past_orders import read_past_orders
+
+        worker = self._worker(Provider.BLINKIT)
+        try:
+            return await asyncio.wait_for(read_past_orders(worker, start, end), timeout=240)
+        except DomainError:
+            raise
+        except Exception:
+            raise DomainError("I couldn’t read your recent Blinkit orders. Your basket is unchanged; please retry.") from None

@@ -42,7 +42,7 @@ def mismatch_reason(order, view, method, baseline, started_at):
         )
     if not expected or actual != expected:
         return "items"
-    if order.get("method") not in ({"cash"} if method == "cash" else {"upi", "online"}):
+    if order.get("method") not in ({"cash", "upi", "online"} if method == "observe" else {"cash"} if method == "cash" else {"upi", "online"}):
         return "payment_method"
     return None
 
@@ -67,7 +67,7 @@ class OrderMonitor:
 
     async def capture(self, sender, view, method, workers):
         old = self.get(sender, view.id)
-        if old and old["status"] != "prepared":
+        if old and old["status"] != "prepared" and not (old["method"] == "observe" and old["status"] == "pending"):
             raise DomainError("An order attempt is already being checked. Use Check status.")
         history = await workers.order_history(view)
         if not isinstance(history.get("ids"), list):
@@ -183,7 +183,7 @@ class OrderMonitor:
                     if order.get("status") in {"failed", "cancelled"}:
                         result = {"status": "failed", "order": order}
                     elif order.get("status") in {"confirmed", "preparing", "on_way", "delivered"} and (
-                        row["method"] == "cash" or order.get("payment_status") == "paid"
+                        row["method"] == "cash" or (row["method"] == "observe" and order.get("method") == "cash") or order.get("payment_status") == "paid"
                     ):
                         result = {"status": "confirmed", "order": order}
                     else:
@@ -201,7 +201,7 @@ class OrderMonitor:
                 and not result.get("rejected_fields") and not result.get("history_issues")):
                 empty_checks += 1
                 result["empty_checks"] = empty_checks
-                if empty_checks >= 3:
+                if empty_checks >= 3 and row["method"] != "observe":
                     result["status"] = "not_found"
             else:
                 empty_checks = 0

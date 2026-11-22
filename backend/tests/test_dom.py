@@ -976,3 +976,46 @@ async def test_blinkit_order_heading_does_not_imply_details_have_loaded(page, co
     else:
         assert parsed is None
         assert issue == 'missing_order_items'
+
+
+async def test_past_history_waits_for_render_before_scroll_and_detail_read(page):
+    import asyncio
+    import json
+    from contextlib import asynccontextmanager
+    from types import SimpleNamespace
+
+    from easydial.providers.past_orders import read_past_orders
+    from tests.test_past_orders import Page, card, payload
+
+    visited = []
+    async def route(request):
+        url = request.request.url
+        if '/v1/layout/order_history' in url:
+            second = 'page=2' in url
+            await request.fulfill(content_type='application/json', body=json.dumps(
+                payload([card(i) for i in range(10 if second else 0, 20 if second else 10)], more=not second)))
+        elif url.endswith('/account/orders'):
+            await request.fulfill(content_type='text/html', body='''<html><body><script>
+                fetch('/v1/layout/order_history').then(() => setTimeout(() => {
+                  document.body.insertAdjacentHTML('afterbegin', '<h2>Arrived in 5 minutes</h2><div style="height:2000px"></div>');
+                  window.addEventListener('scroll', () => fetch('/v1/layout/order_history?page=2'), {once:true});
+                }, 350));
+                </script></body></html>''')
+        else:
+            visited.append(url)
+            text = await Page([]).body.inner_text()
+            html = '<div>' + text.replace('\n', '</div><div>') + '</div>'
+            await request.fulfill(content_type='text/html', body='<html><body><script>setTimeout(() => {document.body.innerHTML = '
+                                  + json.dumps(html) + ';}, 250);</script></body></html>')
+    context = await page.context.browser.new_context()
+    await context.route('https://blinkit.com/**', route)
+    @asynccontextmanager
+    async def browser_page():
+        yield page, context
+    try:
+        result = await read_past_orders(SimpleNamespace(lock=asyncio.Lock(), browser_page=browser_page))
+    finally:
+        await context.close()
+    assert result['scanned_count'] == 20
+    assert len(result['orders']) == len(visited) == 20
+    assert not result['issues']

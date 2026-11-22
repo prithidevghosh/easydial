@@ -74,6 +74,7 @@ class Runtime:
         replies = []
         status = "done"
         progress = None
+        completion = None
         try:
             if not self.inbox.window_open(row["sender"]):
                 self.inbox.finish(row, state, [], "expired")
@@ -111,6 +112,10 @@ class Runtime:
             if row["timestamp"] < state.get("last_timestamp", 0):
                 raise DomainError("An older message arrived late. Please repeat your latest request.")
             self.inbox.supersede_waiting_replies(row["sender"])
+            state, completion = self.payments.completion(row["sender"], state)
+            if completion:
+                from .order_completion import release_checkpoint
+                release_checkpoint(chat.workers, completion["order_id"])
             if state.get("cart_checkpoint"):
                 chat.workers.restore_checkpoint(state["cart_checkpoint"], state["view"]["id"])
             text, action_id = "", None
@@ -224,7 +229,12 @@ class Runtime:
                 }})
             if progress:
                 await progress.close()
-        self.inbox.finish(row, state, replies, status)
+        state, newly_completed = self.payments.completion(row["sender"], state)
+        completion = newly_completed or completion
+        if completion:
+            from .order_completion import release_checkpoint
+            release_checkpoint(chat.workers, completion["order_id"])
+        self.inbox.finish(row, state, replies, status, completed_order=completion)
         return True
 
     async def send_one(self):
@@ -236,16 +246,19 @@ class Runtime:
             return True
         try:
             payload = json.loads(row["payload"])
+            watch_order_id = payload.pop("_watch_order_id", None)
             if payload.get("type") == "payment_qr":
                 try:
                     artifact = self.payments.qr_artifact(row["sender"], payload["request_id"])
                     remote_id = await self.transport.send_payment_qr(row["sender"], artifact)
                     request = self.inbox.db.execute("SELECT order_id FROM payment_requests WHERE id=? AND sender=?", (payload["request_id"], row["sender"])).fetchone()
-                    self.payments.schedule_check(row["sender"], request["order_id"])
+                    self.payments.schedule_check(row["sender"], request["order_id"], reset=True)
                 except DomainError as error:
                     remote_id = await self.transport.send(row["sender"], text_message(error.message))
             else:
                 remote_id = await self.transport.send(row["sender"], payload)
+            if watch_order_id:
+                self.payments.schedule_check(row["sender"], watch_order_id, reset=True)
             self.inbox.mark_reply(row["id"], "sent", remote_id)
         except Exception as error:
             # A timeout can occur after Meta accepted a message. Do not duplicate it blindly.
@@ -266,35 +279,38 @@ class Runtime:
         sender, order_id = job["sender"], job["order_id"]
         attempt = self.payments.monitor.get(sender, order_id)
         state = self.inbox.load(sender)
-        allowed = bool(state and state["view"]["id"] == order_id and not state.get("paused") and self.inbox.window_open(sender))
+        allowed = bool(state and not state.get("paused") and self.inbox.window_open(sender))
         if self.onboarding:
             connections = self.onboarding.accounts.connections(sender)
             provider = json.loads(attempt["snapshot"])["review"]["provider"] if attempt else ""
             allowed = allowed and provider in connections and self.onboarding.accounts.consented(sender, provider)
-        if not allowed or not attempt or attempt["status"] != "pending":
+        if not allowed or not attempt or attempt["status"] not in {"pending", "confirmed", "failed"}:
             with self.inbox.db:
                 self.inbox.db.execute("UPDATE automatic_order_checks SET done=1 WHERE sender=? AND order_id=?", (sender, order_id))
             return True
         try:
             chat = await self.customer_chats.get(sender) if self.customer_chats else self.chat
-            result = await self.payments.monitor.check(sender, order_id, chat.workers, max_checks=1)
+            result = (json.loads(attempt["result"]) if attempt["status"] in {"confirmed", "failed"}
+                      else await self.payments.monitor.check(sender, order_id, chat.workers, max_checks=1))
         except Exception:
             result = {"status": "pending"}
         final = result["status"] != "pending"
         exhausted = job["attempts"] + 1 >= 3
+        if final:
+            from .order_completion import release_checkpoint
+            view = SessionView.model_validate_json(attempt["snapshot"])
+            state, completion = self.payments.completion(sender, state)
+            if completion:
+                release_checkpoint(chat.workers, completion["order_id"])
+            event_id = "auto-status:" + order_id
+            state["last_reply_event"] = event_id
+            self.inbox.finish({"id": event_id, "sender": sender}, state,
+                              status_messages(result, view), completed_order=completion)
         with self.inbox.db:
             self.inbox.db.execute(
                 "UPDATE automatic_order_checks SET attempts=attempts+1,due_at=?,done=? WHERE sender=? AND order_id=?",
                 (time.time() + 3, int(final or exhausted), sender, order_id),
             )
-            # Silent pending polls; send one verified outcome, never a guessed success.
-            if final:
-                view = SessionView.model_validate_json(attempt["snapshot"])
-                for payload in status_messages(result, view):
-                    self.inbox.db.execute(
-                        "INSERT INTO outbox(event_id,sender,payload) VALUES (?,?,?)",
-                        ("auto-status:" + order_id, sender, json.dumps(payload)),
-                    )
         return True
 
     async def run(self):
@@ -306,9 +322,9 @@ class Runtime:
                 # Preserve turn/reply ordering before accepting another conversational turn.
                 if await self.send_one():
                     continue
-                if await self.process():
-                    continue
                 if await self.check_due_order():
+                    continue
+                if await self.process():
                     continue
             except Exception as error:
                 log.error("WhatsApp worker paused (%s)", type(error).__name__)

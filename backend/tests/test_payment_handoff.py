@@ -288,7 +288,7 @@ async def test_confirmed_retry_archives_attempt_and_reopens_methods(tmp_path):
     assert payments.existing("alice", view.id) is not None
     state, replies = await runtime.chat.handle("", state, button, customer="alice")
     assert payments.existing("alice", view.id) is None
-    assert payments.monitor.get("alice", view.id) is None
+    assert payments.monitor.get("alice", view.id)["method"] == "observe"
     archive = runtime.inbox.db.execute("SELECT * FROM retried_order_attempts").fetchone()
     assert json.loads(archive["payload"])["cash_orders"][0]["status"] == "unknown"
     assert state["payment_menu"]
