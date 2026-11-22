@@ -15,7 +15,7 @@ async def setup(runtime, *, decision='match', quantity=None):
     state = await reviewed(runtime)
     view = SessionView.model_validate(state['view'])
     offer = view.lines[0].offer
-    history = {'scanned_count': 10, 'issues': [], 'orders': [
+    history = {'scanned_count': 20, 'issues': [], 'orders': [
         {'status': 'delivered', 'placed_at': time.time(), 'items': [
             {'name': offer.name, 'pack': offer.pack_size, 'quantity': 2}]}]}
     runtime.chat.workers.past_orders = AsyncMock(return_value=history)
@@ -60,7 +60,7 @@ async def test_no_match_and_ambiguity_do_not_search_or_mutate(tmp_path, decision
     runtime.chat.workers.search = AsyncMock()
     result, message = await repeat(runtime.chat, session, request)
     assert result is session
-    assert ('up to 10' in message and 'first page' in message) if decision == 'not_found' else message == 'Which pack?'
+    assert ('20' in message) if decision == 'not_found' else message == 'Which pack?'
     runtime.chat.workers.search.assert_not_called()
     runtime.inbox.close()
 
@@ -102,32 +102,4 @@ async def test_different_pack_is_not_silently_substituted(tmp_path):
     with pytest.raises(DomainError, match='same product and pack'):
         await repeat(runtime.chat, session, request)
     assert not session.view.lines
-    runtime.inbox.close()
-
-
-async def test_repeat_stops_matching_batches_and_skips_general_catalogue_ranking(tmp_path):
-    runtime = make_runtime(tmp_path)
-    session, request, history = await setup(runtime)
-    parse = runtime.chat.master.require_client().responses.parse
-    parse.side_effect = [
-        SimpleNamespace(output_parsed=PastSelection(decision='not_found', item_keys=[], question='')),
-        SimpleNamespace(output_parsed=PastSelection(decision='match', item_keys=['0:0'], question='')),
-    ]
-    visited = []
-    async def scan(start, end, on_batch):
-        for index in range(7):
-            visited.append(index)
-            if await on_batch(history):
-                break
-        return history
-    runtime.chat.workers.past_orders = scan
-    runtime.chat.workers.ranker.rank.reset_mock()
-    fresh, _ = await repeat(runtime.chat, session, request)
-    assert visited == [0, 1]
-    assert parse.await_count == 2
-    assert fresh.view.lines[0].quantity == 2
-    runtime.chat.workers.ranker.rank.assert_not_awaited()
-    # Ordinary product discovery still uses the existing semantic ranker.
-    await runtime.chat.workers.search('milk', session.view.address_label)
-    runtime.chat.workers.ranker.rank.assert_awaited_once()
     runtime.inbox.close()

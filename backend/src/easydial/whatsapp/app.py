@@ -69,8 +69,6 @@ class Runtime:
         row = self.inbox.claim()
         if not row:
             return False
-        if self.customer_chats:
-            await self.customer_chats.cancel_history_warmup()
         state = self.inbox.load(row["sender"]) or self.chat.initial()
         message = self.inbox.decode_event(row)
         chat = self.chat
@@ -279,8 +277,6 @@ class Runtime:
         ).fetchone()
         if not job:
             return False
-        if self.customer_chats:
-            await self.customer_chats.cancel_history_warmup()
         sender, order_id = job["sender"], job["order_id"]
         attempt = self.payments.monitor.get(sender, order_id)
         state = self.inbox.load(sender)

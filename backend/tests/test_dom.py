@@ -1000,7 +1000,7 @@ async def test_blinkit_order_heading_does_not_imply_details_have_loaded(page, co
         assert issue == 'missing_order_items'
 
 
-async def test_past_history_reads_first_page_without_scroll_or_pagination(page):
+async def test_past_history_waits_for_render_before_scroll_and_detail_read(page):
     import asyncio
     import json
     from contextlib import asynccontextmanager
@@ -1010,11 +1010,9 @@ async def test_past_history_reads_first_page_without_scroll_or_pagination(page):
     from tests.test_past_orders import Page, card, payload
 
     visited = []
-    history_requests = []
     async def route(request):
         url = request.request.url
         if '/v1/layout/order_history' in url:
-            history_requests.append(url)
             second = 'page=2' in url
             await request.fulfill(content_type='application/json', body=json.dumps(
                 payload([card(i) for i in range(10 if second else 0, 20 if second else 10)], more=not second)))
@@ -1040,10 +1038,9 @@ async def test_past_history_reads_first_page_without_scroll_or_pagination(page):
         result = await read_past_orders(SimpleNamespace(lock=asyncio.Lock(), browser_page=browser_page))
     finally:
         await context.close()
-    assert result['scanned_count'] == 10
-    assert len(result['orders']) == len(visited) == 10
+    assert result['scanned_count'] == 20
+    assert len(result['orders']) == len(visited) == 20
     assert not result['issues']
-    assert len(history_requests) == 1 and 'page=2' not in history_requests[0]
 
 
 async def test_fresh_blinkit_cart_does_not_treat_loading_placeholder_as_empty(page):

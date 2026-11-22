@@ -77,7 +77,7 @@ class ProviderWorkers:
         for worker in self.workers:
             await worker.close()
 
-    async def search(self, query: str, address: str, provider: Provider | None = None, *, rank: bool = True) -> list[SearchResult]:
+    async def search(self, query: str, address: str, provider: Provider | None = None) -> list[SearchResult]:
         async def run(provider, worker):
             try:
                 # Blinkit may need bounded address restoration before inventory renders.
@@ -107,7 +107,7 @@ class ProviderWorkers:
         )
 
         candidates = [o for r in results if r.status == "ok" for o in r.offers]
-        if candidates and rank:
+        if candidates:
             try:
                 ranked = await self.ranker.rank(query, candidates)
                 for result in results:
@@ -264,28 +264,12 @@ class ProviderWorkers:
         worker = self._worker(view.review.provider)
         return await asyncio.wait_for(read_history(worker, view, exclude_ids), timeout=45)
 
-    async def warm_history(self):
-        """Read-only prefetch in a separate browser; never take the shopping lock."""
-        from .past_orders import read_past_orders
-
-        primary = self._worker(Provider.BLINKIT)
-        if not primary.connected():
-            return
-        worker = BlinkitProvider(primary.browser.storage_state, primary.verified_location, primary.verified_address)
-        worker.browser.secret_box = primary.browser.secret_box
-        worker.browser.headless, worker.browser.channel = primary.browser.headless, primary.browser.channel
-        configure_blinkit_proxy(worker.browser, self.settings)
-        try:
-            await asyncio.wait_for(read_past_orders(worker), timeout=240)
-        finally:
-            await worker.close()
-
-    async def past_orders(self, start=None, end=None, on_batch=None):
+    async def past_orders(self, start=None, end=None):
         from .past_orders import read_past_orders
 
         worker = self._worker(Provider.BLINKIT)
         try:
-            return await asyncio.wait_for(read_past_orders(worker, start, end, on_batch=on_batch), timeout=240)
+            return await asyncio.wait_for(read_past_orders(worker, start, end), timeout=240)
         except DomainError:
             raise
         except Exception:
