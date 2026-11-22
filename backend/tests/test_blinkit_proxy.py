@@ -42,17 +42,17 @@ async def test_login_session_survives_encrypted_save_and_worker_recreation(tmp_p
     assert "203.0.113.7" not in (tmp_path / "customer.json.proxy").read_text()
 
 
-async def test_ip_change_closes_browser_without_adopting_new_ip():
+async def test_ip_change_preserves_browser_without_adopting_new_ip():
     browser = BrowserSession()
     configure_blinkit_proxy(browser, config())
     browser.proxy.exit_ip = "203.0.113.7"
     page = browser_response(browser, "203.0.113.8")
     context = browser.context
-    with pytest.raises(DomainError, match="proxy IP changed"):
+    with pytest.raises(DomainError, match="network session changed"):
         await browser._verify_proxy()
-    assert browser.context is None
+    assert browser.context is context
     assert browser.proxy.exit_ip == "203.0.113.7"
-    context.close.assert_awaited_once()
+    context.close.assert_not_awaited()
     assert page.close.await_count == 3
 
 

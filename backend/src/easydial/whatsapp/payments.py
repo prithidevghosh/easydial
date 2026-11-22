@@ -47,6 +47,79 @@ class PaymentRequests:
                         ON CONFLICT(sender,order_id) DO UPDATE SET done=0,due_at=excluded.due_at""",
                         (row["sender"], row["order_id"], time.time()))
 
+    def proxy_recovery_allowed(self, sender):
+        """Permit a new network journey only outside an active merchant checkout.
+
+        Inspect durable evidence across all drafts: QR expiry, local revocation and
+        exhausted polling do not establish that a merchant payment cannot settle.
+        An explicitly ended old UPI journey may remain unresolved without pinning
+        a different shopping draft forever. Its payment outcome is never changed.
+        Unknown or unreadable evidence keeps the existing journey pinned.
+        """
+        from ..models import SessionView
+
+        try:
+            state = self.inbox.load(sender)
+            if not isinstance(state, dict):
+                return False
+            view = SessionView.model_validate(state["view"])
+            if view.phase == "checkout_pending" or view.payment_preparation:
+                return False
+            if any(state.get(key) for key in ("payment_menu", "cash_confirmation", "retry_confirmation")):
+                return False
+            attempts = {}
+            for row in self.inbox.db.execute("SELECT * FROM order_checks WHERE sender=?", (sender,)).fetchall():
+                snapshot = SessionView.model_validate_json(row["snapshot"])
+                if snapshot.review is None:
+                    return False
+                if snapshot.review.provider.value != "blinkit":
+                    attempts[row["order_id"]] = (False, False)
+                    continue
+                result = json.loads(row["result"] or "{}")
+                terminal = (
+                    row["status"] in {"confirmed", "failed"}
+                    and result.get("status") == row["status"]
+                    and bool(result.get("order", {}).get("order_id"))
+                    and result.get("order", {}).get("status") in (
+                        {"confirmed", "preparing", "on_way", "delivered"}
+                        if row["status"] == "confirmed" else {"cancelled", "failed"}
+                    )
+                )
+                ended = False
+                if row["order_id"] != view.id and row["method"] == "upi" and row["status"] == "not_found":
+                    requests = self.inbox.db.execute(
+                        "SELECT status FROM payment_requests WHERE sender=? AND order_id=?",
+                        (sender, row["order_id"]),
+                    ).fetchall()
+                    cash = self.inbox.db.execute(
+                        "SELECT 1 FROM cash_orders WHERE sender=? AND order_id=?",
+                        (sender, row["order_id"]),
+                    ).fetchone()
+                    checks = self.inbox.db.execute(
+                        "SELECT done FROM automatic_order_checks WHERE sender=? AND order_id=?",
+                        (sender, row["order_id"]),
+                    ).fetchone()
+                    # stop_checkout revokes local artifacts and stops monitoring.
+                    # This ends the network journey, not the merchant payment.
+                    ended = bool(requests and all(item["status"] == "revoked" for item in requests)
+                                 and cash is None and checks and checks["done"] == 1)
+                attempts[row["order_id"]] = (True, terminal or ended)
+                if not (terminal or ended) and not (
+                    row["method"] == "observe" and row["status"] in {"prepared", "pending", "not_found"}
+                ):
+                    return False
+            for table in ("payment_requests", "cash_orders"):
+                for row in self.inbox.db.execute(
+                    f"SELECT order_id FROM {table} WHERE sender=?", (sender,)
+                ).fetchall():
+                    evidence = attempts.get(row["order_id"])
+                    # Missing monitor evidence also means the provider/outcome is unknown.
+                    if evidence is None or (evidence[0] and not evidence[1]):
+                        return False
+            return True
+        except Exception:
+            return False
+
     def completion(self, sender, state):
         from ..models import SessionView
         from .order_completion import completed_state

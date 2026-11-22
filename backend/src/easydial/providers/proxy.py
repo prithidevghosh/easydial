@@ -10,6 +10,10 @@ from ..controller import DomainError
 from ..observability import emit, traced
 
 
+class ProxyIdentityChanged(DomainError):
+    """The pinned exit changed; only an explicit safe-phase policy may renew it."""
+
+
 class BlinkitProxy:
     def __init__(self, username, password):
         self.username, self.password = username, password
@@ -80,9 +84,9 @@ class BlinkitProxy:
             observed = str(ipaddress.IPv4Address((await response.text()).strip()))
             if self.exit_ip and observed != self.exit_ip:
                 emit('proxy.verification_failed', provider='blinkit', error_code='proxy_ip_changed', pinned=True)
-                raise DomainError(
-                    "Blinkit's proxy IP changed or its sticky session expired. "
-                    "Reconnect Blinkit to start a new journey; this journey was stopped.", 503
+                raise ProxyIdentityChanged(
+                    "Blinkit's network session changed. Please retry shortly; "
+                    "the current operation was stopped.", 503
                 )
             self.exit_ip = observed
             self.save(browser)

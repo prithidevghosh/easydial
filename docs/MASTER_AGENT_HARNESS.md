@@ -1,6 +1,6 @@
 # Master agent north star and implementation plan
 
-Updated 2026-11-22. Status: local implementation and verification; not released.
+Updated 2026-11-22. Status: harness released in f4f6a70; proxy recovery follow-up documented in PROXY_RECOVERY.md.
 
 ## North star
 
@@ -97,7 +97,7 @@ Validation recorded locally:
 - Existing onboarding-to-confirmation journey also passes through the real harness with controlled external responses, then fresh shopping; ordinary discovery uses one model call per turn.
 - Final backend run including telemetry: 458 passed, 82 opt-in browser cases skipped. Ruff and whitespace checks passed. The separate Chrome-enabled run passed all 92 tests (82 browser cases plus 10 supporting unit checks) in 135 seconds.
 
-AWS integration has not been tested for this new harness. No changes have been pushed or deployed. Production remains on the reverted pre-optimization behavior. Existing AWS sticky-proxy failure is separate from this local feature and remains a live-verification prerequisite.
+The harness was pushed and deployed as f4f6a70 after CI and Linux browser gates passed. All 45 deployed Python source files matched the release. CloudWatch structured events and a direct WhatsApp clarification turn were verified. Live product access exposed the existing expired proxy pin; the follow-up in PROXY_RECOVERY.md addresses that separately. Earlier local browser/model timings above remain historical measurements.
 
 ### Final integration review
 

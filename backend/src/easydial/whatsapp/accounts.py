@@ -186,6 +186,10 @@ class CustomerChats:
                     worker.browser.storage_state = self.accounts.session_path(sender, worker.provider.value)
                     worker.browser.secret_box = self.accounts.session_box(sender, worker.provider.value)
                     if worker.provider == Provider.BLINKIT:
+                        worker.browser.proxy_recovery_allowed = lambda worker=worker: (
+                            not getattr(worker, "_payment_checkpoint", None)
+                            and self.payments.proxy_recovery_allowed(sender)
+                        )
                         worker.on_location_verified = lambda location, connection=data: self.accounts.save_connection(
                             sender, "blinkit", {**connection, "location": location}
                         )

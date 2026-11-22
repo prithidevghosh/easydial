@@ -42,14 +42,14 @@ async def test_changed_proxy_reason_is_explicit_without_logging_ip_or_credential
         ok=True, text=AsyncMock(return_value='203.0.113.8'))), close=AsyncMock())
     context = SimpleNamespace(new_page=AsyncMock(return_value=page), close=AsyncMock())
     browser.context = context
-    with caplog.at_level(logging.INFO), pytest.raises(DomainError, match='proxy IP changed'):
+    with caplog.at_level(logging.INFO), pytest.raises(DomainError, match='network session changed'):
         await browser._verify_proxy()
     emitted = records(caplog)
     mismatches = [record for record in emitted if record.get('error_code') == 'proxy_ip_changed']
     assert len(mismatches) == 3 and all(record['pinned'] is True for record in mismatches)
     assert page.goto.await_count == 3 and page.close.await_count == 3
     assert browser.proxy.exit_ip == '203.0.113.7' and browser.proxy.session_id == original_session
-    context.close.assert_awaited_once()
+    context.close.assert_not_awaited()
     logged = caplog.text + json.dumps(emitted)
     for secret in ('secretuser', 'secretpassword', '203.0.113.7', '203.0.113.8', original_session):
         assert secret not in logged

@@ -1,5 +1,7 @@
 """Dedicated, configurable browser sessions. No stealth, fingerprint spoofing or challenge bypass."""
 
+import asyncio
+import json
 import logging
 from pathlib import Path
 
@@ -7,6 +9,7 @@ from playwright.async_api import async_playwright
 
 from ..controller import DomainError
 from ..observability import emit, error_fields, traced
+from .proxy import BlinkitProxy, ProxyIdentityChanged
 
 log = logging.getLogger(__name__)
 
@@ -18,6 +21,9 @@ class BrowserSession:
         self.runtime = self.context = self.page = self.browser = None
         self.secret_box = None
         self.proxy = None
+        self.proxy_recovery_allowed = None
+        self._initial_state = None
+        self._open_lock = asyncio.Lock()
         self.allow_empty_state = False
         self.blocked_resource_urls = ()
         self._network_session = None
@@ -31,9 +37,10 @@ class BrowserSession:
 
     @traced('browser.open')
     async def open(self):
-        await self._open_context()
-        await self._verify_proxy()
-        return self.page, self.context
+        async with self._open_lock:
+            await self._open_context()
+            await self._verify_proxy()
+            return self.page, self.context
 
     @traced('browser.context_open')
     async def _open_context(self):
@@ -54,7 +61,7 @@ class BrowserSession:
                 self.browser = await self.runtime.chromium.launch(
                     channel=self.channel, headless=self.headless, **options
                 )
-                state = self.storage_state
+                state = self._initial_state or self.storage_state
                 if self.secret_box:
                     state = (
                         self.secret_box.open(Path(self.storage_state).read_text())
@@ -87,18 +94,23 @@ class BrowserSession:
     async def _verify_proxy(self):
         if not self.proxy:
             return
+        identity_changed = False
         for attempt in range(1, 4):
             emit('proxy.attempt', provider='blinkit', attempt=attempt, max_attempts=3, pinned=bool(self.proxy.exit_ip))
             try:
                 await self.proxy.verify(self)
                 return
             except Exception as error:
+                identity_changed = identity_changed or isinstance(error, ProxyIdentityChanged)
+                if isinstance(error, ProxyIdentityChanged) and self._can_recover_proxy():
+                    return await self._recover_proxy(attempt)
                 emit('proxy.attempt_failed', provider='blinkit', attempt=attempt, max_attempts=3,
                      pinned=bool(self.proxy.exit_ip), error_code='proxy_verification_failed', **error_fields(error))
                 log.warning("Blinkit proxy verification failed: attempt=%s max_attempts=3 pinned=%s category=%s",
                             attempt, bool(self.proxy.exit_ip), type(error).__name__)
                 if attempt == 3:
-                    await self.close()
+                    if not identity_changed:
+                        await self.close()
                     if isinstance(error, DomainError):
                         raise DomainError(error.message, error.status) from None
                     raise DomainError(
@@ -113,6 +125,80 @@ class BrowserSession:
                     await self._open_context()
                 # A pinned journey retries in the SAME context and on the SAME
                 # sticky session, preserving the live page, cart and OTP form.
+
+    def _can_recover_proxy(self):
+        # Persistent profiles cannot safely be opened twice. Login sessions and
+        # checkout contexts have no recovery permission unless their owner grants it.
+        if self.profile or self.proxy_recovery_allowed is None:
+            return False
+        try:
+            return self.proxy_recovery_allowed() is True
+        except Exception:
+            return False
+
+    def _publish_proxy_recovery(self, proxy, state):
+        paths = [path for path in (Path(self.storage_state) if self.storage_state else None,
+                                  proxy.path(self)) if path is not None]
+        originals = {path: path.read_bytes() if path.exists() else None for path in paths}
+        try:
+            if self.storage_state:
+                if self.secret_box:
+                    self.secret_box.write(self.storage_state, state)
+                else:
+                    path = Path(self.storage_state)
+                    path.write_text(json.dumps(state))
+                    path.chmod(0o600)
+            proxy.save(self)
+        except BaseException:
+            for path, original in originals.items():
+                if original is None:
+                    path.unlink(missing_ok=True)
+                else:
+                    path.write_bytes(original)
+            raise
+
+    @traced('browser.proxy_recover')
+    async def _recover_proxy(self, used_attempts):
+        state = await self.context.storage_state(indexed_db=True)
+        for attempt in range(used_attempts + 1, 4):
+            if not self._can_recover_proxy():
+                break
+            candidate = BrowserSession()
+            candidate.headless, candidate.channel = self.headless, self.channel
+            candidate.blocked_resource_urls = self.blocked_resource_urls
+            candidate._initial_state = state
+            candidate.proxy = BlinkitProxy(self.proxy.username, self.proxy.password)
+            candidate.proxy.loaded = True
+            adopted = False
+            try:
+                await candidate._open_context()
+                emit('proxy.recovery_attempt', provider='blinkit', attempt=attempt, max_attempts=3)
+                await candidate.proxy.verify(candidate)
+                if not self._can_recover_proxy():
+                    break
+                # No await between durable pin publication and ownership transfer.
+                # Candidate verification never writes the original session files.
+                self._publish_proxy_recovery(candidate.proxy, state)
+                old = BrowserSession()
+                resources = ('runtime', 'context', 'page', 'browser', '_network_session')
+                for name in resources:
+                    setattr(old, name, getattr(self, name))
+                    setattr(self, name, getattr(candidate, name))
+                    setattr(candidate, name, None)
+                self.proxy = candidate.proxy
+                adopted = True
+                emit('proxy.recovered', provider='blinkit', attempt=attempt, status='ok', pinned=True)
+                await old.close()
+                return
+            except Exception as error:
+                if adopted:
+                    raise
+                emit('proxy.recovery_failed', provider='blinkit', attempt=attempt,
+                     error_code='proxy_recovery_failed', **error_fields(error))
+            finally:
+                if not adopted:
+                    await candidate.close()
+        raise DomainError("Blinkit's network session could not be renewed. Please retry shortly.", 503)
 
     @staticmethod
     @traced('browser.check_page')
