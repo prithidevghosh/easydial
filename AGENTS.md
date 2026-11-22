@@ -1,14 +1,43 @@
 # Easy Dial · run and review the WhatsApp project
 
-**Deployed pilot** · [Open the WhatsApp chat](https://d1m5hsnftwd3t2.cloudfront.net/join) · [Scan the QR](https://d1m5hsnftwd3t2.cloudfront.net/join/qr.png) · [Service health](https://d1m5hsnftwd3t2.cloudfront.net/health)
+**Live URL (project entry)** · [Easy Dial on GitHub](https://github.com/prithidevghosh/easydial)
+
+**WhatsApp pilot** · [Open chat](https://d1m5hsnftwd3t2.cloudfront.net/join) · [Scan the QR](https://d1m5hsnftwd3t2.cloudfront.net/join/qr.png) · [Service health](https://d1m5hsnftwd3t2.cloudfront.net/health)
 
 **Slides** · [Read the five-slide pitch (PDF)](docs/assets/Easy-Dial.pdf)
 
-**Demo video** ·
+**Demo video** · [Video status](VIDEO.md)
 
 Easy Dial lets someone order from a quick commerce store by sending a voice note in WhatsApp. Try a mixed shopping list, change your mind about a product, review the actual store fees and choose how to pay. User-facing replies are in English. The hosted pilot uses a Meta **test** number. A tester must verify their WhatsApp number in the owner's Meta recipient list to receive replies. Scanning the QR alone does not register a tester. The hosted URL depends on the workshop AWS account remaining active.
 
 **For independent judging, use your own Meta app and follow steps 1–7.** WhatsApp is the product entry point. The QR and join link are two ways into the same chat. The older iOS project is a separate client and is not needed to run the submission. AWS credentials are not required.
+
+## Start here if reviewing the ZIP without accounts
+
+Extract the archive and open a shell in the directory containing this file. Commands below start from that root. Skip the Git clone and `cd easydial` lines in step 1 when using an extracted ZIP. The required live environment is documented in step 4. [backend/.env.example](backend/.env.example) also lists optional settings and defaults.
+
+**Keyless guided mock mode.** Install [uv](https://docs.astral.sh/uv/getting-started/installation/) (tested with 0.10.12). The project needs Python 3.11+ and uses embedded SQLite. Install the pinned dependencies and run:
+
+```bash
+uv python install 3.11
+uv --directory backend sync --locked --python 3.11
+uv --directory backend run --locked python -m tools.review_walkthrough
+```
+
+Press Enter at each shopper turn, or append `--auto` for an unattended run. The command drives the WhatsApp backend's real onboarding, cart, fee review, payment selection and order-history confirmation logic. Replies come from the application. The transport, model, catalogue, merchant login and payment are fixtures. This guided text journey runs locally and uses no API keys. It does not open a real WhatsApp chat or transcribe audio. For those touch points use the live path below.
+
+**Test identity and seed data.** There is one end-user role, the shopper. The mock starts with a new temporary database on each run, seeds its fixture catalogue automatically, and supplies the synthetic merchant phone `9999999999`, OTP `123456` and saved address option `1`. In live mode each reviewer uses their own verified WhatsApp and consenting merchant login. SQLite creates its schema on first boot, and products and addresses come from the store. There is no separate seed command, admin login or web frontend. The WhatsApp worker starts with the server in step 5.
+
+**Legacy iOS touch point (optional).** The submission's supported shopping flow is WhatsApp. To inspect the earlier native client, use macOS with Xcode 15+ and an installed iOS 17+ simulator. From the root run:
+
+```bash
+uv --directory backend sync --locked
+uv --directory backend run --locked uvicorn easydial.app:app --host 127.0.0.1 --port 8000
+```
+
+In another terminal, run `open ios/EasyDial.xcodeproj`. Select the **EasyDial** scheme and an iPhone simulator, then press **Run**. Open the app's connection settings and use `http://127.0.0.1:8000`. For live speech and product search this earlier API uses the OpenAI credentials and single-operator merchant profiles described in [the credential guide](docs/CREDENTIALS.md). The iOS client does not implement the WhatsApp onboarding and payment journey.
+
+**What’s next.** Priorities are more reliable Instamart sign-in and recorded benchmarks for multilingual voice requests and corrections. The paid order in the existing slides is from the Blinkit pilot.
 
 ## 1. Prepare a clean server
 
