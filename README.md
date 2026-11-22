@@ -2,7 +2,7 @@
 
 Easy Dial is a WhatsApp voice assistant for quick commerce. A shopper describes what they want, picks products from a connected store, reviews the itemized bill and approves checkout. The project grew out of the friction of ordering groceries at home, and supports other goods available in the store catalog.
 
-**Start with [AGENTS.md](AGENTS.md)** for the unattended, credential-free walkthrough, the live setup with your own Meta app, and step-by-step shopper journeys. The [pitch deck](docs/assets/Easy-Dial.pdf) and [original demo video](VIDEO.md) accompany the submission.
+**Start with [AGENTS.md](AGENTS.md)** for the unattended, credential-free walkthrough, the live setup with your own Meta app, and step-by-step shopper journeys. The [pitch deck](docs/assets/Easy-Dial.pdf) and the full-length `Easy-Dial-demo.mp4` accompany the submission ZIP.
 
 The Blinkit pilot completed a paid order verified against store history. Instamart login can be intermittent. The earlier iOS client is included as an optional touch point. The planning and research documents below record earlier stages of the project.
 
