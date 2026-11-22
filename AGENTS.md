@@ -6,7 +6,7 @@
 
 **Slides** · [Read the five-slide pitch (PDF)](docs/assets/Easy-Dial.pdf)
 
-**Demo video** · [Watch the Easy Dial product demo (MP4)](https://drive.google.com/file/d/13iKtx8FTVAl3IKH2GYtvb--xWaUzasKT/view?usp=sharing)
+**Demo video** · Open `Easy-Dial-demo.mp4` in the submission ZIP · [Original recording on Google Drive](https://drive.google.com/file/d/13iKtx8FTVAl3IKH2GYtvb--xWaUzasKT/view?usp=sharing)
 
 Easy Dial lets someone order from a quick commerce store by sending a voice note in WhatsApp. Try a mixed shopping list, change your mind about a product, review the actual store fees and choose how to pay. User-facing replies are in English. The hosted pilot uses a Meta **test** number. A tester must verify their WhatsApp number in the owner's Meta recipient list to receive replies. Scanning the QR alone does not register a tester. The hosted URL depends on the workshop AWS account remaining active.
 
