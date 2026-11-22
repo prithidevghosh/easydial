@@ -390,7 +390,7 @@ async def test_confirmed_order_refreshes_delivery_without_reusing_eta(tmp_path, 
     worker.order_history = updated
     result = await OrderMonitor(runtime.inbox).check("alice", view.id, worker)
     message = status_messages(result, view)[0]["text"]["body"]
-    assert calls == 1
+    assert calls == (1 if refresh in {"delivered", "cancelled"} else 3)
     assert "Arriving in 7 minutes" not in message
     if refresh == "delivered":
         assert "Order delivered" in message
@@ -402,6 +402,11 @@ async def test_confirmed_order_refreshes_delivery_without_reusing_eta(tmp_path, 
         assert result["stale"]
         assert "couldn’t refresh delivery status" in message
         assert monitor.get("alice", view.id)["status"] == "confirmed"
+        import json
+        persisted = json.loads(monitor.get("alice", view.id)["result"])
+        assert persisted["stale"] and persisted["refresh_reason"]
+        assert persisted["order"]["order_id"] == original["order_id"]
+        assert persisted["order"]["eta"] is None
     runtime.inbox.close()
 
 
@@ -514,4 +519,37 @@ async def test_three_clean_empty_history_reads_stop_without_claiming_failure(tmp
     assert '3 checks' in replies[0]['interactive']['body']['text']
     buttons = replies[0]['interactive']['action']['buttons']
     assert [x['reply']['title'] for x in buttons] == ['Retry payment', 'Check status']
+    runtime.inbox.close()
+
+
+@pytest.mark.parametrize('first_failure', ['timeout', 'partial', 'wrong_total'])
+async def test_confirmed_status_recovers_after_restart_without_payment_or_order_actions(tmp_path, first_failure):
+    import json
+    from unittest.mock import AsyncMock
+
+    runtime = make_runtime(tmp_path)
+    view = SessionView.model_validate((await reviewed(runtime))['view'])
+    monitor = runtime.payments.monitor
+    workers = SimpleNamespace(order_history=empty_history)
+    await monitor.capture('alice', view, 'upi', workers)
+    monitor.activate('alice', view.id)
+    original = merchant_order(view, method='online', payment_status='paid', eta='Arriving in 7 minutes')
+    workers.order_history = AsyncMock(return_value={'orders': [original]})
+    assert (await monitor.check('alice', view.id, workers))['status'] == 'confirmed'
+    delivered = {**original, 'status': 'delivered', 'eta': None}
+    failure = TimeoutError() if first_failure == 'timeout' else (
+        {'orders': [], 'issues': ['incomplete_order_details']} if first_failure == 'partial'
+        else {'orders': [{**delivered, 'total_paise': delivered['total_paise'] + 100}]})
+    workers.order_history = AsyncMock(side_effect=[failure, {'orders': [delivered]}])
+    restarted = OrderMonitor(runtime.inbox)
+    retry_sleep = AsyncMock()
+    result = await restarted.check('alice', view.id, workers, sleep=retry_sleep)
+    retry_sleep.assert_awaited_once_with(1)
+    assert result['order']['status'] == 'delivered'
+    assert not result.get('stale')
+    assert workers.order_history.await_count == 2
+    persisted = json.loads(restarted.get('alice', view.id)['result'])
+    assert persisted == result
+    assert persisted['order']['order_id'] == original['order_id']
+    assert persisted['order']['payment_status'] == 'paid'
     runtime.inbox.close()

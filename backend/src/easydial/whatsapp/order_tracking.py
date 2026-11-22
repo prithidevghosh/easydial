@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import logging
 import time
 
 from ..controller import DomainError
@@ -92,36 +93,62 @@ class OrderMonitor:
                 (sender, order_id),
             )
 
-    async def refresh_confirmed(self, row, workers):
+    async def refresh_confirmed(self, row, workers, *, sleep=asyncio.sleep, max_checks=3):
         saved = json.loads(row["result"])
         view = SessionView.model_validate_json(row["snapshot"])
         baseline = json.loads(row["baseline"])
-        try:
-            history = await asyncio.wait_for(workers.order_history(view, baseline), timeout=30)
-            candidates = [order for order in history["orders"]
-                if order.get("order_id") == saved["order"]["order_id"]
-                and matches(order, view, row["method"], baseline, row["started_at"])]
-            if len(candidates) == 1:
-                order = candidates[0]
-                if order.get("status") in {"confirmed", "preparing", "on_way", "delivered", "cancelled", "failed"}:
-                    result = {"status": "failed" if order["status"] in {"cancelled", "failed"} else "confirmed", "order": order}
-                    with self.db:
-                        self.db.execute(
-                            "UPDATE order_checks SET status=?,result=?,checks=checks+1 WHERE sender=? AND order_id=?",
-                            (result["status"], json.dumps(result), row["sender"], row["order_id"]),
-                        )
-                    return result
-        except Exception:
-            pass
-        # Keep verified purchase evidence, but never present a cached ETA as current.
-        return {**saved, "stale": True, "order": {**saved["order"], "eta": None}}
+        blinkit = view.review.provider.value == "blinkit"
+        deadline = time.monotonic() + (60 if blinkit else 30)
+        attempts = 0
+        diagnostic = {}
+        for attempt in range(max_checks if view.review.provider.value == "blinkit" else 1):
+            attempts += 1
+            diagnostic = {"refresh_reason": "no_matching_order"}
+            try:
+                history = await asyncio.wait_for(workers.order_history(view, baseline),
+                    timeout=min(30, max(0.01, deadline - time.monotonic())))
+                same_order = [order for order in history["orders"]
+                              if order.get("order_id") == saved["order"]["order_id"]]
+                rejected = [mismatch_reason(order, view, row["method"], baseline, row["started_at"])
+                            for order in same_order]
+                candidates = [order for order, reason in zip(same_order, rejected) if reason is None]
+                diagnostic.update(rejected_fields=sorted({reason for reason in rejected if reason}),
+                                  history_issues=history.get("issues", []))
+                if len(candidates) == 1:
+                    order = candidates[0]
+                    if order.get("status") in {"confirmed", "preparing", "on_way", "delivered", "cancelled", "failed"}:
+                        result = {"status": "failed" if order["status"] in {"cancelled", "failed"} else "confirmed", "order": order}
+                        with self.db:
+                            self.db.execute(
+                                "UPDATE order_checks SET status=?,result=?,checks=checks+? WHERE sender=? AND order_id=?",
+                                (result["status"], json.dumps(result), attempts, row["sender"], row["order_id"]),
+                            )
+                        return result
+                    diagnostic["refresh_reason"] = "unreadable_status"
+                elif len(candidates) > 1:
+                    diagnostic["refresh_reason"] = "ambiguous_matches"
+            except Exception as exc:
+                diagnostic = {"refresh_reason": "history_read_error", "refresh_error_type": type(exc).__name__}
+            logging.getLogger(__name__).warning("Order status refresh incomplete: provider=%s attempt=%s details=%s",
+                                              view.review.provider.value, attempts, diagnostic)
+            if time.monotonic() + 1 >= deadline:
+                break
+            if attempt < max_checks - 1 and view.review.provider.value == "blinkit":
+                await sleep(1)
+        # Preserve verified purchase evidence and diagnostic reason across restart,
+        # but never present a cached ETA as current or make failure mean unpaid.
+        result = {**saved, **diagnostic, "stale": True, "order": {**saved["order"], "eta": None}}
+        with self.db:
+            self.db.execute("UPDATE order_checks SET result=?,checks=checks+? WHERE sender=? AND order_id=?",
+                            (json.dumps(result), attempts, row["sender"], row["order_id"]))
+        return result
 
     async def check(self, sender, order_id, workers, *, sleep=asyncio.sleep, max_checks=3):
         row = self.get(sender, order_id)
         if not row or row["status"] == "prepared":
             return {"status": "pending", "reason": "no_verified_attempt"}
         if row["status"] in {"confirmed", "failed"}:
-            return await self.refresh_confirmed(row, workers)
+            return await self.refresh_confirmed(row, workers, sleep=sleep, max_checks=max_checks)
         view = SessionView.model_validate_json(row["snapshot"])
         baseline = json.loads(row["baseline"])
         saved = json.loads(row["result"] or "{}")

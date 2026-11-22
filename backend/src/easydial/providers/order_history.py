@@ -1,7 +1,10 @@
 """Read order history through authenticated website navigation, never replay private APIs."""
 
+import asyncio
 import json
+import logging
 import re
+import time
 from datetime import datetime, timedelta
 from urllib.parse import parse_qs, urlsplit
 from zoneinfo import ZoneInfo
@@ -162,11 +165,31 @@ def parse_blinkit(card, text):
     }
 
 
+async def read_blinkit_details(page, card, *, timeout=8):
+    """The order heading can render before items, payment and delivery details."""
+    deadline = time.monotonic() + timeout
+    issue = "missing_order_items"
+    while True:
+        try:
+            parsed = parse_blinkit(card, await page.locator("body").inner_text(timeout=2000))
+            if parsed and all(parsed.get(key) for key in ("order_id", "items", "address", "method")) and (
+                parsed.get("placed_at") is not None and parsed.get("total_paise") is not None
+            ):
+                return parsed, None
+            issue = "incomplete_order_details" if parsed else "missing_order_items"
+        except (KeyError, ValueError, TypeError, IndexError):
+            issue = "unreadable_order_details"
+        if time.monotonic() >= deadline:
+            return None, issue
+        await asyncio.sleep(0.25)
+
+
 async def read_history(worker, view, exclude_ids=None):
     async with worker.lock, worker.browser_page() as (_checkout_page, context):
         # Never navigate the live checkout/QR tab while the merchant may still be
         # completing an order. The isolated tab shares this customer's cookies.
         page = await context.new_page()
+        stage = "history_navigation"
         try:
             if worker.provider == Provider.INSTAMART:
                 await goto_with_retry(page, "https://instamart.in", wait_until="domcontentloaded")
@@ -175,6 +198,7 @@ async def read_history(worker, view, exclude_ids=None):
                     timeout=20000,
                 ) as response:
                     await page.get_by_test_id("user-account-button").click()
+                stage = "history_response"
                 payload = await (await response.value).json()
                 rows = payload.get("data", {}).get("orders")
                 if not isinstance(rows, list):
@@ -195,6 +219,7 @@ async def read_history(worker, view, exclude_ids=None):
                 lambda r: urlsplit(r.url).path == "/v1/layout/order_history", timeout=20000
             ) as response:
                 await goto_with_retry(page, "https://blinkit.com/account/orders", wait_until="domcontentloaded")
+            stage = "history_response"
             payload = await (await response.value).json()
             if not payload.get("is_success"):
                 raise DomainError("Order history is unavailable.")
@@ -214,20 +239,22 @@ async def read_history(worker, view, exclude_ids=None):
                     if not cart.isdigit() or not order.isdigit():
                         issues.append("unreadable_history_link")
                         continue
+                    stage = "order_detail_navigation"
                     await goto_with_retry(page,
                         f"https://blinkit.com/account/orders/{cart}/{order}", wait_until="domcontentloaded"
                     )
+                    stage = "order_detail_content"
                     await page.get_by_text("Order details", exact=True).wait_for()
-                    try:
-                        parsed = parse_blinkit(card, await page.locator("body").inner_text())
-                    except (KeyError, ValueError, TypeError, IndexError):
-                        issues.append("unreadable_order_details")
-                        continue
+                    parsed, issue = await read_blinkit_details(page, card)
                     if parsed:
                         results.append(parsed)
                     else:
-                        issues.append("missing_order_items")
+                        issues.append(issue)
             return {"ids": ids, "orders": results, "issues": sorted(set(issues))}
 
+        except (Exception, asyncio.CancelledError) as error:
+            logging.getLogger(__name__).warning("Order history read interrupted: provider=%s stage=%s category=%s",
+                                               worker.provider.value, stage, type(error).__name__)
+            raise
         finally:
             await page.close()

@@ -950,3 +950,29 @@ async def test_blinkit_missing_picker_is_temporary_not_a_missing_saved_address(p
     await page.set_content('<div class="LocationBar__Subtitle">Temporary locality</div>')
     with pytest.raises(BlinkitAddressLoadingError, match='connection is saved'):
         await restore_saved_address(page, 'Flat 7, Road')
+
+
+@pytest.mark.parametrize('complete', [True, False])
+async def test_blinkit_order_heading_does_not_imply_details_have_loaded(page, complete):
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from easydial.providers.order_history import read_blinkit_details
+
+    stamp = datetime.now(ZoneInfo('Asia/Kolkata')).strftime('Today, %I:%M %p')
+    card = {'identity': {'id': 'history-test'}, 'items': [{'data': {
+        'title': {'text': 'Arriving in 7 minutes'}, 'subtitle': {'text': stamp}}}]}
+    await page.set_content('<div>Order details</div><div id="content">Order summary</div>')
+    if complete:
+        text = ('Order summary\nDelivered\n1 item in this order\nTest milk\n500 ml x 2\n'
+                'Bill total\n₹93\nOrder id\nTEST123\nPayment\nPaid Online\nDeliver to\nTest home')
+        await page.evaluate('(text) => setTimeout(() => document.querySelector("#content").innerText=text, 500)', text)
+    parsed, issue = await read_blinkit_details(page, card, timeout=2 if complete else 0.1)
+    if complete:
+        assert issue is None
+        assert parsed['status'] == 'delivered'
+        assert parsed['payment_status'] == 'paid'
+        assert parsed['items'] == [{'name': 'Test milk', 'pack': '500 ml', 'quantity': 2}]
+    else:
+        assert parsed is None
+        assert issue == 'missing_order_items'
