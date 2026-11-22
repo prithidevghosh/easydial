@@ -103,3 +103,31 @@ async def test_different_pack_is_not_silently_substituted(tmp_path):
         await repeat(runtime.chat, session, request)
     assert not session.view.lines
     runtime.inbox.close()
+
+
+async def test_repeat_stops_matching_batches_and_skips_general_catalogue_ranking(tmp_path):
+    runtime = make_runtime(tmp_path)
+    session, request, history = await setup(runtime)
+    parse = runtime.chat.master.require_client().responses.parse
+    parse.side_effect = [
+        SimpleNamespace(output_parsed=PastSelection(decision='not_found', item_keys=[], question='')),
+        SimpleNamespace(output_parsed=PastSelection(decision='match', item_keys=['0:0'], question='')),
+    ]
+    visited = []
+    async def scan(start, end, on_batch):
+        for index in range(7):
+            visited.append(index)
+            if await on_batch(history):
+                break
+        return history
+    runtime.chat.workers.past_orders = scan
+    runtime.chat.workers.ranker.rank.reset_mock()
+    fresh, _ = await repeat(runtime.chat, session, request)
+    assert visited == [0, 1]
+    assert parse.await_count == 2
+    assert fresh.view.lines[0].quantity == 2
+    runtime.chat.workers.ranker.rank.assert_not_awaited()
+    # Ordinary product discovery still uses the existing semantic ranker.
+    await runtime.chat.workers.search('milk', session.view.address_label)
+    runtime.chat.workers.ranker.rank.assert_awaited_once()
+    runtime.inbox.close()

@@ -1,9 +1,12 @@
 """Customer-scoped connections. Never import the operator's pilot profiles."""
 
+import asyncio
 import hashlib
 import hmac
+import logging
 import secrets
 import time
+from contextlib import suppress
 from pathlib import Path
 
 from ..controller import DomainError
@@ -109,6 +112,7 @@ class Accounts:
             )
         if not reserve:
             return
+        Path(self.session_path(sender, provider) + ".history").unlink(missing_ok=True)
         with self.db:
             self.db.execute(
                 "DELETE FROM merchant_accounts WHERE sender=? AND provider=? AND account_hash!=?",
@@ -129,6 +133,7 @@ class Accounts:
 
     def forget(self, sender, provider):
         Path(self.session_path(sender, provider)).unlink(missing_ok=True)
+        Path(self.session_path(sender, provider) + ".history").unlink(missing_ok=True)
         with self.db:
             self.db.execute("DELETE FROM store_connections WHERE sender=? AND provider=?", (sender, provider))
             self.db.execute("DELETE FROM merchant_accounts WHERE sender=? AND provider=?", (sender, provider))
@@ -141,8 +146,41 @@ class CustomerChats:
         self.settings, self.accounts, self.master, self.payments = settings, accounts, master, payments
         self.chats = {}
         self.active = None
+        self.history_warmup = None
+
+    async def cancel_history_warmup(self):
+        task = self.history_warmup
+        if task and task is not asyncio.current_task():
+            self.history_warmup = None
+            task.cancel()
+            with suppress(asyncio.CancelledError, Exception):
+                await task
+
+    def start_history_warmup(self, sender):
+        if self.history_warmup and not self.history_warmup.done():
+            return
+        if not self.accounts.consented(sender, "blinkit") or not Path(self.accounts.session_path(sender, "blinkit")).is_file():
+            return
+
+        async def warm():
+            try:
+                # Do not evict another customer's active shopping/checkout browser.
+                if self.active and self.active != sender:
+                    return
+                chat = await self.get(sender)
+                await chat.workers.warm_history()
+            except asyncio.CancelledError:
+                raise
+            except Exception as error:
+                logging.getLogger(__name__).info("History warm-up skipped: %s", type(error).__name__)
+            finally:
+                if self.history_warmup is asyncio.current_task():
+                    self.history_warmup = None
+
+        self.history_warmup = asyncio.create_task(warm())
 
     async def close_customer(self, sender, *, save=True):
+        await self.cancel_history_warmup()
         chat = self.chats.pop(sender, None)
         if chat:
             try:
@@ -196,5 +234,6 @@ class CustomerChats:
         return self.chats[sender]
 
     async def close(self):
+        await self.cancel_history_warmup()
         for sender in list(self.chats):
             await self.close_customer(sender)

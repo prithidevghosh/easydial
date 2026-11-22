@@ -136,6 +136,7 @@ class Onboarding:
         return None
 
     async def logout(self, sender, event_id, shopping_state, provider=None):
+        await self.chats.cancel_history_warmup()
         # Revoke access before awaiting browser cleanup; no active draft or stale
         # payment button may survive logout, even with a pending merchant order.
         targets = (provider,) if provider else ("blinkit", "instamart")
@@ -429,6 +430,8 @@ class Onboarding:
         await self.cancel(sender, provider)
         await self.chats.close_customer(sender)
         self.accounts.begin(sender, "ready")
+        if provider == "blinkit":
+            self.chats.start_history_warmup(sender)
         return [
             text_message(
                 f"✅ *{provider.title()} connected*\n\n*Deliver to*\n{plain(data['address'])}\n\nSend a voice note or type what you need.\n\nSend Connect to add another store, or Disconnect {provider} to remove access."
