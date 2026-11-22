@@ -18,6 +18,8 @@ class BrowserSession:
         self.secret_box = None
         self.proxy = None
         self.allow_empty_state = False
+        self.blocked_resource_urls = ()
+        self._network_session = None
 
     @property
     def configured(self):
@@ -61,6 +63,13 @@ class BrowserSession:
                 self.context = await self.browser.new_context(storage_state=state or None)
             self.page = self.context.pages[0] if self.context.pages else await self.context.new_page()
             self.page.set_default_timeout(8000)
+            if self.blocked_resource_urls:
+                # Chrome's network filter leaves the HTTP cache enabled, unlike
+                # Playwright request routing. Only provider-configured telemetry
+                # hosts are excluded; store and payment traffic remain untouched.
+                self._network_session = await self.context.new_cdp_session(self.page)
+                await self._network_session.send("Network.enable")
+                await self._network_session.send("Network.setBlockedURLs", {"urls": list(self.blocked_resource_urls)})
         except DomainError:
             await self.close()
             raise
@@ -127,6 +136,7 @@ class BrowserSession:
             if self.runtime:
                 await self.runtime.stop()
             self.runtime = self.context = self.page = self.browser = None
+            self._network_session = None
 
 
 async def click_and_settle(page, button):

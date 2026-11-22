@@ -99,7 +99,8 @@ async def test_chat_confirmation_checks_token_expiry_and_saves_checkpoint(tmp_pa
     runtime.inbox.close()
 
 
-async def test_completed_receipt_allows_preview_of_leftover_item_without_implicit_removal(tmp_path):
+@pytest.mark.parametrize("source", ["receipt", "discarded_draft"])
+async def test_completed_receipt_allows_preview_of_leftover_item_without_implicit_removal(tmp_path, source):
     from types import SimpleNamespace
 
     runtime = make_runtime(tmp_path)
@@ -113,6 +114,10 @@ async def test_completed_receipt_allows_preview_of_leftover_item_without_implici
     popcorn.quantity = 1
     receipt = SimpleNamespace(review=SimpleNamespace(provider=Provider.BLINKIT), lines=[popcorn])
     runtime.chat.status_view = lambda state, customer, requested_id: receipt if requested_id == 'completed-order' else None
+    if source == "discarded_draft":
+        state.pop('last_order_id')
+        state['store_cleanup_lines'] = [popcorn.model_dump(mode='json')]
+
     worker = ContractBlinkit()
     existing(worker, view, quantity=2)
     worker.cart['items'].append({'name': 'Old popcorn', 'pack': '120 g', 'quantity': 1})

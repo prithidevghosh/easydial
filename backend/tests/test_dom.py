@@ -782,7 +782,8 @@ async def test_blinkit_cart_opens_on_homepage_without_replaying_product_adds(pag
 
 
 @pytest.mark.parametrize("partial_first", [False, True])
-async def test_blinkit_removing_first_row_does_not_read_the_next_products_quantity(page, monkeypatch, partial_first):
+@pytest.mark.parametrize("collapse_last", [False, True])
+async def test_blinkit_removing_first_row_does_not_read_the_next_products_quantity(page, monkeypatch, partial_first, collapse_last):
     from types import SimpleNamespace
     from unittest.mock import AsyncMock
 
@@ -830,7 +831,24 @@ async def test_blinkit_removing_first_row_does_not_read_the_next_products_quanti
         await worker.set_quantity(page, coke,0)
         remaining=await page.locator('.cart-modal-rn').evaluate(blinkit_dom.CART)
         assert remaining['items']==[{'name':'Cookies','pack':'100 g','quantity':2}]
+    if collapse_last:
+        from playwright.async_api import TimeoutError
+        await page.evaluate("""() => {
+            const button = document.createElement('div');
+            button.className = 'CartButton__Button'; button.setAttribute('disabled', '');
+            button.textContent = 'My Cart'; document.body.append(button);
+            new MutationObserver(() => {
+                if (!document.querySelector('.DefaultProductCard__Container'))
+                    document.querySelector('.cart-modal-rn').style.display = 'none';
+            }).observe(document.querySelector('.cart-modal-rn'), {childList: true, subtree: true});
+        }""")
+        original_wait = page.wait_for_load_state
+        busy = AsyncMock(side_effect=TimeoutError('background network remains busy'))
+        monkeypatch.setattr(page, 'wait_for_load_state', busy)
     await worker.clear('order')
+    if collapse_last:
+        busy.assert_not_awaited()
+        monkeypatch.setattr(page, 'wait_for_load_state', original_wait)
     assert not await page.locator('div[class*="DefaultProductCard__Container"]').count()
     assert worker.guard.expected==()
     await worker.clear('order')
@@ -1097,3 +1115,53 @@ async def test_ready_blinkit_cart_does_not_wait_for_background_network(page, mon
     cart = await asyncio.wait_for(worker.read_cart(page, resolve_address=False), timeout=2)
     assert cart['items'] == [{'name': 'Milk', 'pack': '500 ml', 'quantity': 1}]
     assert cancelled == [True]
+
+
+async def test_verified_last_removal_does_not_wait_for_network_idle(page, monkeypatch):
+    from unittest.mock import AsyncMock
+
+    from playwright.async_api import TimeoutError
+
+    from easydial.providers.blinkit import BlinkitProvider
+
+    await page.set_content('<div class="CartButton__Button" disabled>My Cart</div>')
+    pending_network = AsyncMock(side_effect=TimeoutError('background traffic'))
+    monkeypatch.setattr(page, 'wait_for_load_state', pending_network)
+    worker = BlinkitProvider('', 'Locality')
+    cart = await worker.read_cart(page, resolve_address=False, after_verified_removal=True)
+    assert cart['items'] == []
+    pending_network.assert_not_awaited()
+
+
+async def test_blinkit_advertising_requests_cannot_hold_empty_cart_loading_open():
+    from easydial.providers.blinkit import BlinkitProvider
+    from easydial.providers.instamart import InstamartProvider
+
+    worker = BlinkitProvider('', 'Locality')
+    assert InstamartProvider().browser.blocked_resource_urls == ()
+    worker.browser.headless = True
+    try:
+        page, _ = await worker.browser.open()
+        failed = []
+        page.on('requestfailed', lambda request: failed.append((request.url, request.failure)))
+        async def route(request):
+            if request.request.url.endswith('/cart-data'):
+                await request.fulfill(body='{}', content_type='application/json')
+            else:
+                await request.fulfill(content_type='text/html', body="""
+                  <div class="CartButton__Button" disabled>My Cart</div>
+                  <script>
+                    fetch('https://www.googleadservices.com/ccm/conversion/test/').catch(() => {});
+                    fetch('https://googleads.g.doubleclick.net/pagead/test/').catch(() => {});
+                    fetch('https://www.google.com/pagead/1p-conversion/test/').catch(() => {});
+                    fetch('/cart-data').then(() => window.cartLoaded = true);
+                  </script>""")
+        await page.route('https://blinkit.test/**', route)
+        await page.goto('https://blinkit.test/', wait_until='domcontentloaded')
+        cart = await worker.read_cart(page, resolve_address=False)
+        assert cart['items'] == []
+        assert await page.evaluate('window.cartLoaded')
+        assert len(failed) == 3
+        assert all(reason in {'inspector', 'net::ERR_BLOCKED_BY_CLIENT'} for _, reason in failed), failed
+    finally:
+        await worker.close()

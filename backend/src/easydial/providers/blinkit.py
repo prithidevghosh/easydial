@@ -94,6 +94,14 @@ class BlinkitProvider:
         self.known: dict[str, str] = {}
         self.previous_lines = []
         self.browser = BrowserSession(browser_profile, storage_state)
+        if self.provider == Provider.BLINKIT:
+            # Observed advertising fetches can hang after the empty cart is ready.
+            # They must not hold network-idle readiness open indefinitely.
+            self.browser.blocked_resource_urls = (
+                "https://www.googleadservices.com/*",
+                "https://googleads.g.doubleclick.net/*",
+                "https://www.google.com/pagead/*",
+            )
         self.header_address = ""
         self.on_location_verified = None
 
@@ -208,7 +216,7 @@ class BlinkitProvider:
                 message="Live Blinkit prices; final bill is checked during basket review.",
             )
 
-    async def read_cart(self, page, *, resolve_address=True):
+    async def read_cart(self, page, *, resolve_address=True, after_verified_removal=False):
         drawer = page.locator(
             "div[class*='CartDrawer'], div[class*='CartSidebar'], div.cart-modal-rn, div[class*='CartWrapper__CartContainer']"
         ).first
@@ -224,7 +232,7 @@ class BlinkitProvider:
             # A newly opened context also renders a disabled empty placeholder.
             # Wait for the navigation's requests to settle before trusting absence,
             # even when this fresh draft has no previous cart checkpoint.
-            if await button.get_attribute("disabled") is not None:
+            if await button.get_attribute("disabled") is not None and not after_verified_removal:
                 readiness = [
                     asyncio.create_task(page.wait_for_load_state("networkidle", timeout=12000)),
                     asyncio.create_task(page.wait_for_function(
@@ -557,9 +565,17 @@ class BlinkitProvider:
                     "The store has a partially changed basket. Clear it in the store browser before continuing."
                 )
             self.guard.before_write(())
+            remaining_keys = {(name, pack) for name, pack, _ in before}
             for line in self.previous_lines:
+                if self.provider == Provider.BLINKIT and (normalized(line.offer.name), normalized(line.offer.pack_size)) not in remaining_keys:
+                    continue
                 await self.set_quantity(page, line, 0)
-            after = cart_signature(await read())
+            # Every owned row has just reached zero in this already hydrated page.
+            # Its now-disabled cart button is empty-state evidence; background
+            # requests need not reach network idle after the final removal.
+            after = cart_signature(await self.read_cart(
+                page, resolve_address=False, after_verified_removal=True
+            ) if self.provider == Provider.BLINKIT else await read())
             self.guard.accepted(after)
             await self.browser.save()
             if after:

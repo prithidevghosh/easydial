@@ -51,14 +51,31 @@ async def test_clear_cart_stops_qr_without_payment_guard_loop(tmp_path, phrase):
     runtime.inbox.close()
 
 
-async def test_clear_failure_preserves_draft_and_offers_direct_retry(tmp_path):
+async def test_clear_failure_discards_local_draft_preserves_old_payment_and_can_start_again(tmp_path):
     runtime = make_runtime(tmp_path)
     state = await pending_qr(runtime)
     runtime.chat.interpret = AsyncMock(return_value=intent("cancel_checkout", clear_cart=True))
     runtime.chat.workers.clear.side_effect = DomainError("unavailable")
+    old_id = state["view"]["id"]
+    old_lines = state["view"]["lines"]
     state, replies = await runtime.chat.handle("empty cart", state, customer="alice")
-    assert state["view"]["lines"]
-    assert replies[0]["interactive"]["action"]["buttons"][0]["reply"]["title"] == "Clear basket"
+    assert not state["view"]["lines"]
+    assert state["view"]["id"] != old_id
+    assert state["view"]["payment_preparation"] is None
+    assert "cart_checkpoint" not in state
+    assert state["store_cleanup_lines"] == old_lines
+    assert state["last_order_id"] == old_id
+    assert runtime.payments.existing("alice", old_id)["status"] == "revoked"
+    assert runtime.payments.existing("alice", state["view"]["id"]) is None
+    assert "EasyDial basket is cleared" in replies[0]["text"]["body"]
+    assert "couldn’t confirm" in replies[0]["text"]["body"]
+    assert "Don’t pay the old QR" in replies[0]["text"]["body"]
+    # Repeating clear on the now-empty local draft must retain the separate
+    # leftover identities needed for the next store reconciliation.
+    again, _ = await runtime.chat.handle("empty cart", state, customer="alice")
+    assert again['view']['lines'] == []
+    assert again['store_cleanup_lines'] == old_lines
+    assert again['last_order_id'] == old_id
     runtime.inbox.close()
 
 

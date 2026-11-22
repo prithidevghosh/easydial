@@ -425,6 +425,7 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
         if progress:
             progress.update("Stopping checkout and checking your order…")
         merchant_uncertain = False
+        store_clear_failed = bool(state.get("store_cleanup_lines"))
         if attempt:
             result = await payments.monitor.check(customer, session.view.id, self.workers, max_checks=1)
             if result["status"] not in {"pending", "not_found", "failed"} or (
@@ -449,17 +450,12 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
             try:
                 if empty.synced_provider:
                     await self.workers.clear(empty)
+                    store_clear_failed = False
             except DomainError:
-                return state, [{
-                    "type": "interactive", "interactive": {
-                        "type": "button",
-                        "body": {"text": "Checkout is stopped, but I couldn’t clear the store basket yet. Don’t pay the old QR. Tap below to retry clearing it."},
-                        "action": {"buttons": [{"type": "reply", "reply": {
-                            "id": f"cancel_checkout:{session.view.version}:{session.view.id}",
-                            "title": "Clear basket",
-                        }}]},
-                    },
-                }]
+                # The user explicitly requested discarding this draft. Store
+                # synchronization failure must not retain stale active DB items.
+                # Keep payment records separately; never claim merchant cancellation.
+                store_clear_failed = True
         # Preserve the original attempt in its durable tables, tied to its old
         # draft ID. A new draft cannot reuse old QR, payment or selection buttons.
         old_view = session.view
@@ -474,6 +470,26 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
             state["retry_confirmation"] = None
             state["view"]["payment_preparation"] = None
             return state, [text_message("EasyDial checkout is stopped. Your basket is saved. Don’t pay the old QR; it may remain payable until it expires.")]
+        if state.get("last_order_id"):
+            new_state["last_order_id"] = state["last_order_id"]
+        if attempt:
+            new_state["last_order_id"] = old_view.id
+        if store_clear_failed:
+            new_state["store_cleanup_lines"] = [*state.get("store_cleanup_lines", []), *[
+                line.model_dump(mode="json") for line in old_view.lines
+            ]]
+            message = (
+                "Your EasyDial basket is cleared. I couldn’t confirm that the Blinkit basket was cleared. "
+                "You can start a new basket; I’ll check the store cart before applying it."
+                if empty.synced_provider == Provider.BLINKIT else
+                "Your EasyDial basket is cleared. I couldn’t confirm that the store basket was cleared. "
+                "You can start a new basket; I’ll check the store cart before applying it."
+            )
+            if attempt:
+                message += " Don’t pay the old QR; it may remain payable until it expires."
+            if merchant_uncertain:
+                message += " This does not cancel a placed order. Check the store’s Orders page."
+            return new_state, [text_message(message), text_message("What would you like to order next?")]
         note = " Don’t pay the old QR; it may remain payable until it expires." if attempt and "merchant_order_id" not in attempt.keys() else ""
         if merchant_uncertain:
             provider = old_view.review.provider.value
@@ -1183,6 +1199,11 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
                     receipt = self.status_view(state, customer, state.get("last_order_id")) if state.get("last_order_id") else None
                     if receipt and receipt.review and receipt.review.provider == session.view.synced_provider == Provider.BLINKIT:
                         conflict.previous_lines = [*conflict.previous_lines, *receipt.lines]
+                    if session.view.synced_provider == Provider.BLINKIT:
+                        conflict.previous_lines = [*conflict.previous_lines, *[
+                            BasketLine.model_validate(line) for line in state.get("store_cleanup_lines", [])
+                            if line.get("offer", {}).get("provider") == Provider.BLINKIT.value
+                        ]]
                     pending = reconciliation.proposal(session.view, conflict)
                     if not pending:
                         raise
@@ -1195,6 +1216,7 @@ Use edit only for an explicit quantity change/removal of an exact CURRENT_BASKET
                     session.accept_review(session.view.version, review)
                     session.view.payment_preparation = None
                     state["cart_checkpoint"] = session.view.model_dump(mode="json")
+                    state.pop("store_cleanup_lines", None)
                     replies.extend(self.review_messages(session))
         elif intent.action == "checkout":
             # Persist revocation even if the live read fails and this turn is rejected.

@@ -29,7 +29,7 @@ class ContractBlinkit(BlinkitProvider):
     async def navigate(self, page, query):
         pass
 
-    async def read_cart(self, page, *, resolve_address=True):
+    async def read_cart(self, page, *, resolve_address=True, after_verified_removal=False):
         return deepcopy(self.cart)
 
     async def set_quantity(self, page, line, desired):
